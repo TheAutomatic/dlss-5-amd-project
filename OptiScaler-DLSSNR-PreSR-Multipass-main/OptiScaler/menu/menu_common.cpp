@@ -79,10 +79,10 @@ inline bool DrawProfile(Config& cfg)
     const char* names[] = { "Fast", "Balanced", "Quality" };
     const int profile = cfg.GetFfxDenoiserProfile();
     bool changed = false;
-    if (ImGui::BeginCombo("Profile", profile >= 0 ? names[profile] : "Custom"))
+    if (MenuUi::BeginCombo("Profile", profile >= 0 ? names[profile] : "Custom"))
     {
         for (int i = 0; i < 3; ++i)
-            if (ImGui::Selectable(names[i], profile == i))
+            if (MenuUi::Selectable(names[i], profile == i))
             {
                 cfg.ApplyFfxDenoiserProfile(i);
                 changed = true;
@@ -90,7 +90,7 @@ inline bool DrawProfile(Config& cfg)
         ImGui::EndCombo();
     }
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Fast: Floor and recovery off.\n"
+        MenuUi::SetTooltip("Fast: Floor and recovery off.\n"
                           "Balanced (default): Fast Floor, Full Anchor flat/zero-rough recovery, Light Anchor Mix specular.\n"
                           "Quality: normal Floor, Full Anchor flat/zero-rough, Light Anchor Mix specular + diffuse.\n"
                           "Manual edits are saved as Custom. Signal routing and the Albedo Bleed Fix are separate.");
@@ -98,7 +98,7 @@ inline bool DrawProfile(Config& cfg)
 }
 inline void DrawWorkflow(const FSRDRuntimeSnapshot& snapshot)
 {
-    if (!ImGui::CollapsingHeader("How it works / Live pipeline")) return;
+    if (!MenuUi::CollapsingHeader("How it works / Live pipeline")) return;
     using R = FSRDRuntimeSnapshot;
     const char* steps[] = {
         "1. Validate color, depth, motion, normals, roughness, albedo and camera transforms.",
@@ -118,10 +118,10 @@ inline void DrawWorkflow(const FSRDRuntimeSnapshot& snapshot)
         const auto value = fresh ? snapshot.steps[i] : R::NotRun;
         ImGui::PushStyleColor(ImGuiCol_Text, value == R::Passed ? ImVec4(0.3f, 0.9f, 0.45f, 1.0f)
                                                              : ImVec4(1.0f, 0.32f, 0.28f, 1.0f));
-        ImGui::TextWrapped("%s [%s]", steps[i], status[value]);
+        MenuUi::TextWrapped("%s [%s]", steps[i], status[value]);
         ImGui::PopStyleColor();
     }
-    ImGui::TextWrapped("Green means validation/command recording succeeded in the latest evaluation; "
+    MenuUi::TextWrapped("Green means validation/command recording succeeded in the latest evaluation; "
                       "it is not a GPU completion check. Red also marks deliberately disabled or bypassed stages. "
                       "Temporary input/configuration failures keep the context and retry automatically with "
                       "at most 60 skipped frames between attempts. Context, provider or device faults stop FSR-RR "
@@ -131,22 +131,22 @@ inline void DrawWorkflow(const FSRDRuntimeSnapshot& snapshot)
 
 inline void DrawInputs(const FSRDRuntimeSnapshot& snapshot)
 {
-    if (!ImGui::CollapsingHeader("Live inputs / What RR receives")) return;
+    if (!MenuUi::CollapsingHeader("Live inputs / What RR receives")) return;
     using R = FSRDRuntimeSnapshot;
     const bool fresh = snapshot.updated.time_since_epoch().count() != 0 &&
         std::chrono::steady_clock::now() - snapshot.updated < std::chrono::seconds(2);
     if (ImGui::BeginTable("RRInputs", 4, ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingStretchProp))
     {
-        ImGui::TableSetupColumn("Input");
-        ImGui::TableSetupColumn("Received");
-        ImGui::TableSetupColumn("Preprocess");
-        ImGui::TableSetupColumn("Bound to RR");
+        ImGui::TableSetupColumn(MenuLocale::Translate("Input"));
+        ImGui::TableSetupColumn(MenuLocale::Translate("Received"));
+        ImGui::TableSetupColumn(MenuLocale::Translate("Preprocess"));
+        ImGui::TableSetupColumn(MenuLocale::Translate("Bound to RR"));
         ImGui::TableHeadersRow();
         for (int i = 0; i < R::InputCount; ++i)
         {
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
-            ImGui::TextUnformatted(R::InputNames[i]);
+            MenuUi::TextUnformatted(R::InputNames[i]);
             const bool values[] = { (snapshot.received & (1u << i)) != 0,
                                     (snapshot.prepared & (1u << i)) != 0,
                                     snapshot.rrDispatched && (snapshot.submitted & (1u << i)) != 0 };
@@ -154,13 +154,13 @@ inline void DrawInputs(const FSRDRuntimeSnapshot& snapshot)
             {
                 ImGui::TableSetColumnIndex(j + 1);
                 const bool yes = fresh && values[j];
-                ImGui::TextColored(yes ? ImVec4(0.3f, 0.9f, 0.45f, 1.0f) : ImVec4(1.0f, 0.32f, 0.28f, 1.0f),
+                MenuUi::TextColored(yes ? ImVec4(0.3f, 0.9f, 0.45f, 1.0f) : ImVec4(1.0f, 0.32f, 0.28f, 1.0f),
                                    "%s", yes ? "Yes" : "No");
             }
         }
         ImGui::EndTable();
     }
-    ImGui::TextWrapped("Received: NGX resources or validated Streamline tags (roughness may be packed in normals). "
+    MenuUi::TextWrapped("Received: NGX resources or validated Streamline tags (roughness may be packed in normals). "
                       "Preprocess: selected, validated source guides. Bound to RR: converted guides/signals in an "
                       "accepted AMD dispatch, not direct copies of the game textures. Color becomes radiance; "
                       "normals include roughness; ray distances use signal alpha. A generated ray estimate may be "
@@ -173,17 +173,21 @@ inline void DrawInputs(const FSRDRuntimeSnapshot& snapshot)
 inline std::string DescribePlan(const FSRDSignals::Plan& plan)
 {
     using namespace FSRDSignals;
-    const auto lobe = [&plan](int direct, int indirect) -> std::string
+    const auto lobe = [&plan](int direct, int indirect) -> const char*
     {
         const uint32_t bits = plan.mask & (Bit(direct) | Bit(indirect));
         return !bits ? "not denoised" : bits == Bit(direct) ? "Direct" : bits == Bit(indirect) ? "Indirect"
                                                                                             : "Direct + Indirect (split)";
     };
     const int count = Count(plan.mask);
-    return "Diffuse " + (plan.diffuseCopy ? std::string("Direct + fix copy") : lobe(DirectDiffuse, IndirectDiffuse)) +
-           " | Specular " +
-           (plan.albedoFix ? std::string("Indirect + fix copy") : lobe(DirectSpecular, IndirectSpecular)) + " | " +
-           std::to_string(count) + (count == 1 ? " RR signal" : " RR signals");
+    const char* diffText = plan.diffuseCopy ? "Direct + fix copy" : lobe(DirectDiffuse, IndirectDiffuse);
+    const char* specText = plan.albedoFix ? "Indirect + fix copy" : lobe(DirectSpecular, IndirectSpecular);
+    char buf[256] {};
+    std::snprintf(buf, sizeof(buf),
+                  MenuLocale::Translate(count == 1 ? "Diffuse %s | Specular %s | %d RR signal"
+                                                   : "Diffuse %s | Specular %s | %d RR signals"),
+                  MenuLocale::Translate(diffText), MenuLocale::Translate(specText), count);
+    return buf;
 }
 
 // The plan the current settings ask for, given the guides the running context reported.
@@ -196,17 +200,17 @@ inline void DrawSignalSummary(const Config& cfg, const FSRDSignals::Status& stat
 {
     if (!status.observed)
     {
-        ImGui::TextDisabled("RR input: waiting for the first validated frame");
+        MenuUi::TextDisabled("RR input: waiting for the first validated frame");
         return;
     }
-    ImGui::TextWrapped("RR input: %s", DescribePlan(status.plan).c_str());
+    MenuUi::TextWrapped("RR input: %s", DescribePlan(status.plan).c_str());
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("What AMD Ray Regeneration receives. The game supplies one combined colour; Direct and "
+        MenuUi::SetTooltip("What AMD Ray Regeneration receives. The game supplies one combined colour; Direct and "
                           "Indirect are RR paths, and Indirect also uses the game's hit distance.");
     const auto wanted = WantedPlan(cfg, status);
     if (wanted.mask != status.plan.mask || wanted.albedoFix != status.plan.albedoFix ||
         wanted.diffuseCopy != status.plan.diffuseCopy)
-        ImGui::TextDisabled("Applying: %s", DescribePlan(wanted).c_str());
+        MenuUi::TextDisabled("Applying: %s", DescribePlan(wanted).c_str());
 }
 
 // Returns true when the RR context must be rebuilt.
@@ -216,10 +220,10 @@ inline bool DrawAlbedoFix(Config& cfg, const FSRDSignals::Status& status)
     const bool enabled = cfg.FfxDenoiserUnsupportedAlbedoRecovery.value_or_default();
     const int mode = !enabled ? 0 : cfg.FfxDenoiserAlbedoBleedFixDiffuse.value_or_default() ? 2 : 1;
     const char* modes[] { "Off", "Specular only", "Full" };
-    if (ImGui::BeginCombo("Albedo Bleed Fix (water, glass)", modes[mode]))
+    if (MenuUi::BeginCombo("Albedo Bleed Fix (water, glass)", modes[mode]))
     {
         for (int value = 0; value < 3; ++value)
-            if (ImGui::Selectable(modes[value], value == mode) && value != mode)
+            if (MenuUi::Selectable(modes[value], value == mode) && value != mode)
             {
                 cfg.FfxDenoiserUnsupportedAlbedoRecovery = value != 0;
                 if (value != 0)
@@ -229,7 +233,7 @@ inline bool DrawAlbedoFix(Config& cfg, const FSRDSignals::Status& status)
         ImGui::EndCombo();
     }
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Denoises unmodulated copies where surface evidence rejects the title's albedo.\n"
+        MenuUi::SetTooltip("Denoises unmodulated copies where surface evidence rejects the title's albedo.\n"
                           "Specular only adds one RR signal; Full also adds a diffuse copy.\n"
                           "Needs both lobes, a specular hit distance, both modulation strengths at 1,\n"
                           "and Additive Light Split at 0. Off by default. See completed GPU timings\n"
@@ -240,12 +244,12 @@ inline bool DrawAlbedoFix(Config& cfg, const FSRDSignals::Status& status)
     const auto plan = WantedPlan(cfg, status);
     ImGui::Indent();
     if (!status.observed)
-        ImGui::TextDisabled("Waiting for the first validated frame.");
+        MenuUi::TextDisabled("Waiting for the first validated frame.");
     else if (plan.notes & FSRDSignals::FixNeedsBothLobes)
     {
-        ImGui::TextColored(Amber, "Paused: diffuse or specular denoising is off.");
+        MenuUi::TextColored(Amber, "Paused: diffuse or specular denoising is off.");
         ImGui::SameLine();
-        if (ImGui::SmallButton("Denoise both"))
+        if (MenuUi::SmallButton("Denoise both"))
         {
             cfg.FfxDenoiserDenoiseDiffuse.reset();
             cfg.FfxDenoiserDenoiseSpecular.reset();
@@ -254,33 +258,33 @@ inline bool DrawAlbedoFix(Config& cfg, const FSRDSignals::Status& status)
     }
     else if (plan.notes & FSRDSignals::FixNeedsDistance)
     {
-        ImGui::TextColored(Amber, "Paused: the game supplies no specular hit distance.");
+        MenuUi::TextColored(Amber, "Paused: the game supplies no specular hit distance.");
         ImGui::SameLine();
-        if (ImGui::SmallButton("Estimate it"))
+        if (MenuUi::SmallButton("Estimate it"))
         {
             cfg.FfxDenoiserEstimateHitDistances = true;
             rebuild = true;
         }
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Enables Advanced > Signal Routing > Estimate Missing Hit Distances (experimental).");
+            MenuUi::SetTooltip("Enables Advanced > Signal Routing > Estimate Missing Hit Distances (experimental).");
     }
     else if (!FSRDSignals::AlbedoFixAllowed(cfg))
     {
-        ImGui::TextColored(Amber, "Paused: albedo modulation or Additive Light Split changed.");
+        MenuUi::TextColored(Amber, "Paused: albedo modulation or Additive Light Split changed.");
         ImGui::SameLine();
-        if (ImGui::SmallButton("Restore"))
+        if (MenuUi::SmallButton("Restore"))
         {
             cfg.FfxDenoiserSpecularAlbedoDemodulation.reset();
             cfg.FfxDenoiserDiffuseAlbedoModulation.reset();
             cfg.FfxDenoiserAdditiveLightSplit.reset();
         }
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Resets both albedo modulation strengths to 1 and Additive Light Split to 0.");
+            MenuUi::SetTooltip("Resets both albedo modulation strengths to 1 and Additive Light Split to 0.");
     }
     else if (status.albedoFixActive)
-        ImGui::TextColored(Green, "Running.");
+        MenuUi::TextColored(Green, "Running.");
     else
-        ImGui::TextDisabled("Starting...");
+        MenuUi::TextDisabled("Starting...");
     ImGui::Unindent();
     return rebuild;
 }
@@ -301,18 +305,18 @@ inline bool DrawRouting(Config& cfg, const FSRDSignals::Status& status)
                                 : bits != Bit(indirect) ? "Auto: Direct (no distance)"
                                 : guide                 ? "Auto: Indirect (game distance)"
                                                         : "Auto: Indirect (estimated)";
-        const std::string preview = !denoised ? "Off (Debug)"
-            : locked                          ? std::string(locked)
-            : current == Auto                 ? std::string(automatic)
-            : current == Split                ? "Split"
-                                              : std::string(current == Direct ? "Direct" : "Indirect");
+        const char* preview = !denoised ? "Off (Debug)"
+            : locked                    ? locked
+            : current == Auto           ? automatic
+            : current == Split          ? "Split"
+                                        : (current == Direct ? "Direct" : "Indirect");
         ImGui::BeginDisabled(!denoised || locked);
-        if (ImGui::BeginCombo(label, preview.c_str()))
+        if (MenuUi::BeginCombo(label, preview))
         {
             const char* names[] { "Auto", "Direct", "Indirect", "Split" };
             for (int value = Auto; value <= Split; ++value)
             {
-                if (ImGui::Selectable(names[value], current == value))
+                if (MenuUi::Selectable(names[value], current == value))
                 {
                     if (value == Auto) setting.reset();
                     else setting = value;
@@ -323,7 +327,7 @@ inline bool DrawRouting(Config& cfg, const FSRDSignals::Status& status)
         }
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("%s", locked ? "Set by the Albedo Bleed Fix: this lobe's second RR path carries its "
+            MenuUi::SetTooltip("%s", locked ? "Set by the Albedo Bleed Fix: this lobe's second RR path carries its "
                                              "unmodulated copy."
                                 : !denoised ? "Turned off under Debug."
                                             : "Auto checks this lobe on its own: Indirect when the game "
@@ -336,25 +340,25 @@ inline bool DrawRouting(Config& cfg, const FSRDSignals::Status& status)
     route("Specular Path", cfg.FfxDenoiserSpecularRoute, plan.mask & SpecularBits, DirectSpecular, IndirectSpecular,
           status.specularGuide, plan.albedoFix ? "Indirect + fix copy" : nullptr);
 
-    if (bool estimate = request.estimate; ImGui::Checkbox("Estimate Missing Hit Distances (experimental)", &estimate))
+    if (bool estimate = request.estimate; MenuUi::Checkbox("Estimate Missing Hit Distances (experimental)", &estimate))
     {
         cfg.FfxDenoiserEstimateHitDistances = estimate;
         rebuild = true;
     }
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Uses primary view depth where the game supplies no valid hit distance, so Indirect paths "
+        MenuUi::SetTooltip("Uses primary view depth where the game supplies no valid hit distance, so Indirect paths "
                           "work without a game guide. It cannot reconstruct the real secondary ray and has no "
                           "measured quality gain yet.");
     const auto guide = [&status](bool present)
     { return !status.observed ? "waiting" : present ? "supplied" : "missing"; };
-    ImGui::TextDisabled("Game hit distances: specular %s, diffuse %s", guide(status.specularGuide),
+    MenuUi::TextDisabled("Game hit distances: specular %s, diffuse %s", guide(status.specularGuide),
                         guide(status.diffuseGuide));
     if (status.observed && (plan.notes & (DiffuseNeedsDistance | SpecularNeedsDistance)))
-        ImGui::TextColored(Amber, "%s Indirect needs a hit distance the game does not supply; using Direct.",
+        MenuUi::TextColored(Amber, "%s Indirect needs a hit distance the game does not supply; using Direct.",
                            (plan.notes & DiffuseNeedsDistance) && (plan.notes & SpecularNeedsDistance) ? "Diffuse and specular"
                            : (plan.notes & DiffuseNeedsDistance) ? "Diffuse"
                                                                  : "Specular");
-    if (ImGui::Button("Reset Signal Routing"))
+    if (MenuUi::Button("Reset Signal Routing"))
     {
         cfg.FfxDenoiserDiffuseRoute.reset();
         cfg.FfxDenoiserSpecularRoute.reset();
@@ -370,21 +374,21 @@ inline bool DrawDenoiseLobes(Config& cfg)
     bool rebuild = false;
     bool diffuse = cfg.FfxDenoiserDenoiseDiffuse.value_or_default();
     bool specular = cfg.FfxDenoiserDenoiseSpecular.value_or_default();
-    if (ImGui::Checkbox("Denoise Diffuse", &diffuse))
+    if (MenuUi::Checkbox("Denoise Diffuse", &diffuse))
     {
         if (diffuse) cfg.FfxDenoiserDenoiseDiffuse.reset();
         else cfg.FfxDenoiserDenoiseDiffuse = false;
         rebuild = true;
     }
     ImGui::SameLine();
-    if (ImGui::Checkbox("Denoise Specular", &specular))
+    if (MenuUi::Checkbox("Denoise Specular", &specular))
     {
         if (specular) cfg.FfxDenoiserDenoiseSpecular.reset();
         else cfg.FfxDenoiserDenoiseSpecular = false;
         rebuild = true;
     }
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("A lobe that is off bypasses RR and is composed from its raw signal. Turning both off "
+        MenuUi::SetTooltip("A lobe that is off bypasses RR and is composed from its raw signal. Turning both off "
                           "denoises both.");
     return rebuild;
 }
@@ -392,10 +396,10 @@ inline bool DrawDenoiseLobes(Config& cfg)
 inline void DrawTimings(Config& cfg, const FSRDStageTimings::Snapshot& timing)
 {
     bool enabled = cfg.FfxDenoiserGpuTimings.value_or_default();
-    if (ImGui::Checkbox("Stage GPU Timings", &enabled))
+    if (MenuUi::Checkbox("Stage GPU Timings", &enabled))
         cfg.FfxDenoiserGpuTimings = enabled;
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("GPU timestamps sampled every 16 evaluations. Results appear only after the recording and "
+        MenuUi::SetTooltip("GPU timestamps sampled every 16 evaluations. Results appear only after the recording and "
                           "all GPU submissions retire; no CPU wait. AMD RR / ML measures the complete AMD denoiser "
                           "dispatch, including its internal preparation.");
     if (!enabled)
@@ -408,19 +412,19 @@ inline void DrawTimings(Config& cfg, const FSRDStageTimings::Snapshot& timing)
         {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(FSRDStageTimings::Names[stage]);
+            MenuUi::TextUnformatted(FSRDStageTimings::Names[stage]);
             ImGui::TableNextColumn();
             if (!timing.available)
-                ImGui::TextDisabled("Unavailable");
+                MenuUi::TextDisabled("Unavailable");
             else if (timing.validMask & (1u << stage))
             {
                 if (stale)
-                    ImGui::TextDisabled("%.3f ms (last sample)", timing.milliseconds[stage]);
+                    MenuUi::TextDisabled("%.3f ms (last sample)", timing.milliseconds[stage]);
                 else
-                    ImGui::Text("%.3f ms", timing.milliseconds[stage]);
+                    MenuUi::Text("%.3f ms", timing.milliseconds[stage]);
             }
             else
-                ImGui::TextDisabled(timing.sequence ? "Not run" : "Waiting...");
+                MenuUi::TextDisabled(timing.sequence ? "Not run" : "Waiting...");
         }
         ImGui::EndTable();
     }
@@ -3538,15 +3542,15 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
         {
             ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 180, 50, 255));
 
-            ImGui::Text("[Warning] FSR-RR version mismatch | Installed: %d.%d.%d | Expected: %d.%d.%d", rrVer.major,
+            MenuUi::Text("[Warning] FSR-RR version mismatch | Installed: %d.%d.%d | Expected: %d.%d.%d", rrVer.major,
                         rrVer.minor, rrVer.patch, rrImplemented.major, rrImplemented.minor, rrImplemented.patch);
             // Name the file that actually answered the version query: the usual cause is a denoiser
             // DLL other than the packaged one (game folder / System32 copy, or an FfxDx12RRPath
             // override), and the provider ABI is version-specific.
             const auto loaderPath = FfxApiProxy::Dx12Module_Denoiser_Path();
             if (!loaderPath.empty())
-                ImGui::TextWrapped("Loaded: %s", wstring_to_string(loaderPath).c_str());
-            ImGui::TextWrapped("This build supports 1.2.0 only. Use the amd_fidelityfx_denoiser_dx12.dll "
+                MenuUi::TextWrapped("Loaded: %s", wstring_to_string(loaderPath).c_str());
+            MenuUi::TextWrapped("This build supports 1.2.0 only. Use the amd_fidelityfx_denoiser_dx12.dll "
                                "shipped in the package's OptiScaler folder (clear FfxDx12RRPath if it points "
                                "at another copy).");
 
@@ -3561,10 +3565,10 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
     // recording path was prepared at device initialization.
     {
         bool fsrRrEnabled = config->FsrRrEnabled.value_or_default();
-        if (ImGui::Checkbox("Enable FSR Ray Regeneration", &fsrRrEnabled))
+        if (MenuUi::Checkbox("Enable FSR Ray Regeneration", &fsrRrEnabled))
             config->FsrRrEnabled = fsrRrEnabled;
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
+            MenuUi::SetTooltip(
                 "Persistent master switch: allows FSR Ray Regeneration to take over the game's\n"
                 "Ray Reconstruction requests (FidelityFX RR 1.2 denoise + FFX upscaling).\n"
                 "Governs feature creation at game start; unchecking is how you turn it off.\n"
@@ -3575,12 +3579,12 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
         const bool featureIsFsrRr = currentFeature->GetUpscalerType() == Upscaler::FSR_RR;
         if (fsrRrEnabled && !DlssNr::Backend::RecordingHooksPrepared())
         {
-            ImGui::TextWrapped("Enabled for the next launch. Save Settings and restart: recording hooks were not prepared.");
+            MenuUi::TextWrapped("Enabled for the next launch. Save Settings and restart: recording hooks were not prepared.");
         }
         else if (!featureIsFsrRr)
         {
             ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(160, 160, 160, 255));
-            ImGui::TextWrapped(fsrRrEnabled
+            MenuUi::TextWrapped(fsrRrEnabled
                                    ? "Enabled, but not active yet: applies to the next Ray Reconstruction feature."
                                    : "Off by default. Enabling applies at feature creation; a restart may be required.");
             ImGui::PopStyleColor();
@@ -3588,7 +3592,7 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
         else if (!fsrRrEnabled)
         {
             ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 180, 50, 255));
-            ImGui::TextWrapped("FSR-RR is still active for this feature: disabling applies after the game "
+            MenuUi::TextWrapped("FSR-RR is still active for this feature: disabling applies after the game "
                                "recreates the feature (restart or backend switch).");
             ImGui::PopStyleColor();
         }
@@ -3602,34 +3606,34 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
         FSRDMenu::DrawSignalSummary(*config, signals);
         const bool fresh = snapshot.updated.time_since_epoch().count() != 0 &&
             std::chrono::steady_clock::now() - snapshot.updated < std::chrono::seconds(2);
-        ImGui::TextColored(fresh && snapshot.rrValidated ? FSRDMenu::Green : FSRDMenu::Red,
+        MenuUi::TextColored(fresh && snapshot.rrValidated ? FSRDMenu::Green : FSRDMenu::Red,
                            "FSR-RR: %s", fresh && snapshot.rrValidated ? "recorded successfully" : "not validated");
-        if (!snapshot.failure.empty()) ImGui::TextWrapped("%s", snapshot.failure.c_str());
+        if (!snapshot.failure.empty()) MenuUi::TextWrapped("%s", snapshot.failure.c_str());
         if (snapshot.retryFramesRemaining)
-            ImGui::Text("Automatic retry in %u frame(s)", snapshot.retryFramesRemaining);
-        if (!snapshot.failure.empty() && ImGui::Button("Retry FSR-RR")) rebuild = true;
+            MenuUi::Text("Automatic retry in %u frame(s)", snapshot.retryFramesRemaining);
+        if (!snapshot.failure.empty() && MenuUi::Button("Retry FSR-RR")) rebuild = true;
         FSRDMenu::DrawWorkflow(snapshot);
         FSRDMenu::DrawInputs(snapshot);
-        if (ImGui::Button(_showRRAdvancedWindow ? "Hide FSR-RR Advanced Settings" : "Show FSR-RR Advanced Settings"))
+        if (MenuUi::Button(_showRRAdvancedWindow ? "Hide FSR-RR Advanced Settings" : "Show FSR-RR Advanced Settings"))
             _showRRAdvancedWindow = !_showRRAdvancedWindow;
         if (_showRRAdvancedWindow)
         {
             FSRDMenu::DrawTimings(*config, snapshot.timings);
-            ImGui::TextWrapped("Composition selects Generic, Light, NoRecovery, or TileLight + TileAnchor from the active recovery policy. Debug views retain the generic graph; disabling recovery skips its history work.");
-            if (ImGui::CollapsingHeader("Signal Routing"))
+            MenuUi::TextWrapped("Composition selects Generic, Light, NoRecovery, or TileLight + TileAnchor from the active recovery policy. Debug views retain the generic graph; disabling recovery skips its history work.");
+            if (MenuUi::CollapsingHeader("Signal Routing"))
             {
                 ScopedIndent indent;
                 rebuild |= FSRDMenu::DrawRouting(*config, signals);
                 rebuild |= FSRDMenu::DrawDenoiseLobes(*config);
             }
-            if (ImGui::CollapsingHeader("AMD Tuning"))
+            if (MenuUi::CollapsingHeader("AMD Tuning"))
             {
                 ScopedIndent indent;
                 bool useAmdDefaults = config->FfxDenoiserUseAmdDefaults.value_or_default();
-                if (ImGui::Checkbox("Use AMD Default Tuning", &useAmdDefaults))
+                if (MenuUi::Checkbox("Use AMD Default Tuning", &useAmdDefaults))
                     config->FfxDenoiserUseAmdDefaults = useAmdDefaults;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
+                    MenuUi::SetTooltip(
                         "A/B reference. Pushes the baseline RR queries from AMD for the six\n"
                         "keys below instead of this fork's tuning. Takes effect immediately,\n"
                         "no context recreation. Your slider values are kept and restored when\n"
@@ -3638,10 +3642,10 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                         "\"[RR_DIAG] configure baseline\".");
                 ImGui::BeginDisabled(useAmdDefaults);
                 if (float v = config->FfxDenoiserDisocThreshold.value_or_default();
-                    ImGui::SliderFloat("Disocclusion Threshold", &v, 1e-2f, 1.0f))
+                    MenuUi::SliderFloat("Disocclusion Threshold", &v, 1e-2f, 1.0f))
                     config->FfxDenoiserDisocThreshold = v;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
+                    MenuUi::SetTooltip(
                         "Controls how sensitive the denoiser is to newly revealed areas when objects "
                         "move.\n"
                         "Lower: More sensitive - better handles moving objects, but may cause "
@@ -3649,36 +3653,36 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                         "Higher: Less sensitive - reduces flickering, but may cause ghosting or light "
                         "smearing.");
                 if (float v = config->FfxDenoiserCrossBlNormStr.value_or_default();
-                    ImGui::SliderFloat("Cross Bilateral Normal Strength", &v, 0, 1))
+                    MenuUi::SliderFloat("Cross Bilateral Normal Strength", &v, 0, 1))
                     config->FfxDenoiserCrossBlNormStr = v;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
+                    MenuUi::SetTooltip(
                         "Controls how strongly the denoiser preserves edges based on surface angles.\n"
                         "Higher: Keeps edges sharper and prevents blurring across surface boundaries.\n"
                         "Too high: May introduce noise or artifacts on complex surfaces.");
                 if (float v = config->FfxDenoiserStabilityBias.value_or_default();
-                    ImGui::SliderFloat("Temporal Stability Bias", &v, 0.1f, 0.9f))
+                    MenuUi::SliderFloat("Temporal Stability Bias", &v, 0.1f, 0.9f))
                     config->FfxDenoiserStabilityBias = v;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
+                    MenuUi::SetTooltip(
                         "Controls how much the denoiser blends previous frames with the current "
                         "frame.\n"
                         "Higher: Smoother, less noisy image, but may cause ghosting or loss of fine "
                         "detail.\n"
                         "Lower: More responsive and detailed, but may show noise or a boiling effect.");
                 if (float v = config->FfxDenoiserMaxRadiance.value_or_default();
-                    ImGui::SliderFloat("Max Radiance", &v, 10, 65500.0f))
+                    MenuUi::SliderFloat("Max Radiance", &v, 10, 65500.0f))
                     config->FfxDenoiserMaxRadiance = v;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
+                    MenuUi::SetTooltip(
                         "Lower: More aggressive firefly removal, but may dim bright highlights.\n"
                         "Higher: Preserves bright lights better, but may allow fireflies and noise "
                         "through.");
                 if (float v = config->FfxDenoiserRadianceClip.value_or_default();
-                    ImGui::SliderFloat("Radiance Clip Deviation", &v, 1, 500))
+                    MenuUi::SliderFloat("Radiance Clip Deviation", &v, 1, 500))
                     config->FfxDenoiserRadianceClip = v;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
+                    MenuUi::SetTooltip(
                         "Controls tolerance for bright spots relative to their surroundings.\n"
                         "Lower: Aggressively removes fireflies and noise, but may dim small intense "
                         "light "
@@ -3686,10 +3690,10 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                         "Higher: Better preserves specular highlights and glowing surfaces, but allows "
                         "more noise.");
                 if (float v = config->FfxDenoiserGaussKernRelax.value_or_default();
-                    ImGui::SliderFloat("Gaussian Kernel Relaxation", &v, 0, 1))
+                    MenuUi::SliderFloat("Gaussian Kernel Relaxation", &v, 0, 1))
                     config->FfxDenoiserGaussKernRelax = v;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Controls how the smoothing filter adapts to surface details.\n"
+                    MenuUi::SetTooltip("Controls how the smoothing filter adapts to surface details.\n"
                                       "Higher: Filter stretches more to follow surface geometry, "
                                       "reducing rippling and "
                                       "banding on smooth surfaces.\n"
@@ -3697,9 +3701,9 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                                       "surfaces, may increase banding and rippling.\n");
                 ImGui::EndDisabled();
                 if (useAmdDefaults)
-                    ImGui::TextDisabled("AMD baseline active - sliders above show the fork values, not "
+                    MenuUi::TextDisabled("AMD baseline active - sliders above show the fork values, not "
                                         "what is applied");
-                if (ImGui::Button("Reset AMD Tuning"))
+                if (MenuUi::Button("Reset AMD Tuning"))
                 {
                     config->FfxDenoiserUseAmdDefaults.reset();
                     config->FfxDenoiserDisocThreshold.reset();
@@ -3710,56 +3714,56 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                     config->FfxDenoiserGaussKernRelax.reset();
                 }
             }
-            if (ImGui::CollapsingHeader("Conversion & Modulation"))
+            if (MenuUi::CollapsingHeader("Conversion & Modulation"))
             {
                 ScopedIndent indent;
                 rebuild |= FSRDMenu::DrawAlbedoFix(*config, signals);
                 ImGui::Separator();
                 if (float v = config->FfxDenoiserSpecularAlbedoDemodulation.value_or_default();
-                    ImGui::SliderFloat("Specular Albedo Demodulation", &v, 0, 1))
+                    MenuUi::SliderFloat("Specular Albedo Demodulation", &v, 0, 1))
                     config->FfxDenoiserSpecularAlbedoDemodulation = v;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
+                    MenuUi::SetTooltip(
                         "1: original albedo division/multiplication. 0: unity multiplier. Intermediate "
                         "values use a matching pair before and after RR. Original albedo guides remain "
                         "available. Changes reset history.");
                 if (float v = config->FfxDenoiserDiffuseAlbedoModulation.value_or_default();
-                    ImGui::SliderFloat("Diffuse Albedo Modulation", &v, 0, 1))
+                    MenuUi::SliderFloat("Diffuse Albedo Modulation", &v, 0, 1))
                     config->FfxDenoiserDiffuseAlbedoModulation = v;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
+                    MenuUi::SetTooltip(
                         "1: original albedo division/multiplication. 0: unity multiplier. Intermediate "
                         "values use a matching pair before and after RR. Original albedo guides remain "
                         "available. Changes reset history.");
                 if (float v = config->FfxDenoiserDemodDivisorFloor.value_or_default();
-                    ImGui::SliderFloat("Demodulation Divisor Floor", &v, 0.0001f, 0.5f, "%.4f",
+                    MenuUi::SliderFloat("Demodulation Divisor Floor", &v, 0.0001f, 0.5f, "%.4f",
                                        ImGuiSliderFlags_Logarithmic))
                     config->FfxDenoiserDemodDivisorFloor = v;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Lower bound for albedo division. Lower values preserve darker "
+                    MenuUi::SetTooltip("Lower bound for albedo division. Lower values preserve darker "
                                       "material response but can amplify noise; higher values limit "
                                       "that amplification. Default 0.008.");
                 if (float v = config->FfxDenoiserBiasMaskStrength.value_or_default();
-                    ImGui::SliderFloat("Bias Mask Strength", &v, 0, 1))
+                    MenuUi::SliderFloat("Bias Mask Strength", &v, 0, 1))
                     config->FfxDenoiserBiasMaskStrength = v;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Preserves current-frame content explicitly marked by the game.");
-                ImGui::SeparatorText("Input Compatibility");
+                    MenuUi::SetTooltip("Preserves current-frame content explicitly marked by the game.");
+                MenuUi::SeparatorText("Input Compatibility");
                 if (bool useTitleDepth = config->FfxDenoiserUseTitleLinearDepth.value_or_default();
-                    ImGui::Checkbox("Use Title Linear Depth", &useTitleDepth))
+                    MenuUi::Checkbox("Use Title Linear Depth", &useTitleDepth))
                     config->FfxDenoiserUseTitleLinearDepth = useTitleDepth;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Prefer the title's own linearised view depth over the one\n"
+                    MenuUi::SetTooltip("Prefer the title's own linearised view depth over the one\n"
                                       "derived from its depth buffer and projection. Off by\n"
                                       "default: the derived path is the one every title so far has\n"
                                       "been validated against. The TitleLinearDepthDiff view shows\n"
                                       "whether the title's field agrees; changing this resets\n"
                                       "temporal history.");
                 if (float v = config->FfxDenoiserResponsivityThreshold.value_or_default();
-                    ImGui::SliderFloat("Responsivity Threshold", &v, 0.0f, 1.0f, "%.3f"))
+                    MenuUi::SliderFloat("Responsivity Threshold", &v, 0.0f, 1.0f, "%.3f"))
                     config->FfxDenoiserResponsivityThreshold = v;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Where the title's per-pixel responsivity hint crosses this\n"
+                    MenuUi::SetTooltip("Where the title's per-pixel responsivity hint crosses this\n"
                                       "value, the pixel's specular radiance is published through the\n"
                                       "spatial path instead of being denoised temporally - the same\n"
                                       "exit the removed motion test used, driven by the title's own\n"
@@ -3768,10 +3772,10 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                                       "before trusting a threshold; the probe prints the field's\n"
                                       "polarity.");
                 if (bool responsivityInvert = config->FfxDenoiserResponsivityInvert.value_or_default();
-                    ImGui::Checkbox("Responsivity Invert", &responsivityInvert))
+                    MenuUi::Checkbox("Responsivity Invert", &responsivityInvert))
                     config->FfxDenoiserResponsivityInvert = responsivityInvert;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Which side of the threshold counts as unstable. Whether a\n"
+                    MenuUi::SetTooltip("Which side of the threshold counts as unstable. Whether a\n"
                                       "title writes responsive as 0 or as 1 is its own property,\n"
                                       "not something this code can know. Inert while the threshold\n"
                                       "is 0.");
@@ -3779,7 +3783,7 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                 if (int depthInput = config->FfxDenoiserHardwareDepth.has_value()
                                          ? (config->FfxDenoiserHardwareDepth.value() ? 2 : 1)
                                          : 0;
-                    ImGui::Combo("Depth Input", &depthInput, depthInputTypes,
+                    MenuUi::Combo("Depth Input", &depthInput, depthInputTypes,
                                  IM_ARRAYSIZE(depthInputTypes)))
                 {
                     if (depthInput == 0)
@@ -3788,7 +3792,7 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                         config->FfxDenoiserHardwareDepth = depthInput == 2;
                 }
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
+                    MenuUi::SetTooltip(
                         "How the game's depth buffer is interpreted.\n"
                         "Auto trusts a depth-stencil resource over the title's declaration,\n"
                         "then the DLSS.Use.HW.Depth declaration, then the resource flags,\n"
@@ -3798,18 +3802,18 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                         "black and disocclusion stops working. Set Hardware if you see that.\n"
                         "Applied immediately; changing it resets temporal history.");
                 if (bool viewSpaceNormals = config->FfxDenoiserNormalsInViewSpace.value_or_default();
-                    ImGui::Checkbox("Input Normals Are View Space", &viewSpaceNormals))
+                    MenuUi::Checkbox("Input Normals Are View Space", &viewSpaceNormals))
                 {
                     config->FfxDenoiserNormalsInViewSpace = viewSpaceNormals;
                     state.newBackend = currentBackend;
                     MARK_ALL_BACKENDS_CHANGED();
                 }
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
+                    MenuUi::SetTooltip(
                         "Disabled (default): treats the supplied normal texture as world-space.\n"
                         "Enabled: converts view-space normals to world-space before RR.\n"
                         "Changing this recreates the active backend to discard temporal history.");
-                if (ImGui::Button("Reset Conversion"))
+                if (MenuUi::Button("Reset Conversion"))
                 {
                     config->FfxDenoiserUnsupportedAlbedoRecovery.reset();
                     config->FfxDenoiserAlbedoBleedFixDiffuse.reset();
@@ -3826,101 +3830,101 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                     MARK_ALL_BACKENDS_CHANGED();
                 }
             }
-            if (ImGui::CollapsingHeader("Floor"))
+            if (MenuUi::CollapsingHeader("Floor"))
             {
                 ScopedIndent indent;
                 bool floorEnabled = config->FfxDenoiserFloorEnabled.value_or_default();
-                if (ImGui::Checkbox("Enable Floor", &floorEnabled))
+                if (MenuUi::Checkbox("Enable Floor", &floorEnabled))
                     config->FfxDenoiserFloorEnabled = floorEnabled;
                 ImGui::BeginDisabled(!floorEnabled);
                 if (bool v = config->FfxDenoiserFloorFastMode.value_or_default();
-                    ImGui::Checkbox("Faster Floor filtering", &v))
+                    MenuUi::Checkbox("Faster Floor filtering", &v))
                     config->FfxDenoiserFloorFastMode = v;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Reduces Floor filtering cost. Can change lighting smoothness and leave more noise. Disable for full quality.");
+                    MenuUi::SetTooltip("Reduces Floor filtering cost. Can change lighting smoothness and leave more noise. Disable for full quality.");
                 ImGui::EndDisabled();
-                ImGui::TextWrapped(
+                MenuUi::TextWrapped(
                     "Separates smooth lighting before RR. Enabled: one seed and five filter passes "
                     "(three with faster filtering). Disabled: only the seed prepares depth.");
-                if (ImGui::Button("Reset Floor"))
+                if (MenuUi::Button("Reset Floor"))
                 {
                     config->FfxDenoiserFloorEnabled.reset();
                     config->FfxDenoiserFloorFastMode.reset();
                 }
             }
-            if (ImGui::CollapsingHeader("Detail Recovery"))
+            if (MenuUi::CollapsingHeader("Detail Recovery"))
             {
                 ScopedIndent indent;
                 ImGui::BeginDisabled(!config->FfxDenoiserFloorEnabled.value_or_default());
                 if (float v = config->FfxDenoiserFloorRecovery.value_or_default();
-                    ImGui::SliderFloat("Recovery Strength", &v, 0, 1))
+                    MenuUi::SliderFloat("Recovery Strength", &v, 0, 1))
                     config->FfxDenoiserFloorRecovery = v;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
+                    MenuUi::SetTooltip(
                         "Master detail recovery strength. Zero skips its neighbourhood/history work; "
                         "Floor and Unsupported Albedo have their own controls.");
                 if (bool v = config->FfxDenoiserFloorFlatRecovery.value_or_default();
-                    ImGui::Checkbox("Flat Albedo & Zero Rough Recovery", &v))
+                    MenuUi::Checkbox("Flat Albedo & Zero Rough Recovery", &v))
                     config->FfxDenoiserFloorFlatRecovery = v;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Preserves the existing flat-albedo screen selection. Zero "
+                    MenuUi::SetTooltip("Preserves the existing flat-albedo screen selection. Zero "
                                       "roughness is a hint, not a global mirror selector. This "
                                       "selection takes precedence over lobe recovery.");
                 ImGui::BeginDisabled(!config->FfxDenoiserFloorFlatRecovery.value_or_default());
                 if (int v =
                         std::clamp(config->FfxDenoiserFloorFlatNoiseMethod.value_or_default(), 0, 1);
-                    ImGui::Combo("Noise Removal##Flat", &v,
+                    MenuUi::Combo("Noise Removal##Flat", &v,
                                  "Full Anchor\0Light Anchor Mix\0"))
                     config->FfxDenoiserFloorFlatNoiseMethod = v;
                 ImGui::EndDisabled();
                 if (bool v = config->FfxDenoiserFloorSpecularRecovery.value_or_default();
-                    ImGui::Checkbox("Specular Recovery", &v))
+                    MenuUi::Checkbox("Specular Recovery", &v))
                     config->FfxDenoiserFloorSpecularRecovery = v;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
+                    MenuUi::SetTooltip(
                         "Restores the estimated specular share of missing detail. Uses the combined "
                         "reference and albedo split when separate game signals are unavailable. Does "
                         "not accumulate on top of Flat recovery.");
                 ImGui::BeginDisabled(!config->FfxDenoiserFloorSpecularRecovery.value_or_default());
                 if (int v = std::clamp(config->FfxDenoiserFloorSpecularNoiseMethod.value_or_default(),
                                        0, 1);
-                    ImGui::Combo("Noise Removal##Specular", &v,
+                    MenuUi::Combo("Noise Removal##Specular", &v,
                                  "Full Anchor\0Light Anchor Mix\0"))
                     config->FfxDenoiserFloorSpecularNoiseMethod = v;
                 ImGui::EndDisabled();
                 if (bool v = config->FfxDenoiserFloorDiffuseRecovery.value_or_default();
-                    ImGui::Checkbox("Diffuse Recovery", &v))
+                    MenuUi::Checkbox("Diffuse Recovery", &v))
                     config->FfxDenoiserFloorDiffuseRecovery = v;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
+                    MenuUi::SetTooltip(
                         "Restores the estimated diffuse share of missing detail. Uses the combined "
                         "reference and albedo split when separate game signals are unavailable. Does "
                         "not accumulate on top of Flat recovery.");
                 ImGui::BeginDisabled(!config->FfxDenoiserFloorDiffuseRecovery.value_or_default());
                 if (int v =
                         std::clamp(config->FfxDenoiserFloorDiffuseNoiseMethod.value_or_default(), 0, 1);
-                    ImGui::Combo("Noise Removal##Diffuse", &v,
+                    MenuUi::Combo("Noise Removal##Diffuse", &v,
                                  "Full Anchor\0Light Anchor Mix\0"))
                     config->FfxDenoiserFloorDiffuseNoiseMethod = v;
                 ImGui::EndDisabled();
                 if (float v = config->FfxDenoiserFloorHandoverAnchorClamp.value_or_default();
-                    ImGui::SliderFloat("Handover Anchor", &v, 0, 8))
+                    MenuUi::SliderFloat("Handover Anchor", &v, 0, 8))
                     config->FfxDenoiserFloorHandoverAnchorClamp = v;
                 if (float v = config->FfxDenoiserFloorHandoverCorrelationMix.value_or_default();
-                    ImGui::SliderFloat("Handover Correlation Mix", &v, 0, 1))
+                    MenuUi::SliderFloat("Handover Correlation Mix", &v, 0, 1))
                     config->FfxDenoiserFloorHandoverCorrelationMix = v;
                 if (float v = config->FfxDenoiserFloorLumaRecovery.value_or_default();
-                    ImGui::SliderFloat("Luma Recovery", &v, 0, 1))
+                    MenuUi::SliderFloat("Luma Recovery", &v, 0, 1))
                     config->FfxDenoiserFloorLumaRecovery = v;
                 if (float v = config->FfxDenoiserFloorChromaRecovery.value_or_default();
-                    ImGui::SliderFloat("Chroma Recovery", &v, 0, 1))
+                    MenuUi::SliderFloat("Chroma Recovery", &v, 0, 1))
                     config->FfxDenoiserFloorChromaRecovery = v;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
+                    MenuUi::SetTooltip(
                         "Anchor, correlation, luma and chroma controls are shared by both recovery "
                         "methods. Floor Recovery scales their final contribution.");
                 ImGui::EndDisabled();
-                if (ImGui::Button("Reset Recovery"))
+                if (MenuUi::Button("Reset Recovery"))
                 {
                     config->FfxDenoiserFloorRecovery.reset();
                     config->FfxDenoiserFloorFlatRecovery.reset();
@@ -3935,56 +3939,56 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                     config->FfxDenoiserFloorChromaRecovery.reset();
                 }
             }
-            if (ImGui::CollapsingHeader("Diagnostics"))
+            if (MenuUi::CollapsingHeader("Diagnostics"))
             {
-                if (bool v = config->FfxDenoiserDiagnostics.value_or_default(); ImGui::Checkbox("Readback Probes", &v))
+                if (bool v = config->FfxDenoiserDiagnostics.value_or_default(); MenuUi::Checkbox("Readback Probes", &v))
                     config->FfxDenoiserDiagnostics = v;
-                ImGui::TextWrapped("Readbacks add GPU/copy/log overhead. Disable probes and captures for timing comparisons.");
-                if (bool v = config->FfxDenoiserInternalDebugViews.value_or_default(); ImGui::Checkbox("AMD Internal Debug Views", &v))
+                MenuUi::TextWrapped("Readbacks add GPU/copy/log overhead. Disable probes and captures for timing comparisons.");
+                if (bool v = config->FfxDenoiserInternalDebugViews.value_or_default(); MenuUi::Checkbox("AMD Internal Debug Views", &v))
                 {
                     config->FfxDenoiserInternalDebugViews = v;
                     rebuild = true;
                 }
-                if (int v = config->FfxDenoiserIndex.value_or_default(); ImGui::InputInt("Provider Index", &v))
+                if (int v = config->FfxDenoiserIndex.value_or_default(); MenuUi::InputInt("Provider Index", &v))
                 {
                     config->FfxDenoiserIndex = std::max(v, 0);
                     rebuild = true;
                 }
                 const auto debugMode = config->FfxDenoiserDebugMode.value_or_default();
                 const char* debugName = state.ffxDenoiserDebugModeNames[debugMode];
-                if (ImGui::BeginCombo("Debug View", debugName ? debugName : "Off"))
+                if (MenuUi::BeginCombo("Debug View", debugName ? debugName : "Off"))
                 {
                     for (const auto mode : state.ffxDenoiserDebugModes)
-                        if (ImGui::Selectable(state.ffxDenoiserDebugModeNames[mode], debugMode == mode))
+                        if (MenuUi::Selectable(state.ffxDenoiserDebugModeNames[mode], debugMode == mode))
                         { config->FfxDenoiserDebugMode = mode; if (!config->FfxDenoiserInternalDebugViews.value_or_default() && ((mode == 8) != (debugMode == 8))) rebuild = true; }
                     ImGui::EndCombo();
                 }
-                if (int v = config->FfxDenoiserDebugViewport.value_or_default(); ImGui::InputInt("Debug Viewport (-1 overview)", &v))
+                if (int v = config->FfxDenoiserDebugViewport.value_or_default(); MenuUi::InputInt("Debug Viewport (-1 overview)", &v))
                     config->FfxDenoiserDebugViewport = std::clamp(v, -1, 11);
-                if (float v = config->FfxDenoiserDebugDepthMax.value_or_default(); ImGui::SliderFloat("Debug Depth Maximum", &v, 0.001f, 1024.0f, "%.3f", ImGuiSliderFlags_Logarithmic))
+                if (float v = config->FfxDenoiserDebugDepthMax.value_or_default(); MenuUi::SliderFloat("Debug Depth Maximum", &v, 0.001f, 1024.0f, "%.3f", ImGuiSliderFlags_Logarithmic))
                     config->FfxDenoiserDebugDepthMax = v;
-                if (bool v = config->FfxDenoiserDiffuseHitDistance.value_or_default(); ImGui::Checkbox("Use Diffuse Hit Distance", &v))
+                if (bool v = config->FfxDenoiserDiffuseHitDistance.value_or_default(); MenuUi::Checkbox("Use Diffuse Hit Distance", &v))
                     config->FfxDenoiserDiffuseHitDistance = v;
-                if (bool v = config->FfxDenoiserTaggedNormalRoughness.value_or_default(); ImGui::Checkbox("Prefer Tagged Normal/Roughness", &v))
+                if (bool v = config->FfxDenoiserTaggedNormalRoughness.value_or_default(); MenuUi::Checkbox("Prefer Tagged Normal/Roughness", &v))
                     config->FfxDenoiserTaggedNormalRoughness = v;
-                if (bool v = config->FfxDenoiserTaggedAmbientOcclusion.value_or_default(); ImGui::Checkbox("Use Tagged Ambient Occlusion", &v))
+                if (bool v = config->FfxDenoiserTaggedAmbientOcclusion.value_or_default(); MenuUi::Checkbox("Use Tagged Ambient Occlusion", &v))
                 {
                     config->FfxDenoiserTaggedAmbientOcclusion = v;
                     rebuild = true;
                 }
-                if (ImGui::TreeNode("Streamline RR Signal Probe"))
+                if (MenuUi::TreeNode("Streamline RR Signal Probe"))
                 {
                     const uint32_t renderWidth = currentFeature ? currentFeature->RenderWidth() : 0;
                     const uint32_t renderHeight = currentFeature ? currentFeature->RenderHeight() : 0;
                     const RRSignalTagDiagnostics diagnostics =
                         StreamlineHooks::getRRSignalTagDiagnostics();
-                    ImGui::TextWrapped(
+                    MenuUi::TextWrapped(
                         "Read-only probe for Streamline emissive, diffuse, specular, shadow, "
                         "ambient-occlusion and hint tags. A half-width candidate confirms only the "
                         "layout, not its phase. Shadow tags still need light metadata; hints are not "
                         "RR signals.");
                     if (diagnostics.generation == 0)
-                        ImGui::TextDisabled("No matching Streamline resource tags observed yet.");
+                        MenuUi::TextDisabled("No matching Streamline resource tags observed yet.");
                     for (size_t i = 0; i < diagnostics.resources.size(); ++i)
                     {
                         const auto signal = static_cast<RRTaggedSignal>(i);
@@ -3992,12 +3996,12 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                         const char* signalName = StreamlineHooks::getRRTaggedSignalName(signal);
                         if (!diagnostic.observed)
                         {
-                            ImGui::TextDisabled("%s: not observed", signalName);
+                            MenuUi::TextDisabled("%s: not observed", signalName);
                             continue;
                         }
                         if (!diagnostic.present)
                         {
-                            ImGui::TextDisabled(
+                            MenuUi::TextDisabled(
                                 "%s: cleared (updates: %llu)", signalName,
                                 static_cast<unsigned long long>(diagnostic.updateCount));
                             continue;
@@ -4008,13 +4012,13 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                             signal, diagnostic, renderWidth, renderHeight);
                         const bool preferredFormat =
                             StreamlineHooks::isRRPreferredTagFormat(signal, diagnostic.format);
-                        ImGui::Text("%s: %ux%u, %s (%u), %s", signalName, diagnostic.effectiveWidth,
+                        MenuUi::Text("%s: %ux%u, %s (%u), %s", signalName, diagnostic.effectiveWidth,
                                     diagnostic.effectiveHeight,
                                     formatName.empty() ? "UNKNOWN" : formatName.c_str(),
                                     static_cast<uint32_t>(diagnostic.format), checkerboard);
                         if (ImGui::IsItemHovered())
                         {
-                            ImGui::SetTooltip(
+                            MenuUi::SetTooltip(
                                 "Debug name: %s\n"
                                 "Pointer: %p\n"
                                 "Native size: %llux%u\n"
@@ -4036,21 +4040,21 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                                 preferredFormat ? "match" : "different");
                         }
                     }
-                    if (ImGui::TreeNode("Complete Streamline Tag Inventory"))
+                    if (MenuUi::TreeNode("Complete Streamline Tag Inventory"))
                     {
                         const SLTagInventoryDiagnostics inventory =
                             StreamlineHooks::getSLTagInventoryDiagnostics();
-                        ImGui::TextWrapped(
+                        MenuUi::TextWrapped(
                             "Every Streamline resource tag observed by OptiScaler. Unknown/custom IDs "
                             "are retained numerically. This is useful for finding signals that are not "
                             "covered by the named RR candidates above.");
                         if (inventory.resources.empty())
                         {
-                            ImGui::TextDisabled("No Streamline resource tags observed yet.");
+                            MenuUi::TextDisabled("No Streamline resource tags observed yet.");
                         }
                         else
                         {
-                            ImGui::Text("Observed tag types: %zu", inventory.resources.size());
+                            MenuUi::Text("Observed tag types: %zu", inventory.resources.size());
                         }
                         for (const auto& entry : inventory.resources)
                         {
@@ -4058,17 +4062,17 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                             const char* typeName = StreamlineHooks::getSLBufferTypeName(entry.type);
                             if (!resource.present)
                             {
-                                ImGui::TextDisabled("%u (%s): cleared", entry.type, typeName);
+                                MenuUi::TextDisabled("%u (%s): cleared", entry.type, typeName);
                                 continue;
                             }
                             const std::string formatName =
                                 std::string(magic_enum::enum_name(resource.format));
-                            ImGui::Text("%u (%s): %ux%u, %s", entry.type, typeName,
+                            MenuUi::Text("%u (%s): %ux%u, %s", entry.type, typeName,
                                         resource.effectiveWidth, resource.effectiveHeight,
                                         formatName.empty() ? "UNKNOWN" : formatName.c_str());
                             if (ImGui::IsItemHovered())
                             {
-                                ImGui::SetTooltip(
+                                MenuUi::SetTooltip(
                                     "Debug name: %s\n"
                                     "Pointer: %p\n"
                                     "Native size: %llux%u\n"
@@ -4089,26 +4093,26 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                         }
                         ImGui::TreePop();
                     }
-                    if (ImGui::TreeNode("NGX Pointer Inventory"))
+                    if (MenuUi::TreeNode("NGX Pointer Inventory"))
                     {
                         const RRNGXPointerDiagnostics ngxInventory =
                             StreamlineHooks::getRRNGXPointerDiagnostics();
-                        ImGui::TextWrapped(
+                        MenuUi::TextWrapped(
                             "Pointer-valued NGX parameters visible to the RR backend. Exact D3D12 "
                             "resources include texture metadata. Opaque pointers are listed by key and "
                             "address only because they may be matrices, callbacks, or other objects.");
                         if (!ngxInventory.tableInspectable)
                         {
-                            ImGui::TextDisabled(
+                            MenuUi::TextDisabled(
                                 "The current NGX parameter table cannot be safely enumerated.");
                         }
                         else if (ngxInventory.parameters.empty())
                         {
-                            ImGui::TextDisabled("No pointer-valued NGX parameters observed.");
+                            MenuUi::TextDisabled("No pointer-valued NGX parameters observed.");
                         }
                         else
                         {
-                            ImGui::Text("Pointer parameters: %zu", ngxInventory.parameters.size());
+                            MenuUi::Text("Pointer parameters: %zu", ngxInventory.parameters.size());
                         }
                         for (const auto& parameter : ngxInventory.parameters)
                         {
@@ -4119,25 +4123,25 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                                 kind = "D3D11 resource";
                             if (!parameter.present)
                             {
-                                ImGui::TextDisabled("%s: null (%s)", parameter.name.c_str(), kind);
+                                MenuUi::TextDisabled("%s: null (%s)", parameter.name.c_str(), kind);
                                 continue;
                             }
                             if (parameter.kind != RRNGXPointerKind::D3D12Resource)
                             {
-                                ImGui::Text("%s: %s (not dereferenced)", parameter.name.c_str(), kind);
+                                MenuUi::Text("%s: %s (not dereferenced)", parameter.name.c_str(), kind);
                             }
                             else
                             {
                                 const std::string formatName =
                                     std::string(magic_enum::enum_name(parameter.format));
-                                ImGui::Text("%s: %llux%u, %s", parameter.name.c_str(),
+                                MenuUi::Text("%s: %llux%u, %s", parameter.name.c_str(),
                                             static_cast<unsigned long long>(parameter.nativeWidth),
                                             parameter.nativeHeight,
                                             formatName.empty() ? "UNKNOWN" : formatName.c_str());
                             }
                             if (ImGui::IsItemHovered())
                             {
-                                ImGui::SetTooltip(
+                                MenuUi::SetTooltip(
                                     "Kind: %s\n"
                                     "Pointer: %p\n"
                                     "Dimension: %u | Flags: 0x%X\n"
@@ -4151,9 +4155,9 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                         }
                         ImGui::TreePop();
                     }
-                    if (ImGui::TreeNode("RR Resource Inspector"))
+                    if (MenuUi::TreeNode("RR Resource Inspector"))
                     {
-                        ImGui::TextWrapped(
+                        MenuUi::TextWrapped(
                             "Live diagnostic browser for full-resolution shader-readable textures. "
                             "It tracks completed GPU write transitions and keeps selection attached to "
                             "the resource pointer across refreshes. D3D12 event names identify the "
@@ -4162,7 +4166,7 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                             "with the graphics or compute pipeline that wrote them. It never inserts "
                             "resource barriers.");
                         bool inspectorEnabled = ResTrack_Dx12::IsRRResourceInspectorEnabled();
-                        if (ImGui::Checkbox("Enable Resource Inspector", &inspectorEnabled))
+                        if (MenuUi::Checkbox("Enable Resource Inspector", &inspectorEnabled))
                         {
                             ResTrack_Dx12::SetRRResourceInspectorEnabled(inspectorEnabled);
                             if (inspectorEnabled && renderWidth > 0 && renderHeight > 0)
@@ -4183,23 +4187,23 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                                 candidates.begin(), candidates.end(),
                                 [&](const RRResourceCandidate& candidate)
                                 { return isRecentlyWritten(candidate, _rrInspectorMaxWriteAge); }));
-                            ImGui::Text("Live: %zu / %zu", activeCount, candidates.size());
+                            MenuUi::Text("Live: %zu / %zu", activeCount, candidates.size());
                             ImGui::SameLine();
-                            if (ImGui::Button("Open Large Live Inspector"))
+                            if (MenuUi::Button("Open Large Live Inspector"))
                                 _showRRResourceInspectorWindow = true;
-                            ImGui::Checkbox("Active only", &_rrInspectorActiveOnly);
+                            MenuUi::Checkbox("Active only", &_rrInspectorActiveOnly);
                             ImGui::SameLine();
-                            ImGui::Checkbox("Emissive pass only", &_rrInspectorEmissivePassOnly);
+                            MenuUi::Checkbox("Emissive pass only", &_rrInspectorEmissivePassOnly);
                             ImGui::SameLine();
                             ImGui::SetNextItemWidth(130.0f);
-                            ImGui::SliderInt("Max write age", &_rrInspectorMaxWriteAge, 1, 30,
+                            MenuUi::SliderInt("Max write age", &_rrInspectorMaxWriteAge, 1, 30,
                                              "%d frames");
                             if (_rrInspectorPsoFilter != 0)
                             {
-                                ImGui::Text("Producer filter: PSO #%llu",
+                                MenuUi::Text("Producer filter: PSO #%llu",
                                             static_cast<unsigned long long>(_rrInspectorPsoFilter));
                                 ImGui::SameLine();
-                                if (ImGui::SmallButton("Clear PSO Filter"))
+                                if (MenuUi::SmallButton("Clear PSO Filter"))
                                     _rrInspectorPsoFilter = 0;
                             }
                             int selectedIndex = ResTrack_Dx12::GetRRResourceCandidateIndex();
@@ -4220,7 +4224,7 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                                     formatName.empty() ? "UNKNOWN" : formatName, selected.channelCount);
                                 previewLabel = selectedLabel.c_str();
                             }
-                            if (ImGui::BeginCombo("Candidate Texture", previewLabel))
+                            if (MenuUi::BeginCombo("Candidate Texture", previewLabel))
                             {
                                 for (int index = 0; index < static_cast<int>(candidates.size());
                                      ++index)
@@ -4257,7 +4261,7 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                                             : (candidate.stateKnown ? "not readable" : "state unknown"),
                                         activity);
                                     const bool selected = index == selectedIndex;
-                                    if (ImGui::Selectable(label.c_str(), selected))
+                                    if (MenuUi::Selectable(label.c_str(), selected))
                                     {
                                         selectedIndex = index;
                                         ResTrack_Dx12::SetRRResourceCandidateIndex(index);
@@ -4277,10 +4281,10 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                             channel = std::clamp(channel, 0, availableChannels - 1);
                             if (channel != static_cast<int>(currentChannel))
                                 ResTrack_Dx12::SetRRResourceChannel(static_cast<uint32_t>(channel));
-                            if (ImGui::Combo("Preview Channel", &channel, kChannels, availableChannels))
+                            if (MenuUi::Combo("Preview Channel", &channel, kChannels, availableChannels))
                                 ResTrack_Dx12::SetRRResourceChannel(static_cast<uint32_t>(channel));
                             float viewScale = ResTrack_Dx12::GetRRResourceViewScale();
-                            if (ImGui::SliderFloat("Preview Scale", &viewScale, 0.01f, 16.0f, "%.2fx",
+                            if (MenuUi::SliderFloat("Preview Scale", &viewScale, 0.01f, 16.0f, "%.2fx",
                                                    ImGuiSliderFlags_Logarithmic))
                             {
                                 ResTrack_Dx12::SetRRResourceViewScale(viewScale);
@@ -4288,13 +4292,13 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                             if (!candidates.empty())
                             {
                                 const RRResourceCandidate& selected = candidates[selectedIndex];
-                                ImGui::Text("Size: %llux%u | SRV/UAV/RTV: %u/%u/%u",
+                                MenuUi::Text("Size: %llux%u | SRV/UAV/RTV: %u/%u/%u",
                                             static_cast<unsigned long long>(selected.width),
                                             selected.height, selected.srvViews, selected.uavViews,
                                             selected.rtvViews);
                                 if (selected.writeObserved)
                                 {
-                                    ImGui::Text(
+                                    MenuUi::Text(
                                         "Last write: %llu frames ago | cadence: %llu | "
                                         "written frames: %llu",
                                         static_cast<unsigned long long>(selected.writeAgeFrames),
@@ -4303,47 +4307,47 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                                 }
                                 else
                                 {
-                                    ImGui::TextDisabled(
+                                    MenuUi::TextDisabled(
                                         "No completed write observed since tracking began.");
                                 }
                                 if (!selected.stateKnown)
                                 {
-                                    ImGui::TextDisabled(
+                                    MenuUi::TextDisabled(
                                         "Preview unavailable: state not observed yet. Move the camera "
                                         "or change graphics settings to make the texture transition.");
                                 }
                                 else if (!selected.computeReadable)
                                 {
-                                    ImGui::TextDisabled(
+                                    MenuUi::TextDisabled(
                                         "Preview unavailable: state 0x%X is not readable by the "
                                         "compute pass that builds the preview.",
                                         static_cast<uint32_t>(selected.state));
                                 }
                                 else
                                 {
-                                    ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f),
+                                    MenuUi::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f),
                                                        "Preview ready (state 0x%X)",
                                                        static_cast<uint32_t>(selected.state));
                                 }
                                 if (selected.lastWritePass.empty())
                                 {
-                                    ImGui::TextDisabled(
+                                    MenuUi::TextDisabled(
                                         "Producing pass: no D3D12 marker associated yet.");
                                 }
                                 else if (selected.emissivePassMatch)
                                 {
-                                    ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.9f, 1.0f),
+                                    MenuUi::TextColored(ImVec4(1.0f, 0.45f, 0.9f, 1.0f),
                                                        "Producing pass (emissive match): %s",
                                                        selected.lastWritePass.c_str());
                                 }
                                 else
                                 {
-                                    ImGui::TextWrapped("Producing pass: %s",
+                                    MenuUi::TextWrapped("Producing pass: %s",
                                                        selected.lastWritePass.c_str());
                                 }
                                 if (selected.producerPsoId == 0)
                                 {
-                                    ImGui::TextDisabled("Producer PSO: unresolved.");
+                                    MenuUi::TextDisabled("Producer PSO: unresolved.");
                                 }
                                 else
                                 {
@@ -4353,7 +4357,7 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                                                                                             : "Unknown";
                                     if (selected.producerAmbiguous)
                                     {
-                                        ImGui::TextColored(
+                                        MenuUi::TextColored(
                                             ImVec4(1.0f, 0.7f, 0.25f, 1.0f),
                                             "Producer PSO: %s #%llu, hash 0x%llX, "
                                             "%llu hits (%u candidates, ambiguous)",
@@ -4365,7 +4369,7 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                                     }
                                     else
                                     {
-                                        ImGui::Text(
+                                        MenuUi::Text(
                                             "Producer PSO: %s #%llu, hash 0x%llX, "
                                             "%llu hits (%u candidates)",
                                             producerKind,
@@ -4374,17 +4378,17 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                                             static_cast<unsigned long long>(selected.producerHitCount),
                                             selected.producerCount);
                                     }
-                                    if (ImGui::SmallButton("Filter Selected PSO"))
+                                    if (MenuUi::SmallButton("Filter Selected PSO"))
                                         _rrInspectorPsoFilter = selected.producerPsoId;
                                 }
                             }
-                            if (ImGui::Button("Refresh Candidates") && renderWidth > 0 &&
+                            if (MenuUi::Button("Refresh Candidates") && renderWidth > 0 &&
                                 renderHeight > 0)
                             {
                                 ResTrack_Dx12::RefreshRRResourceCandidates(renderWidth, renderHeight);
                             }
                             ImGui::SameLine();
-                            if (ImGui::Button("Preview Selected"))
+                            if (MenuUi::Button("Preview Selected"))
                             {
                                 for (const uint64_t mode : state.ffxDenoiserDebugModes)
                                 {
@@ -4397,31 +4401,31 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                                 }
                             }
                             ImGui::SameLine();
-                            if (ImGui::Button("Log Resource Snapshot"))
+                            if (MenuUi::Button("Log Resource Snapshot"))
                             {
                                 ResTrack_Dx12::LogRRScalarResourceCandidates(renderWidth, renderHeight);
                             }
                             ImGui::SameLine();
-                            if (ImGui::Button("Log Emissive Pass Snapshot"))
+                            if (MenuUi::Button("Log Emissive Pass Snapshot"))
                             {
                                 ResTrack_Dx12::LogRREmissivePassSnapshot(renderWidth, renderHeight);
                             }
                             ImGui::SameLine();
-                            if (ImGui::Button("Log PSO Snapshot"))
+                            if (MenuUi::Button("Log PSO Snapshot"))
                             {
                                 ResTrack_Dx12::LogRRPsoProducerSnapshot(renderWidth, renderHeight);
                             }
                         }
                         ImGui::TreePop();
                     }
-                    if (ImGui::Button("Log Probe Snapshot"))
+                    if (MenuUi::Button("Log Probe Snapshot"))
                     {
                         StreamlineHooks::logRRSignalTagDiagnostics(renderWidth, renderHeight);
                         StreamlineHooks::logSLTagInventoryDiagnostics(renderWidth, renderHeight);
                         StreamlineHooks::logRRNGXPointerDiagnostics();
                     }
                     ImGui::SameLine();
-                    if (ImGui::Button("Reset Probe"))
+                    if (MenuUi::Button("Reset Probe"))
                     {
                         StreamlineHooks::resetRRSignalTagDiagnostics();
                         StreamlineHooks::resetRRInputInventoryDiagnostics();
@@ -4429,7 +4433,7 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                     ImGui::TreePop();
                 }
             }
-            if (ImGui::CollapsingHeader("Experiments"))
+            if (MenuUi::CollapsingHeader("Experiments"))
             {
                 ScopedIndent indent;
                 const float configuredAdditiveLightSplit =
@@ -4437,36 +4441,36 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                 if (float v = std::isfinite(configuredAdditiveLightSplit)
                                   ? std::clamp(configuredAdditiveLightSplit, 0.0f, 1.0f)
                                   : 0.0f;
-                    ImGui::SliderFloat("Additive Light Split (Experimental)", &v, 0, 1))
+                    MenuUi::SliderFloat("Additive Light Split (Experimental)", &v, 0, 1))
                     config->FfxDenoiserAdditiveLightSplit = v;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
+                    MenuUi::SetTooltip(
                         "Experimental local color/albedo fit shifts estimated additive lighting toward "
                         "the specular signal. Guides and modulation stay unchanged. 0 disables; "
                         "changes reset history. Adds conversion GPU work.");
-                if (ImGui::TreeNode("Additive channel capture"))
+                if (MenuUi::TreeNode("Additive channel capture"))
                 {
                     static int traceX = 0, traceY = 0, traceSize = 0;
-                    ImGui::InputInt("Render ROI X##Additive", &traceX);
-                    ImGui::InputInt("Render ROI Y##Additive", &traceY);
+                    MenuUi::InputInt("Render ROI X##Additive", &traceX);
+                    MenuUi::InputInt("Render ROI Y##Additive", &traceY);
                     traceX = std::max(traceX, 0);
                     traceY = std::max(traceY, 0);
-                    ImGui::Combo("ROI size##Additive", &traceSize,
+                    MenuUi::Combo("ROI size##Additive", &traceSize,
                                  "64 x 64\0"
                                  "128 x 128\0");
-                    ImGui::TextWrapped(
+                    MenuUi::TextWrapped(
                         "Origin is aligned down to 8 pixels. Records RGB fit/transfer at strength 0/1, "
                         "plus the same frame's actual color before upscaling and reset/exposure "
                         "metadata. Use normal rendering. Capture adds GPU/readback work.");
-                    if (ImGui::Button("Capture additive channels"))
+                    if (MenuUi::Button("Capture additive channels"))
                         FSRDPreprocessor_Dx12::RequestAdditiveCapture(UINT(traceX), UINT(traceY),
                                                                       traceSize ? 128 : 64);
                     const auto status = FSRDPreprocessor_Dx12::GetAdditiveCaptureStatus();
-                    ImGui::TextWrapped("%s", status.c_str());
+                    MenuUi::TextWrapped("%s", status.c_str());
                     ImGui::TreePop();
                 }
             }
-            if (ImGui::Button("Reset All FSR-RR Settings"))
+            if (MenuUi::Button("Reset All FSR-RR Settings"))
             {
                 if (config->ResetFfxDenoiserSettings())
                 {

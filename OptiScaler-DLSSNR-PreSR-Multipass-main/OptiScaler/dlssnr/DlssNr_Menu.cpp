@@ -905,7 +905,10 @@ static void RenderAsiTakeoverNotice()
 
     if (!path.empty())
         MenuUi::TextDisabled("Module: %s", wstring_to_string(path).c_str());
-    MenuUi::TextDisabled("Version: %s", version.empty() ? "unknown" : version.c_str());
+    if (version.empty())
+        MenuUi::TextDisabled("Version information not provided by the ASI");
+    else
+        MenuUi::TextDisabled("Version: %s", version.c_str());
 
     ImGui::Unindent(indentX);
     window->WorkRect.Max.x = oldWorkMaxX;

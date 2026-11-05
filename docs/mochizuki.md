@@ -8,6 +8,13 @@
 > Control with End. The built-in-runtime sections below describe existing legacy
 > installations and the code that still runs when no ASI is loaded.
 
+The launcher labels the bundled ASI release. The Ins menu instead reads the loaded
+file's Windows VERSIONINFO: translated `ProductVersion` string first, then
+`FileVersion` string, then fixed numeric file version. String versions preserve
+suffixes such as `-pre1`. Without version metadata the menu says “Version information
+not provided by the ASI”; it does not infer a version from the bundle label or old
+logs. This does not affect plugin detection or NR ownership.
+
 This backend runs mochizuki0323's Vulkan network on the game's AMD adapter while the
 game uses the D3D12 interface. Native Windows uses the existing interop bridge;
 the Proton path records into the adopted vkd3d game's current Vulkan command buffer.
