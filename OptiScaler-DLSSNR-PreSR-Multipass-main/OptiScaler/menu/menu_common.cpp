@@ -3704,7 +3704,8 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
         }
         ImGui::Spacing();
     }
-    else if (primaryGpu.vendorId == VendorId::AMD && primaryGpu.asicFamily == 152)
+    else if (primaryGpu.vendorId == VendorId::AMD &&
+             (primaryGpu.amdAsicFamily == 152 || primaryGpu.amdHwGeneration == device_info::HwGeneration::kGfx12))
     {
         ImGui::Spacing();
         bool openRrEnabled = config->OpenNrRrEnabled.value_or_default();
@@ -3749,7 +3750,7 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
             const auto loaderPath = FfxApiProxy::Dx12Module_Denoiser_Path();
             if (!loaderPath.empty())
                 MenuUi::TextWrapped("Loaded: %s", wstring_to_string(loaderPath).c_str());
-            MenuUi::TextWrapped("This build supports 1.2.0 only. Use the amd_fidelityfx_denoiser_dx12.dll "
+            MenuUi::TextWrapped("This build supports 1.2.1 only. Use the amd_fidelityfx_denoiser_dx12.dll "
                                "shipped in the package's OptiScaler folder (clear FfxDx12RRPath if it points "
                                "at another copy).");
 

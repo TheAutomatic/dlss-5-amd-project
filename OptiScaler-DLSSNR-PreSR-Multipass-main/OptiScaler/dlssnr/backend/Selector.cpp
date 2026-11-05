@@ -50,7 +50,9 @@ void RefreshProbeLocked(InstallProbe& p)
     p.hasMochizukiRuntime = std::filesystem::exists(dir / L"MochizukiNrRuntime.dll", ec);
     p.hasAsiPlugin = HasAsiPlugin(dir);
     const auto& gpu = IdentifyGpu::getPrimaryGpu();
-    const bool gpuSupportsOpenRr = gpu.vendorId == VendorId::AMD && gpu.asicFamily == 152;
+    const bool gpuSupportsOpenRr =
+        gpu.vendorId == VendorId::AMD &&
+        (gpu.amdAsicFamily == 152 || gpu.amdHwGeneration == device_info::HwGeneration::kGfx12);
     const bool notBlocked = !OpenNrRr::Checked() || OpenNrRr::Reason().empty();
     p.hasOpenRr = gpuSupportsOpenRr && notBlocked &&
                   std::filesystem::exists(dir / L"OpenNrRrRuntime.dll", ec) &&
