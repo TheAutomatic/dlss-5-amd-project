@@ -40,7 +40,9 @@ int main()
     assert(FFX_API_CONFIGURE_DESC_TYPE_DENOISER_KEYVALUE == 0x00050021u);
     // Version this implementation accepts; a provider that reports anything else
     // must be rejected by DenoiserApiGenerationDx12, not silently driven.
-    assert(FFX_DENOISER_VERSION_MAJOR == 1 && FFX_DENOISER_VERSION_MINOR == 2 && FFX_DENOISER_VERSION_PATCH == 0);
+    assert(FFX_DENOISER_VERSION_MAJOR == 1 && FFX_DENOISER_VERSION_MINOR == 2 && FFX_DENOISER_VERSION_PATCH == 1);
+    assert(FFX_DENOISER_DISPATCH_NON_ENCODED_ALBEDO == (1 << 1));
+    assert(FFX_DENOISER_DISPATCH_NON_GAMMA_ALBEDO == FFX_DENOISER_DISPATCH_NON_ENCODED_ALBEDO);
 
     // ---- Upscaler routing ----
     assert(CodeToUpscaler("fsr-rr") == Upscaler::FSR_RR);
@@ -51,12 +53,14 @@ int main()
     assert(CodeToUpscaler("dlssd") == Upscaler::DLSSD);
     assert(CodeToUpscaler("nonsense") == Upscaler::Reset);
     assert(UpscalerToCode(Upscaler::Reset).empty());
-    // feature_version equality drives the V1_2 acceptance test in FfxApiProxy.
+    // feature_version equality drives the V1_2_1 acceptance test in FfxApiProxy.
     const feature_version implemented(FFX_DENOISER_VERSION_MAJOR, FFX_DENOISER_VERSION_MINOR,
                                        FFX_DENOISER_VERSION_PATCH);
-    const feature_version v12(1, 2, 0);
+    const feature_version v121(1, 2, 1);
+    const feature_version v120(1, 2, 0);
     const feature_version v11(1, 1, 0);
-    assert(implemented == v12);
+    assert(implemented == v121);
+    assert(!(implemented == v120));
     assert(!(implemented == v11));
 
     std::puts("fsr_rr_abi: PASS");

@@ -35,6 +35,7 @@ dist/
 # 注意：gitignore 对「已跟踪」的文件无效，已跟踪的要用 git rm --cached 才生效。
 *.dll
 !OptiScaler-DLSSNR-PreSR-Multipass-main/external/directx_agility_sdk/lib/D3D12Core.dll
+!third_party/fsr-rr-1.2.1/amd_fidelityfx_denoiser_dx12.dll
 
 # 编辑器/会话
 .vs/

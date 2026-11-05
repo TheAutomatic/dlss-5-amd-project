@@ -264,9 +264,11 @@ int wmain(int argc,wchar_t** argv)
 try
 {
     uint64_t wantedLuid=0; unsigned guidedMask=12; fs::path out=L"feature-smoke-output";
+    bool testOpenRrFallback=false;
     for(int i=1;i<argc;++i)
     {
         const std::wstring arg=argv[i];
+        if(arg==L"--test-openrr-fallback") { testOpenRrFallback=true; continue; }
         Require(i+1<argc,"option requires a value");
         if(arg==L"--luid") wantedLuid=std::stoull(argv[++i],nullptr,16);
         else if(arg==L"--guided-mask") guidedMask=unsigned(std::stoul(argv[++i]));
@@ -368,6 +370,28 @@ try
     p->Set("FrameTimeDeltaInMsec",16.6667f);
     p->Set("DLSS.Render.Subrect.Dimensions.Width",RW); p->Set("DLSS.Render.Subrect.Dimensions.Height",RH);
     const std::vector<uint16_t> sentinel(size_t(OW)*OH*4,0x7e00u);
+    if(testOpenRrFallback)
+    {
+        output.Upload(list.Get(),sentinel.data(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        p->Set("Reset",1);
+        Ngx(evaluate(list.Get(),handle,p,nullptr),"OpenRR initial evaluate");
+        submit();
+        Require(Text(logPath).find("OpenRR: created")!=std::string::npos,"OpenRR feature was not created before fallback");
+        p->Set("MotionVectors",static_cast<void*>(nullptr));
+        (void)evaluate(list.Get(),handle,p,nullptr);
+        submit();
+        Require(Text(logPath).find("switching Ray Reconstruction back to the previous provider")!=std::string::npos,
+                "OpenNrRrFeatureDx12::FallBack was not logged");
+        p->Set("MotionVectors",motion.resource.Get());
+        for(unsigned step=0;step<3;++step)
+        {
+            (void)evaluate(list.Get(),handle,p,nullptr);
+            submit();
+        }
+        Require(Text(logPath).find("[RR_DIAG] creating context:")!=std::string::npos,
+                "FSRDFeatureDx12 1.2.1 context was not created after OpenRR fallback");
+        std::printf("feature-smoke: OpenRR -> FSR-RR 1.2.1 FallBack transition succeeded\n");
+    }
     std::ofstream evidence(out/L"frames.csv"); Require(bool(evidence),"open frame evidence");
     evidence<<"phase,frame,guides,ngx_result,fresh_output,context_mask\n";
     constexpr const char* phases[]={"absent","arrival","dropout","return"};

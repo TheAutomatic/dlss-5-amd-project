@@ -212,7 +212,7 @@ jobs:
             'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK-v2/Kits/FidelityFX/signedbin/amd_fidelityfx_loader_dx12.dll',
             'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK-v2/Kits/FidelityFX/signedbin/amd_fidelityfx_framegeneration_dx12.dll',
             'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK-v2/Kits/FidelityFX/signedbin/amd_fidelityfx_upscaler_dx12.dll',
-            'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK-v2/Kits/FidelityFX/signedbin/amd_fidelityfx_denoiser_dx12.dll'
+            'third_party/fsr-rr-1.2.1/amd_fidelityfx_denoiser_dx12.dll'
           )
           foreach ($d in $deps) {
             if (!(Test-Path $d)) { throw "Submodule content missing: $d (did checkout fetch submodules?)" }

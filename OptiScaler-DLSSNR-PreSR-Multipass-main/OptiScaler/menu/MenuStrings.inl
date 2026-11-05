@@ -1394,7 +1394,7 @@
 {"Hide FSR-RR Advanced Settings", "隐藏 FSR-RR 高级设置"},
 {"[Warning] FSR-RR version mismatch | Installed: %d.%d.%d | Expected: %d.%d.%d", "[警告] FSR-RR 版本不匹配 | 已安装：%d.%d.%d | 需要：%d.%d.%d"},
 {"Loaded: %s", "当前加载：%s"},
-{"This build supports 1.2.0 only. Use the amd_fidelityfx_denoiser_dx12.dll shipped in the package's OptiScaler folder (clear FfxDx12RRPath if it points at another copy).", "当前版本仅支持 1.2.0。请使用安装包 OptiScaler 目录中附带的 amd_fidelityfx_denoiser_dx12.dll（若设置了 FfxDx12RRPath 指向其他副本请将其清空）。"},
+{"This build supports 1.2.1 only. Use the amd_fidelityfx_denoiser_dx12.dll shipped in the package's OptiScaler folder (clear FfxDx12RRPath if it points at another copy).", "当前版本仅支持 1.2.1。请使用安装包 OptiScaler 目录中附带的 amd_fidelityfx_denoiser_dx12.dll（若设置了 FfxDx12RRPath 指向其他副本请将其清空）。"},
 {"Enabled for the next launch. Save Settings and restart: recording hooks were not prepared.", "已为下次启动启用。请点击“保存设置”并重启游戏：本次启动未准备录制 Hook。"},
 {"Enabled, but not active yet: applies to the next Ray Reconstruction feature.", "已启用但尚未生效：将在游戏下次创建光线重建特征时应用。"},
 {"Off by default. Enabling applies at feature creation; a restart may be required.", "默认关闭。启用后在创建光线重建特征时生效，可能需要重启游戏。"},

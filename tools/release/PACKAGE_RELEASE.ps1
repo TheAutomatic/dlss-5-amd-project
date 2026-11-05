@@ -48,6 +48,8 @@ foreach ($license in @(
     'OptiScaler-DLSSNR-PreSR-Multipass-main/LICENSE',
     'third_party/lmxxf/LICENSE',
     'third_party/openrr/LICENSE',
+    'third_party/fsr-rr-1.2.1/license.md',
+    'third_party/fsr-rr-1.2.1/3rdpartynotice.md',
     'third_party/mochizuki/LICENSE',
     'third_party/onnxruntime/LICENSE',
     'third_party/onnxruntime/YOLO11_AGPL-3.0.txt',
@@ -169,6 +171,7 @@ if (-not (Test-Path -LiteralPath $contract -PathType Leaf)) {
 if ($LASTEXITCODE -ne 0) {
     throw "Module contract check failed. Do not ship mismatched module counts."
 }
+$depSearch += (Join-Path $root 'third_party/fsr-rr-1.2.1')
 $depSearch += (Join-Path $source 'external/FidelityFX-SDK-v2/Kits/FidelityFX/signedbin')
 $depSearch += (Join-Path $root 'OptiScaler-AMD-PreSR-R1/OptiScaler')
 $depSearch += (Join-Path $root 'OptiScaler-AMD-PreSR-Multipass-v2.25/OptiScaler')
@@ -248,6 +251,8 @@ if ($missing.Count -gt 0) {
 # Required license notices were checked before staging.
 Copy-Item -LiteralPath (Join-Path $source 'LICENSE') -Destination (Join-Path $stage 'Licenses/OptiScaler_LICENSE.txt') -Force
 Copy-Item -LiteralPath (Join-Path $root 'third_party/lmxxf/LICENSE') -Destination (Join-Path $stage 'Licenses/Lmxxf_MIT.txt') -Force
+Copy-Item -LiteralPath (Join-Path $root 'third_party/fsr-rr-1.2.1/license.md') -Destination (Join-Path $stage 'Licenses/FidelityFX_Denoiser_1.2.1_LICENSE.md') -Force
+Copy-Item -LiteralPath (Join-Path $root 'third_party/fsr-rr-1.2.1/3rdpartynotice.md') -Destination (Join-Path $stage 'Licenses/FidelityFX_Denoiser_1.2.1_3RDPARTYNOTICE.md') -Force
 Copy-Item -LiteralPath (Join-Path $root 'LICENSE'), (Join-Path $root 'NOTICE') -Destination $stage -Force
 if (Test-Path (Join-Path $source 'Licenses')) {
     Get-ChildItem (Join-Path $source 'Licenses') -File | Copy-Item -Destination (Join-Path $stage 'Licenses') -Force

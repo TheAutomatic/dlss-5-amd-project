@@ -1,4 +1,4 @@
-﻿#include "pch.h"
+#include "pch.h"
 #include <atomic>
 #include <nvsdk_ngx_defs_dlssd.h>
 #include <DirectXMath.h>
@@ -1660,9 +1660,23 @@ RRResult FSRDFeatureDx12::CreateDenoiserContext()
 
     InvalidateDenoiserHistory();
 
-    const int requestedDenoiserIndex = cfg.FfxDenoiserIndex.value_or_default();
+    size_t defaultDenoiserIndex = 0u;
+    const feature_version targetDenoiserVersion = FfxApiProxy::VersionImplemented_RR();
+    for (size_t i = 0; i < state.ffxDenoiserVersionNames.size(); ++i)
+    {
+        feature_version candidate {};
+        if (state.ffxDenoiserVersionNames[i])
+            candidate.parse_version(state.ffxDenoiserVersionNames[i]);
+        if (candidate == targetDenoiserVersion)
+        {
+            defaultDenoiserIndex = i;
+            break;
+        }
+    }
+
+    const int requestedDenoiserIndex = cfg.FfxDenoiserIndex.value_or(static_cast<int>(defaultDenoiserIndex));
     const size_t denoiserIndex = std::clamp<size_t>(
-        requestedDenoiserIndex < 0 ? 0u : static_cast<size_t>(requestedDenoiserIndex),
+        requestedDenoiserIndex < 0 ? defaultDenoiserIndex : static_cast<size_t>(requestedDenoiserIndex),
         0u, state.ffxDenoiserVersionIds.size() - 1u);
 
     if (denoiserIndex != static_cast<size_t>(std::max(requestedDenoiserIndex, 0)))
@@ -1780,6 +1794,35 @@ RRResult FSRDFeatureDx12::CreateDenoiserContext()
     spdlog::info(L"" __FUNCTIONW__ L" [RR_DIAG] denoiser module: {}",
                  FfxApiProxy::Dx12Module_Denoiser_Path());
 
+    // Query predicted GPU memory usage before context creation (RR 1.2.1 fix).
+    {
+        FfxApiEffectMemoryUsage predictedMemory {};
+        ffxOverrideVersion queryOverride {
+            .header = { .type = FFX_API_DESC_TYPE_OVERRIDE_VERSION },
+            .versionId = state.ffxDenoiserVersionIds[denoiserIndex]
+        };
+        ffxQueryDescDenoiserGetGPUMemoryUsage memQuery {
+            .header = { .type = FFX_API_QUERY_DESC_TYPE_DENOISER_GPU_MEMORY_USAGE, .pNext = &queryOverride.header },
+            .device = Device,
+            .maxRenderSize = _denoiserCtxDesc.maxRenderSize,
+            .signalFlags = _denoiserCtxDesc.signalFlags,
+            .checkerboardSignalFlags = _denoiserCtxDesc.checkerboardSignalFlags,
+            .flags = _denoiserCtxDesc.flags,
+            .gpuMemoryUsage = &predictedMemory
+        };
+        const ffxReturnCode_t memRc = FfxApiProxy::D3D12_Query(nullptr, &memQuery.header);
+        if (memRc == FFX_API_RETURN_OK)
+        {
+            LOG_INFO("[RR_DIAG] predicted GPU memory usage: total={:.3f} MB ({} B), aliasable={:.3f} MB ({} B)",
+                     double(predictedMemory.totalUsageInBytes) / 1048576.0, predictedMemory.totalUsageInBytes,
+                     double(predictedMemory.aliasableUsageInBytes) / 1048576.0, predictedMemory.aliasableUsageInBytes);
+        }
+        else
+        {
+            LOG_WARN("[RR_DIAG] predicted GPU memory usage query returned {}", FfxApiProxy::ReturnCodeToString(memRc));
+        }
+    }
+
     // Create the denoiser context
     {   
         ScopedSkipHeapCapture skipHeapCapture {};
@@ -1793,6 +1836,31 @@ RRResult FSRDFeatureDx12::CreateDenoiserContext()
 
         LOG_INFO("[RR_DIAG] context creation succeeded: context={:X}",
                  reinterpret_cast<uintptr_t>(_pDenoiserCtx));
+    }
+
+    // Query actual GPU memory usage after context creation (RR 1.2.1 fix).
+    {
+        FfxApiEffectMemoryUsage actualMemory {};
+        ffxQueryDescDenoiserGetGPUMemoryUsage memQuery {
+            .header = { .type = FFX_API_QUERY_DESC_TYPE_DENOISER_GPU_MEMORY_USAGE },
+            .device = Device,
+            .maxRenderSize = _denoiserCtxDesc.maxRenderSize,
+            .signalFlags = _denoiserCtxDesc.signalFlags,
+            .checkerboardSignalFlags = _denoiserCtxDesc.checkerboardSignalFlags,
+            .flags = _denoiserCtxDesc.flags,
+            .gpuMemoryUsage = &actualMemory
+        };
+        const ffxReturnCode_t memRc = FfxApiProxy::D3D12_Query(&_pDenoiserCtx, &memQuery.header);
+        if (memRc == FFX_API_RETURN_OK)
+        {
+            LOG_INFO("[RR_DIAG] actual GPU memory usage: total={:.3f} MB ({} B), aliasable={:.3f} MB ({} B)",
+                     double(actualMemory.totalUsageInBytes) / 1048576.0, actualMemory.totalUsageInBytes,
+                     double(actualMemory.aliasableUsageInBytes) / 1048576.0, actualMemory.aliasableUsageInBytes);
+        }
+        else
+        {
+            LOG_WARN("[RR_DIAG] actual GPU memory usage query returned {}", FfxApiProxy::ReturnCodeToString(memRc));
+        }
     }
 
     // Query default settings
@@ -2618,7 +2686,7 @@ RRResult FSRDFeatureDx12::PrepareDenoiserInput(ID3D12GraphicsCommandList* InComm
         .linearDepthBounds = { _convDesc.NearPlane, _convDesc.FarPlane },
         .renderSize = { RenderWidth(), RenderHeight() }, 
         .frameIndex = (uint32_t)_frameCount,
-        .flags = FFX_DENOISER_DISPATCH_NON_GAMMA_ALBEDO
+        .flags = FFX_DENOISER_DISPATCH_NON_ENCODED_ALBEDO
     };
 
     // Populate resources and link signal header

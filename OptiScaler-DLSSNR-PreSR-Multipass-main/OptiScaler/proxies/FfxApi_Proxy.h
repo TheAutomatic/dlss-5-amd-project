@@ -64,7 +64,9 @@ enum class FfxDenoiserApiGeneration
     NotLoaded,
     Unknown,
     V1_1,
-    V1_2,
+    V1_2_0,
+    V1_2_1,
+    V1_2 = V1_2_1,
     Unsupported,
 };
 
@@ -1286,8 +1288,20 @@ class FfxApiProxy
 
                 if (queryResult == FFX_API_RETURN_OK)
                 {
+                    const feature_version target = VersionImplemented_RR();
                     denoiser_dx12.version.parse_version(versionNames[0]);
-                    LOG_INFO("FfxApi Dx12 RR version: {}.{}.{}", denoiser_dx12.version.major,
+                    for (uint64_t i = 0; i < versionCount; ++i)
+                    {
+                        feature_version candidate {};
+                        if (versionNames[i])
+                            candidate.parse_version(versionNames[i]);
+                        LOG_INFO("FfxApi Dx12 RR provider[{}]: '{}' ({}.{}.{}) id={:#x}", i,
+                                 versionNames[i] ? versionNames[i] : "<null>", candidate.major, candidate.minor,
+                                 candidate.patch, versionIds[i]);
+                        if (candidate == target)
+                            denoiser_dx12.version = candidate;
+                    }
+                    LOG_INFO("FfxApi Dx12 RR selected version: {}.{}.{}", denoiser_dx12.version.major,
                              denoiser_dx12.version.minor, denoiser_dx12.version.patch);
                 }
                 else
@@ -1326,13 +1340,18 @@ class FfxApiProxy
         if (version == feature_version { 1, 1, 0 })
             return FfxDenoiserApiGeneration::V1_1;
         if (version == feature_version { 1, 2, 0 })
-            return FfxDenoiserApiGeneration::V1_2;
+            return FfxDenoiserApiGeneration::V1_2_0;
+        if (version == feature_version { 1, 2, 1 })
+            return FfxDenoiserApiGeneration::V1_2_1;
 
         return FfxDenoiserApiGeneration::Unsupported;
     }
 
     // This is the guard for every path that can instantiate or dispatch FSR-RR.
-    static bool IsDenoiserApiImplementedDx12() { return DenoiserApiGenerationDx12() == FfxDenoiserApiGeneration::V1_2; }
+    static bool IsDenoiserApiImplementedDx12()
+    {
+        return DenoiserApiGenerationDx12() == FfxDenoiserApiGeneration::V1_2_1;
+    }
 
     static feature_version VersionDx12_RC()
     {

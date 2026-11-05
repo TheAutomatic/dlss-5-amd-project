@@ -32,7 +32,9 @@ int main()
     assert(FFX_API_DISPATCH_DESC_TYPE_DENOISER == 0x00050041u);
     assert(FFX_API_CREATE_CONTEXT_DESC_TYPE_DENOISER == 0x00050001u);
     assert(FFX_API_CONFIGURE_DESC_TYPE_DENOISER_KEYVALUE == 0x00050021u);
-    assert(FFX_DENOISER_VERSION_MAJOR == 1 && FFX_DENOISER_VERSION_MINOR == 2 && FFX_DENOISER_VERSION_PATCH == 0);
+    assert(FFX_DENOISER_VERSION_MAJOR == 1 && FFX_DENOISER_VERSION_MINOR == 2 && FFX_DENOISER_VERSION_PATCH == 1);
+    assert(FFX_DENOISER_DISPATCH_NON_ENCODED_ALBEDO == (1 << 1));
+    assert(FFX_DENOISER_DISPATCH_NON_GAMMA_ALBEDO == FFX_DENOISER_DISPATCH_NON_ENCODED_ALBEDO);
 
     // ---- Routing ----
     assert(CodeToUpscaler("fsr-rr") == Upscaler::FSR_RR);
@@ -41,9 +43,10 @@ int main()
     assert(CodeToUpscaler("fsr31") == Upscaler::FSR31);
     assert(CodeToUpscaler("dlssd") == Upscaler::DLSSD);
 
-    const feature_version v12(1, 2, 0), v11(1, 1, 0);
-    assert(v12 == feature_version(FFX_DENOISER_VERSION_MAJOR, FFX_DENOISER_VERSION_MINOR, FFX_DENOISER_VERSION_PATCH));
-    assert(!(v12 == v11));
+    const feature_version v121(1, 2, 1), v120(1, 2, 0), v11(1, 1, 0);
+    assert(v121 == feature_version(FFX_DENOISER_VERSION_MAJOR, FFX_DENOISER_VERSION_MINOR, FFX_DENOISER_VERSION_PATCH));
+    assert(!(v121 == v120));
+    assert(!(v121 == v11));
 
     // ---- Segment ID contract (P1 schema) ----
     // These must match the P1 ID schema enum; assert the count is stable.

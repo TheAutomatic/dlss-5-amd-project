@@ -1883,7 +1883,7 @@ static void FillDenoiserDesc(ffxDispatchDescDenoiser& dd, ID3D12GraphicsCommandL
     dd.linearDepthBounds = {conv.NearPlane, conv.FarPlane};
     dd.renderSize = {s.renderW, s.renderH};
     dd.frameIndex = frame;
-    dd.flags = FFX_DENOISER_DISPATCH_NON_GAMMA_ALBEDO | (reset ? FFX_DENOISER_DISPATCH_RESET : 0u);
+    dd.flags = FFX_DENOISER_DISPATCH_NON_ENCODED_ALBEDO | (reset ? FFX_DENOISER_DISPATCH_RESET : 0u);
     dd.jitterOffsets = {cam.jitterX, cam.jitterY};
 }
 
@@ -2548,12 +2548,13 @@ static int GuardedMain(int argc, char** argv)
         if (!firstAmd)
             Die("no AMD adapter found; set adapter_luid to the reviewed hardware explicitly");
         const char* envSignedbin = getenv("RR_OFFLINE_SIGNEDBIN");
+        const fs::path repoRoot = fs::canonical(exeDir / ".." / ".." / "..");
         const fs::path signedbin =
             envSignedbin ? fs::path(envSignedbin)
-                         : fs::canonical(exeDir / ".." / ".." / "..") /
-                               "OptiScaler-DLSSNR-PreSR-Multipass-main" / "external" / "FidelityFX-SDK-v2" /
+                         : repoRoot / "OptiScaler-DLSSNR-PreSR-Multipass-main" / "external" / "FidelityFX-SDK-v2" /
                                "Kits" / "FidelityFX" / "signedbin";
-        const fs::path den = signedbin / "amd_fidelityfx_denoiser_dx12.dll";
+        const fs::path den121 = repoRoot / "third_party" / "fsr-rr-1.2.1" / "amd_fidelityfx_denoiser_dx12.dll";
+        const fs::path den = (!envSignedbin && fs::exists(den121)) ? den121 : (signedbin / "amd_fidelityfx_denoiser_dx12.dll");
         const fs::path ups = signedbin / "amd_fidelityfx_upscaler_dx12.dll";
         const fs::path target = probeOut.empty() ? outDir / "manifest.ini" : probeOut;
         std::ofstream f(target);
@@ -2736,8 +2737,34 @@ static int GuardedMain(int argc, char** argv)
     rrCreate.signalFlags = signalFlagsFor(currentPlan.mask);
     rrCreate.checkerboardSignalFlags = FFX_DENOISER_SIGNAL_NONE;
     rrCreate.flags = (mode == "serial" && mf.validation) ? uint32_t(FFX_DENOISER_ENABLE_VALIDATION) : 0u;
+    FfxApiEffectMemoryUsage rrPredictedMem {};
+    bool rrPredictedMemQueried = false;
+    {
+        ffxQueryDescDenoiserGetGPUMemoryUsage memQuery = {};
+        memQuery.header.type = FFX_API_QUERY_DESC_TYPE_DENOISER_GPU_MEMORY_USAGE;
+        memQuery.device = gpu.device.Get();
+        memQuery.maxRenderSize = rrCreate.maxRenderSize;
+        memQuery.signalFlags = rrCreate.signalFlags;
+        memQuery.checkerboardSignalFlags = rrCreate.checkerboardSignalFlags;
+        memQuery.flags = rrCreate.flags;
+        memQuery.gpuMemoryUsage = &rrPredictedMem;
+        rrPredictedMemQueried = denoiser.api.Query(nullptr, &memQuery.header) == FFX_API_RETURN_OK;
+    }
     ffxContext rrCtx = nullptr;
     CHECK_FFX(denoiser.api.CreateContext(&rrCtx, &rrCreate.header, nullptr), "RR CreateContext");
+    FfxApiEffectMemoryUsage rrActualMem {};
+    bool rrActualMemQueried = false;
+    {
+        ffxQueryDescDenoiserGetGPUMemoryUsage memQuery = {};
+        memQuery.header.type = FFX_API_QUERY_DESC_TYPE_DENOISER_GPU_MEMORY_USAGE;
+        memQuery.device = gpu.device.Get();
+        memQuery.maxRenderSize = rrCreate.maxRenderSize;
+        memQuery.signalFlags = rrCreate.signalFlags;
+        memQuery.checkerboardSignalFlags = rrCreate.checkerboardSignalFlags;
+        memQuery.flags = rrCreate.flags;
+        memQuery.gpuMemoryUsage = &rrActualMem;
+        rrActualMemQueried = denoiser.api.Query(&rrCtx, &memQuery.header) == FFX_API_RETURN_OK;
+    }
     ffxContext nativeRrCtx = nullptr;
     if (nativeComparison)
         CHECK_FFX(denoiser.api.CreateContext(&nativeRrCtx, &rrCreate.header, nullptr), "native RR CreateContext");
@@ -3846,10 +3873,10 @@ static int GuardedMain(int argc, char** argv)
                 CHECK_FFX(upscaler.api.Dispatch(&srCtx, &sr.header), "perf SR dispatch");
                 timer.End(cl, frame, StageUpscale);
 
+                timer.Begin(cl, frame, StageReadback);
                 if (frame + 1 == perSceneFrames)
                 {
                     // Content sanity readback on the final frame only.
-                    timer.Begin(cl, frame, StageReadback);
                     D3D12_RESOURCE_BARRIER b{};
                     b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
                     b.Transition = {t.srOut.tex.Get(), D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
@@ -3865,8 +3892,8 @@ static int GuardedMain(int argc, char** argv)
                     b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
                     b.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
                     cl->ResourceBarrier(1, &b);
-                    timer.End(cl, frame, StageReadback);
                 }
+                timer.End(cl, frame, StageReadback);
 
                 CHECK_HR(cl->Close(), "close");
                 Execute(slot, cl);
@@ -4095,6 +4122,13 @@ static int GuardedMain(int argc, char** argv)
         js << "  \"rr_context\": {\"version\": " << FFX_DENOISER_VERSION << ", \"maxRenderSize\": [" << maxRenderW
            << ", " << maxRenderH << "], \"signalFlags\": " << rrCreate.signalFlags
            << ", \"createFlags\": " << rrCreate.flags << "},\n";
+        js << "  \"denoiser_memory_usage\": " << nlohmann::json({
+            {"predicted_queried", rrPredictedMemQueried},
+            {"predicted_total_bytes", rrPredictedMem.totalUsageInBytes},
+            {"predicted_aliasable_bytes", rrPredictedMem.aliasableUsageInBytes},
+            {"actual_queried", rrActualMemQueried},
+            {"actual_total_bytes", rrActualMem.totalUsageInBytes},
+            {"actual_aliasable_bytes", rrActualMem.aliasableUsageInBytes}}).dump() << ",\n";
         js << "  \"diffuse_signal\": \"" << mf.diffuseSignal << "\", \"specular_signal\": \"" << mf.specularSignal
            << "\",\n";
         js << "  \"settings_source\": \"frozen generation: explicit canonical Config.h/feature controls pinned at 2c2f619b; current generation: explicit fixture preferences and production profile policy; six RR keys intentionally queried-provider defaults in both; distinct Floor algorithms/policies require explicit comparison policy, not identical-math claims\",\n";
