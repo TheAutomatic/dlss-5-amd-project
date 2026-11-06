@@ -10,9 +10,6 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 KEYS = (ROOT / "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/ConfigKeys.h").read_text(encoding="utf-8")
 CONFIG = (ROOT / "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/Config.cpp").read_text(encoding="utf-8")
-RUNTIME = (
-    ROOT / "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime/LmxxfNrRuntime.cpp"
-).read_text(encoding="utf-8")
 MENU = (ROOT / "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/DlssNr_Menu.cpp").read_text(encoding="utf-8")
 
 
@@ -508,50 +505,6 @@ int main() {
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         self.assertIn('MOCHIZUKI_PASS_RELOAD_OK', run.stdout)
 
-    @unittest.skipUnless(os.name == "nt" and shutil.which("cl"), "requires an x64 MSVC developer environment")
-    def test_host_updates_cross_independent_crt_caches(self):
-        source = ROOT / "tests/host/lmxxf_config_crt.cpp"
-        with tempfile.TemporaryDirectory(prefix="lmxxf-config-crt-") as td:
-            out = Path(td)
-            for fixture in (True, False):
-                name = "runtime" if fixture else "host"
-                target = out / (name + (".dll" if fixture else ".exe"))
-                command = ["cl", "/nologo", "/std:c++17", "/EHsc", "/MT", "/W4", "/utf-8",
-                           "/D_CRT_SECURE_NO_WARNINGS", str(source),
-                           f"/Fo:{out / (name + '.obj')}", f"/Fe:{target}"]
-                if fixture:
-                    command += ["/LD", "/DLMXXF_CONFIG_CRT_FIXTURE"]
-                    command += [f"/I{ROOT / 'third_party/lmxxf/Development/HIP'}",
-                                f"/I{ROOT / 'third_party/lmxxf/src'}", "/DNOMINMAX"]
-                result = subprocess.run(command, cwd=out, capture_output=True, text=True,
-                                        errors="replace", timeout=60)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            result = subprocess.run([str(out / "host.exe"), str(out / "runtime.dll")],
-                                    capture_output=True, text=True, errors="replace", timeout=30)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn("LMXXF_CONFIG_CRT_OK", result.stdout)
-
-    def test_shared_residual_controls_are_host_owned_and_neutral(self):
-        product = ROOT / "OptiScaler-DLSSNR-PreSR-Multipass-main"
-        header = (product / "OptiScaler/Config.h").read_text(encoding="utf-8")
-        ini = (product / "OptiScaler.ini").read_text(encoding="utf-8")
-        packager = (ROOT / "tools/release/PACKAGE_RELEASE.ps1").read_text(encoding="utf-8")
-        reset = MENU.split("static void ResetSharedEffectsDefaults", 1)[1].split("static void ResetSharedNrDefaults", 1)[0]
-        for key, value in (("NrResidualLowGain", "1.0"), ("NrResidualDetailGain", "1.0"),
-                           ("NrResidualSkinProtection", "0.0"), ("NrResidualEdgeProtection", "0.0")):
-            with self.subTest(key=key):
-                self.assertIn(f'{key} = "{key}"', KEYS)
-                self.assertIn(f"    {key},", KEYS.split("kKnown[]", 1)[1])
-                self.assertIn(f"{key} {{ {value}f }}", header)
-                self.assertIn(f"{key}.set_from_config(readFloat(CfgKey::kSection, CfgKey::{key}))", CONFIG)
-                self.assertIn(f"ini.SetValue(CfgKey::kSection, CfgKey::{key},", CONFIG)
-                self.assertIn(f"Instance()->{key}.value_for_config()", CONFIG)
-                self.assertNotRegex(CONFIG, rf"PutEnv\w*\(CfgKey::{key}")
-                self.assertNotIn(key, RUNTIME)
-                self.assertIn(f"config->{key} = std::optional<float>{{}}", reset)
-                for source in (ini, packager):
-                    self.assertRegex(source, rf"(?m)^{key}={value}$")
-
     def test_nr_multiplier_has_separate_persistent_key(self):
         self.assertIn('XeFGInterpolationCount = "XeFGInterpolationCount"', KEYS)
         self.assertIn('    XeFGInterpolationCount,', KEYS.split('kKnown[]', 1)[1])
@@ -567,11 +520,6 @@ int main() {
         activity = nr.split('bool IsActiveForFrameGeneration()', 1)[1].split('const char* FailureReason()', 1)[0]
         self.assertIn('g_activityBackend.load', activity)
         self.assertNotIn('HasFiles()', activity)
-
-    def test_flags_fallback_does_not_overwrite_env(self):
-        self.assertIn("if (std::getenv(key))", RUNTIME)
-        self.assertIn("continue; // menu / ini / caller already owns this key", RUNTIME)
-        self.assertIn("ApplyFlagsFileFallback", RUNTIME)
 
     def test_host_writes_env_from_ini_before_flags(self):
         self.assertIn("PutEnvAlias(CfgKey::FitLarge", CONFIG)

@@ -262,12 +262,6 @@ jobs:
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v3
 
-      - name: Module contract gate
-        shell: pwsh
-        run: |
-          powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/release/check-module-contract.ps1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
 
       - name: FSRD shader mirror verification
         shell: pwsh
@@ -387,7 +381,7 @@ jobs:
             $bad | ForEach-Object { Write-Host "FORBIDDEN: $_" }
             throw 'Refusing to publish: proprietary/user-supplied binaries found in package zip.'
           }
-          $required = @('OptiScaler.dll', 'LmxxfNrRuntime.dll', 'OpenNrRrRuntime.dll', 'OptiScaler.ini', 'Setup.ps1', 'Setup.bat', 'LICENSE', 'NOTICE')
+          $required = @('OptiScaler.dll', 'OpenNrRrRuntime.dll', 'OptiScaler.ini', 'Setup.ps1', 'Setup.bat', 'LICENSE', 'NOTICE')
           foreach ($r in $required) {
             if ($entryNames -notcontains $r) {
               throw "REQUIRED COMPONENT MISSING IN ZIP: $r"
@@ -413,7 +407,7 @@ jobs:
             if ($entryPaths -notcontains $path) { throw "REQUIRED MOCHIZUKI ASI COMPONENT MISSING: $path" }
           }
           if ($entryPaths -match '(?i)/(aco-cache|pipeline-binaries)/') { throw 'Driver cache included in package.' }
-          foreach ($license in @('OptiScaler_LICENSE.txt', 'Lmxxf_MIT.txt', 'OpenRR_MIT.txt', 'Mochizuki_MIT.txt', 'RenoDX_MIT.txt', 'XeSS_LICENSE.txt', 'FidelityFX_v1_LICENSE.md', 'FidelityFX_v2_LICENSE.md', 'DirectX_LICENSE.txt')) {
+          foreach ($license in @('OptiScaler_LICENSE.txt', 'OpenRR_MIT.txt', 'Mochizuki_MIT.txt', 'RenoDX_MIT.txt', 'XeSS_LICENSE.txt', 'FidelityFX_v1_LICENSE.md', 'FidelityFX_v2_LICENSE.md', 'DirectX_LICENSE.txt')) {
             if ($entryPaths -notcontains "Licenses/$license") {
               throw "REQUIRED LICENSE MISSING IN ZIP: $license"
             }

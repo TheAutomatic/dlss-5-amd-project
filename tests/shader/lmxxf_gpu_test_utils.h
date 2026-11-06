@@ -3,7 +3,7 @@
 #include <windows.h>
 #include <d3d12.h>
 #include <dxgi1_4.h>
-#include "OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime/LmxxfNrApi.h"
+
 #include <DirectXPackedVector.h>
 #include <cmath>
 #include <cstdio>

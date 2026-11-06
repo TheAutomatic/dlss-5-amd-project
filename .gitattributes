@@ -4,20 +4,9 @@
 # 「\r: command not found」和莫名其妙匹配不上的分支。
 .githooks/* text eol=lf
 
-# Unified patches are applied to LF git-archive files on Windows too.
-tools/lmxxf-sync/patches/*.patch text eol=lf
 # Unified patch blank context lines carry a required space; git apply checks source whitespace.
 # Dormant research patches must remain directly applicable after a Windows checkout.
 docs/research/nr-capture-proof/*.patch text eol=lf whitespace=-blank-at-eol
-
-# Frozen upstream fixtures: their raw SHA256 must survive a Windows checkout.
-tests/sync/fixtures/lmxxf/*.upstream.* text eol=lf
-tests/sync/fixtures/lmxxf/*.raw text eol=lf
-
-# Vendor sources that local_patches apply to must match git-archive LF.
-third_party/lmxxf/** text=auto eol=lf
-# GPU modules are opaque binaries even when they happen to contain CRLF bytes.
-third_party/lmxxf/**/*.hsaco -text
 
 # Vendored official NR ASI payload: binaries and resource text must stay byte-exact.
 third_party/mochizuki-asi/payload/** -text

@@ -85,9 +85,6 @@ Copy-Item -LiteralPath (Join-Path $root 'tools/install/proxy-probe.ps1') -Destin
 Copy-Item -LiteralPath (Join-Path $root 'tools/install/library-scan.ps1') -Destination $OutDir -Force
 Copy-Item -LiteralPath (Join-Path $root 'tools/install/install-capabilities.ps1') -Destination $OutDir -Force
 Copy-Item -LiteralPath (Join-Path $root 'tools/install/xess-compat.ps1') -Destination $OutDir -Force
-foreach ($name in @('lmxxf-small.ps1','lmxxf-small-manifest.json')) {
-    Copy-Item -LiteralPath (Join-Path $root "tools/install/$name") -Destination $OutDir -Force
-}
 $srcFiles = Get-ChildItem -LiteralPath $src -File | Where-Object { $_.Extension -match '\.(cs|xaml|manifest|md|ps1)$' }
 $srcFiles += Get-Item -LiteralPath (Join-Path $root 'assets/compatibility/proxy-profiles.json')
 $srcFiles += Get-Item -LiteralPath (Join-Path $root 'tools/install/launcher-worker.ps1')
@@ -95,7 +92,6 @@ $srcFiles += Get-Item -LiteralPath (Join-Path $root 'tools/install/proxy-probe.p
 $srcFiles += Get-Item -LiteralPath (Join-Path $root 'tools/install/library-scan.ps1')
 $srcFiles += Get-Item -LiteralPath (Join-Path $root 'tools/install/install-capabilities.ps1')
 $srcFiles += Get-Item -LiteralPath (Join-Path $root 'tools/install/xess-compat.ps1')
-foreach ($name in @('lmxxf-small.ps1','lmxxf-small-manifest.json')) { $srcFiles += Get-Item -LiteralPath (Join-Path $root "tools/install/$name") }
 $sha = [Security.Cryptography.SHA256]::Create()
 $concat = New-Object IO.MemoryStream
 foreach ($f in ($srcFiles | Sort-Object FullName)) {

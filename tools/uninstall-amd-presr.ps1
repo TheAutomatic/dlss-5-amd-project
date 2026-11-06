@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Remove this project from the folder this script sits in (the game folder after Setup).
   Double-click Uninstall_OptiScaler_NR.bat there. Tests may pass -GameDir.
@@ -86,14 +86,54 @@ if (!(Test-Path -LiteralPath $GameDir -PathType Container)) {
 $game = (Resolve-Path -LiteralPath $GameDir).Path
 $game = [IO.Path]::GetFullPath($game)
 
-# New packages share the controlled module names. A standalone copied uninstaller
-# can still use the installed manifests; it never claims ownership by extension.
-$moduleHelper = Join-Path $PSScriptRoot 'lmxxf-module-package.ps1'
-$controlledModules = @()
-if (Test-Path -LiteralPath $moduleHelper -PathType Leaf) {
-    . $moduleHelper
-    $controlledModules = @(Get-LmxxfModuleNames)
+function Assert-LmxxfUnlinkedPath([string]$Path) {
+    $full = [IO.Path]::GetFullPath($Path)
+    if ($full.Length -gt [IO.Path]::GetPathRoot($full).Length) { $full = $full.TrimEnd('\', '/') }
+    $cursor = $full
+    while ($cursor) {
+        $item = Get-Item -LiteralPath $cursor -Force -ErrorAction SilentlyContinue
+        if ($item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw "Refusing linked module path (symlink/junction/reparse point): $cursor"
+        }
+        $cursor = [IO.Path]::GetDirectoryName($cursor.TrimEnd('\', '/'))
+    }
+    return $full
 }
+
+function Get-LmxxfUnlinkedFiles([string]$Directory) {
+    $full = Assert-LmxxfUnlinkedPath $Directory
+    if (-not (Test-Path -LiteralPath $full -PathType Container)) { throw "Missing module directory: $full" }
+    $pending = [Collections.Generic.Stack[string]]::new()
+    $pending.Push($full)
+    while ($pending.Count) {
+        foreach ($item in Get-ChildItem -LiteralPath $pending.Pop() -Force -ErrorAction Stop) {
+            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw "Refusing linked module path (symlink/junction/reparse point): $($item.FullName)"
+            }
+            if ($item.PSIsContainer) { $pending.Push($item.FullName) }
+            else { $item }
+        }
+    }
+}
+
+$controlledModules = @(
+    'deep_fast-packed-fast.hsaco',
+    'vit-stream-fast.hsaco',
+    'multi-pass-skin.hsaco',
+    'multi-pass-predict.hsaco',
+    'boundary-fast.hsaco', 'boundary_reference.hsaco', 'c32_fast.hsaco',
+    'c32_fast_attention.hsaco', 'c32_fused_attention.hsaco',
+    'c32_fused_ffn_attention-packed.hsaco', 'c32_fused_ffn_attention.hsaco',
+    'c32_prefix_reference.hsaco', 'c32_tiled.hsaco', 'c32_wmma.hsaco',
+    'c32-wave1-rtz.hsaco', 'c32-wave1-fast.hsaco', 'c64-wave2-fast.hsaco',
+    'c32-wave1.hsaco', 'c64-wave2.hsaco', 'c512-m32-mh.hsaco', 'c512-m32-deep.hsaco',
+    'deep_fast-packed.hsaco', 'deep_fast.hsaco', 'deep_reference.hsaco', 'deep_wmma.hsaco',
+    'multihead-fast-packed.hsaco', 'multihead-fast-padded-wave-packed.hsaco',
+    'multihead-fast-padded-wave.hsaco', 'multihead-fast.hsaco', 'multihead-reference.hsaco',
+    'multihead-tiled.hsaco', 'multihead-wmma.hsaco', 'multihead_fused_attention.hsaco',
+    'prefix_fast.hsaco', 'vit-wide-deep.hsaco', 'wave-pointwise.hsaco', 'vit-stream.hsaco',
+    'swin-persistent.hsaco', 'swin-persistent-fast.hsaco', 'c32-wave1-fast-norm900.hsaco'
+)
 
 # File names this project installs. Proxy names are deleted only when the file is OptiScaler.
 $proxyNames = @('dxgi.dll','winmm.dll','d3d12.dll','version.dll','winhttp.dll','wininet.dll','dbghelp.dll')

@@ -1,5 +1,4 @@
 #include "pch.h"
-#include <dlssnr/amd/PresentExperimental.h>
 #include <dlssnr/AsiTakeover.h>
 #include "menu_overlay_base.h"
 #include "menu_overlay_dx.h"
@@ -354,20 +353,6 @@ static void RenderImGui_DX12(IDXGISwapChain* pSwapChainPlain)
     {
         if (pSwapChainPlain->QueryInterface(IID_PPV_ARGS(&pSwapChain)) != S_OK || pSwapChain == nullptr)
             return;
-
-        if (AmdPresentExperimental::IsTarget() && DlssNr::AsiTakeover::NrRuntimeEnabled())
-        {
-            AmdPreSr::Settings settings;
-            const auto* cfg = Config::Instance();
-            settings.toneChannels = cfg->AmdToneChannels.value_or(true);
-            settings.tone = cfg->AmdNeuralLightingStrength.value_or_default();
-            settings.autoMask = cfg->DlssNrAutoMask.value_or_default();
-            settings.useGameExposure = cfg->AmdUseGameExposure.value_or_default();
-            settings.style = (std::min)(cfg->DlssNrStyle.value_or_default(), 2u);
-            settings.toneCurve = cfg->DlssNrToneCurve.value_or_default() ? 1u : 0u;
-            settings.toneLift = AmdPreSr::BoundedToneLift(cfg->DlssNrToneLift.value_or_default());
-            AmdPresentExperimental::Render(pSwapChain, (ID3D12CommandQueue*)currentSCCommandQueue, Util::DllPath().parent_path(), settings);
-        }
 
         if (!MenuOverlayBase::IsInited())
             break;

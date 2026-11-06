@@ -22,16 +22,6 @@ call :BuildAndRun shader_dx12_srv
 if not "%errorlevel%"=="0" goto fail
 call :BuildAndRun shader_dx11_ownership
 if not "%errorlevel%"=="0" goto fail
-call :BuildAndRun nr_output_effects
-if not "%errorlevel%"=="0" goto fail
-call :BuildAndRun nr_residual_shaping
-if not "%errorlevel%"=="0" goto fail
-call :BuildAndRun nr_stabilizer
-if not "%errorlevel%"=="0" goto fail
-call :BuildAndRun nr_stabilizer_lifecycle
-if not "%errorlevel%"=="0" goto fail
-call :BuildAndRun nr_post_sr
-if not "%errorlevel%"=="0" goto fail
 call :BuildAndRun rr_post_lifetime
 if not "%errorlevel%"=="0" goto fail
 call :BuildAndRun fsrd_variants

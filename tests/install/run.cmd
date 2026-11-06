@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 rem Installer, uninstaller and packaging entrypoints. No GPU; isolated temp folders only.
 rem Usage: tests\install\run.cmd [release]  (default: full regression; release: focused smoke cases)
 rem   test_installer_exit.py   Setup/Uninstall launchers under Windows PowerShell 5.1
@@ -24,12 +24,10 @@ if /i "%~1"=="artwork" goto artwork
 "%PS51%" -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File tests\install\launcher-state.ps1 || goto fail
 "%AMD_TEST_PYTHON%" -B -m unittest discover -s tests\install -p test_launcher_package.py --failfast || goto fail
 "%AMD_TEST_PYTHON%" -B -m unittest discover -s tests\install -p test_launcher_startup.py --failfast || goto fail
-"%AMD_TEST_PYTHON%" -B tests\install\test_lmxxf_small.py || goto fail
 "%AMD_TEST_PYTHON%" -B tests\install\test_module_packages.py --failfast || goto fail
 "%PS51%" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests\install\amd_uninstall.ps1 || goto fail
 "%AMD_TEST_PYTHON%" -B tests\install\test_release_upload.py || goto fail
 "%AMD_TEST_PYTHON%" -B tests\install\test_release_notes.py || goto fail
-"%AMD_TEST_PYTHON%" -B tests\install\test_runtime_ci_proof.py || goto fail
 "%AMD_TEST_PYTHON%" -B tests\install\test_ci_workers.py || goto fail
 
 rem Local build launcher tests run with the cached tooling suite (tests\sync).
@@ -44,7 +42,7 @@ exit /b 1
 :release
 rem Archive install/uninstall, overwrite/preferences, and explicit multi-backend selection.
 rem The production packager separately checks signatures, all files and hashes on the actual ZIP.
-"%AMD_TEST_PYTHON%" -B tests\install\test_module_packages.py ModulePackageTests.test_valid_actual_archive_can_install || goto fail
+"%AMD_TEST_PYTHON%" -B tests\install\test_module_packages.py ModulePackageTests.test_mochizuki_asi_install_and_uninstall_inventory || goto fail
 "%AMD_TEST_PYTHON%" -B tests\install\test_installer_exit.py InstallerExitTests.test_kept_ini_preserves_canonical_preferences_over_legacy || goto fail
 "%AMD_TEST_PYTHON%" -B tests\install\test_installer_exit.py InstallerExitTests.test_explicit_active_backend_survives_install_update_and_reinstall || goto fail
 "%AMD_TEST_PYTHON%" -B tests\install\test_installer_exit.py InstallerExitTests.test_launcher_update_reuses_game_models_after_package_cache_deleted || goto fail

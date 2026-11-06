@@ -24,7 +24,7 @@ try {
     }
     $Root = (Resolve-Path -LiteralPath $Root).Path
     if ($Root -match '[%!^"\r\n]') { throw 'Project path contains unsupported cmd expansion characters.' }
-    foreach ($file in @('VERSION','tools/build/build-lmxxf-runtime.cmd',
+    foreach ($file in @('VERSION',
         'tools/release/PACKAGE_RELEASE.ps1','tests/_lib/msvc-env.cmd',
         'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/OptiScaler.vcxproj')) {
         if (!(Test-Path -LiteralPath (Join-Path $Root $file) -PathType Leaf)) { throw "Not a source checkout: missing $file" }
@@ -80,7 +80,6 @@ try {
 @echo off
 setlocal
 call tests\_lib\msvc-env.cmd || exit /b 1
-call tools\build\build-lmxxf-runtime.cmd exports\lmxxf-runtime || exit /b 1
 '@
         $batch += @'
 

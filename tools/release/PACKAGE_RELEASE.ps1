@@ -23,7 +23,35 @@ param(
     [switch]$AllowMissingDeps
 )
 $ErrorActionPreference = 'Stop'
-. (Join-Path (Split-Path -Parent $PSScriptRoot) 'lmxxf-module-package.ps1')
+function Assert-LmxxfUnlinkedPath([string]$Path) {
+    $full = [IO.Path]::GetFullPath($Path)
+    if ($full.Length -gt [IO.Path]::GetPathRoot($full).Length) { $full = $full.TrimEnd('\', '/') }
+    $cursor = $full
+    while ($cursor) {
+        $item = Get-Item -LiteralPath $cursor -Force -ErrorAction SilentlyContinue
+        if ($item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw "Refusing linked module path (symlink/junction/reparse point): $cursor"
+        }
+        $cursor = [IO.Path]::GetDirectoryName($cursor.TrimEnd('\', '/'))
+    }
+    return $full
+}
+
+function Get-LmxxfUnlinkedFiles([string]$Directory) {
+    $full = Assert-LmxxfUnlinkedPath $Directory
+    if (-not (Test-Path -LiteralPath $full -PathType Container)) { throw "Missing module directory: $full" }
+    $pending = [Collections.Generic.Stack[string]]::new()
+    $pending.Push($full)
+    while ($pending.Count) {
+        foreach ($item in Get-ChildItem -LiteralPath $pending.Pop() -Force -ErrorAction Stop) {
+            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw "Refusing linked module path (symlink/junction/reparse point): $($item.FullName)"
+            }
+            if ($item.PSIsContainer) { $pending.Push($item.FullName) }
+            else { $item }
+        }
+    }
+}
 
 # 不要用 Get-FileHash：它属于 Microsoft.PowerShell.Utility，靠模块自动加载。
 # 当环境里的 PSModulePath 指向 PowerShell 7 的模块目录时（CI 里在 shell: pwsh
@@ -46,7 +74,6 @@ foreach ($license in @(
     'LICENSE',
     'NOTICE',
     'OptiScaler-DLSSNR-PreSR-Multipass-main/LICENSE',
-    'third_party/lmxxf/LICENSE',
     'third_party/openrr/LICENSE',
     'third_party/fsr-rr-1.2.1/license.md',
     'third_party/fsr-rr-1.2.1/3rdpartynotice.md',
@@ -85,20 +112,6 @@ if (!(Test-Path -LiteralPath $OptiDll)) {
     throw 'OptiScaler.dll not found. Build Release first (r18: ordinary Release, multi-slot default).'
 }
 
-# Fail on an invalid source before replacing any existing staged package.
-$lmxxfDllSrc = Join-Path $root 'exports/lmxxf-runtime/LmxxfNrRuntime.dll'
-$runtimeProof = Join-Path $root 'exports/lmxxf-runtime/runtime-ci.sha256'
-if ($LocalTest) {
-    Write-Warning 'LOCAL TEST PACKAGE: runtime release-check proof is not required; this is not release validation.'
-} else {
-    if (-not (Test-Path -LiteralPath $runtimeProof -PathType Leaf)) {
-        throw 'Missing runtime-ci.sha256. Stage the runtime and proof from a successful tests/run-all.cmd --tier release (or full ci) run.'
-    }
-    $testedRuntimeHash = ([IO.File]::ReadAllText($runtimeProof)).Trim()
-    if ($testedRuntimeHash -notmatch '^[0-9a-fA-F]{64}$' -or $testedRuntimeHash -ne (Get-Sha256 $lmxxfDllSrc)) {
-        throw 'Runtime differs from the DLL that passed CI suites. Re-test and stage the matching runtime-ci.sha256.'
-    }
-}
 # Neural Rendering ships the official dlssnr-amd.asi payload, not the retired
 # built-in MochizukiNrRuntime.dll. Names and layout only; no hash gate, so the
 # user may replace the plugin or its resources with a newer official build.
@@ -119,10 +132,7 @@ foreach ($required in @(
 if (!(Test-Path -LiteralPath (Join-Path $asiPayload 'dlssnr-amd/shaders') -PathType Container)) {
     throw 'Mochizuki ASI payload incomplete: dlssnr-amd/shaders'
 }
-$sourceRuntimeHash = Get-Sha256 $lmxxfDllSrc
 $hostHash = Get-Sha256 $OptiDll
-$lmxxfModSrc = Join-Path $root 'third_party/lmxxf/modules'
-Assert-LmxxfModulePackage $lmxxfModSrc
 $outputRoot = [IO.Path]::GetFullPath((Join-Path $root $OutDir)).TrimEnd('\', '/')
 $stage = Assert-LmxxfUnlinkedPath $stage
 if ([IO.Path]::GetDirectoryName($stage) -ine $outputRoot) { throw 'Package Name must be a single directory name inside OutDir.' }
@@ -157,15 +167,6 @@ if (-not (Test-Path -LiteralPath $freshness -PathType Leaf)) {
 & powershell -NoProfile -ExecutionPolicy Bypass -File $freshness -Root $root -OptiDll $OptiDll
 if ($LASTEXITCODE -ne 0) {
     throw "Release freshness check failed. Rebuild LmxxfNrRuntime.dll and/or modules before packaging."
-}
-# 40/arch, 80 dual must agree across runtime, tests, packager, and recipe.
-$contract = Join-Path $PSScriptRoot 'check-module-contract.ps1'
-if (-not (Test-Path -LiteralPath $contract -PathType Leaf)) {
-    throw "Module contract check is missing: $contract"
-}
-& powershell -NoProfile -ExecutionPolicy Bypass -File $contract
-if ($LASTEXITCODE -ne 0) {
-    throw "Module contract check failed. Do not ship mismatched module counts."
 }
 $depSearch += (Join-Path $root 'third_party/fsr-rr-1.2.1')
 $depSearch += (Join-Path $source 'external/FidelityFX-SDK-v2/Kits/FidelityFX/signedbin')
@@ -246,7 +247,6 @@ if ($missing.Count -gt 0) {
 
 # Required license notices were checked before staging.
 Copy-Item -LiteralPath (Join-Path $source 'LICENSE') -Destination (Join-Path $stage 'Licenses/OptiScaler_LICENSE.txt') -Force
-Copy-Item -LiteralPath (Join-Path $root 'third_party/lmxxf/LICENSE') -Destination (Join-Path $stage 'Licenses/Lmxxf_MIT.txt') -Force
 Copy-Item -LiteralPath (Join-Path $root 'third_party/fsr-rr-1.2.1/license.md') -Destination (Join-Path $stage 'Licenses/FidelityFX_Denoiser_1.2.1_LICENSE.md') -Force
 Copy-Item -LiteralPath (Join-Path $root 'third_party/fsr-rr-1.2.1/3rdpartynotice.md') -Destination (Join-Path $stage 'Licenses/FidelityFX_Denoiser_1.2.1_3RDPARTYNOTICE.md') -Force
 Copy-Item -LiteralPath (Join-Path $root 'LICENSE'), (Join-Path $root 'NOTICE') -Destination $stage -Force
@@ -611,14 +611,6 @@ Backend=auto
 if ($ini -notmatch '(?m)^\[OpenNR-RR\]') { $ini += $openNrRrBlock }
 [IO.File]::WriteAllText((Join-Path $stage 'OptiScaler.ini'), $ini, [Text.UTF8Encoding]::new($false))
 
-# Compiled RTGI shaders only. Lighting.hlsl sits beside them as their source and is not shipped
-# (rebuild the .cso with tools\build\build-rtgi-shaders.cmd).
-$rtgiSrc = Join-Path $root 'assets/experimental_lighting'
-if (Test-Path $rtgiSrc) {
-    $rtgiDst = Join-Path $stage 'experimental_lighting'
-    New-Item -ItemType Directory -Path $rtgiDst -Force | Out-Null
-    Get-ChildItem -LiteralPath $rtgiSrc -Filter '*.cso' -File | Copy-Item -Destination $rtgiDst -Force
-}
 
 # Bundled plugins (OptiPatcher.asi: DLSS spoofing enhancement offline cache)
 # Always create plugins/ and OptiScaler/plugins/ with a project-named README so the folder exists
@@ -686,12 +678,6 @@ Copy-Item -LiteralPath (Join-Path $root 'third_party/mochizuki-asi/README.md') -
 # files that install owned. It is not a compatibility check.
 Copy-Item -LiteralPath (Join-Path $root 'tools/install/mochizuki-owned.txt') -Destination $stage -Force
 Get-ChildItem -LiteralPath (Join-Path $asiPayload 'Licenses') -File | Copy-Item -Destination (Join-Path $stage 'Licenses') -Force
-foreach ($name in @('lmxxf-model.py','lmxxf-small-manifest.json','lmxxf-small.ps1')) {
-    Copy-Item -LiteralPath (Join-Path $root "tools/install/$name") -Destination $stage
-}
-foreach ($name in @('lmxxf-small-model.md','lmxxf-044-consumer-review.md')) {
-    Copy-Item -LiteralPath (Join-Path $root "docs/$name") -Destination (Join-Path $stage 'docs')
-}
 
 $mzDoc = [IO.File]::ReadAllText((Join-Path $root 'docs/mochizuki.md'))
 $mzDoc = $mzDoc.Replace('../third_party/mochizuki-asi/UPSTREAM.md', '../Licenses/Mochizuki_SOURCES.md').Replace('../third_party/mochizuki/UPSTREAM.md', '../Licenses/Mochizuki_SOURCES.md')
@@ -729,33 +715,9 @@ New-Item -ItemType Directory -Path $openRrShaderDst -Force | Out-Null
 Get-ChildItem -LiteralPath $openRrShaderSrc -Filter '*.spv' -File | Copy-Item -Destination $openRrShaderDst -Force
 Copy-Item -LiteralPath (Join-Path $root 'third_party/openrr/LICENSE') -Destination (Join-Path $stage 'Licenses/OpenRR_MIT.txt') -Force
 
-# Bundled open-source lmxxf runtime binaries, modules, and shaders
-if (!(Test-Path -LiteralPath $lmxxfDllSrc -PathType Leaf)) {
-    throw "Required LmxxfNrRuntime.dll not found at $lmxxfDllSrc! Build it first with tools\build\build-lmxxf-runtime.cmd."
+if ((Get-Sha256 (Join-Path $stage 'OptiScaler.dll')) -ne $hostHash) {
+    throw 'Staged binaries differ from the selected host.'
 }
-Copy-Item -LiteralPath $lmxxfDllSrc -Destination (Join-Path $stage 'LmxxfNrRuntime.dll') -Force
-if ((Get-Sha256 (Join-Path $stage 'LmxxfNrRuntime.dll')) -ne $sourceRuntimeHash -or
-    (Get-Sha256 (Join-Path $stage 'OptiScaler.dll')) -ne $hostHash) {
-    throw 'Staged binaries differ from the selected host or runtime.'
-}
-
-$lmxxfModSrc = Join-Path $root 'third_party/lmxxf/modules'
-if (Test-Path -LiteralPath $lmxxfModSrc -PathType Container) {
-    $lmxxfModDst = Join-Path $stage 'lmxxf-modules'
-    New-Item -ItemType Directory -Path $lmxxfModDst -Force | Out-Null
-    Copy-Item -Path (Join-Path $lmxxfModSrc '*') -Destination $lmxxfModDst -Recurse -Force
-}
-
-$lmxxfShaderSrc = Join-Path $root 'third_party/lmxxf/shaders'
-if (Test-Path -LiteralPath $lmxxfShaderSrc -PathType Container) {
-    $lmxxfShaderDst = Join-Path $stage 'shaders'
-    New-Item -ItemType Directory -Path $lmxxfShaderDst -Force | Out-Null
-    # Live glue: top-level *.hlsl only. shader-cache/*.dxbc is a local compile cache and is not shipped.
-    Get-ChildItem -LiteralPath $lmxxfShaderSrc -Filter '*.hlsl' -File | ForEach-Object {
-        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $lmxxfShaderDst $_.Name) -Force
-    }
-}
-
 # Installer + docs (CN + EN + ES). No duplicate 使用说明.txt.
 $readmeZh = Join-Path $root 'README.md'
 $readmeEn = Join-Path $root 'README.en.md'
@@ -765,7 +727,6 @@ if (!(Test-Path $readmeEn)) { throw "Missing $readmeEn" }
 $installerSrc = Join-Path $root 'tools/install-amd-presr.ps1'
 if (!(Test-Path $installerSrc)) { throw "Missing $installerSrc" }
 Copy-Item $installerSrc (Join-Path $stage 'Setup.ps1') -Force
-Copy-Item -LiteralPath (Join-Path $root 'tools/lmxxf-module-package.ps1') -Destination $stage -Force
 & (Join-Path $root 'tools/build/build-launcher.ps1') -OutDir (Join-Path $root 'exports/launcher')
 $launcherExe = Join-Path $root 'exports/launcher/OptScalerNR.Launcher.exe'
 if (!(Test-Path -LiteralPath $launcherExe)) { throw "Launcher EXE was not produced" }
@@ -845,8 +806,6 @@ if ($badAll) {
     throw "Refusing to package proprietary/user-supplied file: $(($badAll | ForEach-Object { $_.FullName.Substring($stage.Length+1) }) -join ', ')"
 }
 
-# Check the copied tree, including actual hashes and parent/leaf metadata.
-Assert-LmxxfModulePackage (Join-Path $stage 'lmxxf-modules')
 
 if ($LocalTest) {
     [IO.File]::WriteAllText((Join-Path $stage 'LOCAL-TEST.txt'),
@@ -911,7 +870,7 @@ try {
             finally { $stream.Dispose(); $sha.Dispose() }
             if ($actual -ne $expectedEntries[$relative]) { throw "Archive checksum mismatch: $relative" }
         }
-        foreach ($required in @('OptiScaler.dll', 'LmxxfNrRuntime.dll', 'OptiScaler.ini', 'Setup.ps1', 'Setup.bat', 'lmxxf-module-package.ps1', 'OptScalerNR.Launcher.exe', 'launcher-worker.ps1', 'proxy-probe.ps1', 'library-scan.ps1', 'install-capabilities.ps1', 'xess-compat.ps1', 'proxy-profiles.json', 'Licenses/OptiScaler-wiki-profiles.md', 'OptiScaler/plugins/dlssnr-amd.asi', 'dlssnr-amd/nr_present_probe.exe', 'model-tools/dlssnr_extract_model.exe', 'experimental/dlssnr-small-experimental.delta', 'dlssnr-amd-optiscaler.ini', 'dlssnr-amd-optiscaler-renodx.ini', 'mochizuki-owned.txt') + @($expectedEntries.Keys)) {
+        foreach ($required in @('OptiScaler.dll', 'OptiScaler.ini', 'Setup.ps1', 'Setup.bat', 'OptScalerNR.Launcher.exe', 'launcher-worker.ps1', 'proxy-probe.ps1', 'library-scan.ps1', 'install-capabilities.ps1', 'xess-compat.ps1', 'proxy-profiles.json', 'Licenses/OptiScaler-wiki-profiles.md', 'OptiScaler/plugins/dlssnr-amd.asi', 'dlssnr-amd/nr_present_probe.exe', 'model-tools/dlssnr_extract_model.exe', 'experimental/dlssnr-small-experimental.delta', 'dlssnr-amd-optiscaler.ini', 'dlssnr-amd-optiscaler-renodx.ini', 'mochizuki-owned.txt') + @($expectedEntries.Keys)) {
             if (-not $seen.ContainsKey($required)) { throw "Package archive missing required component: $required" }
         }
     } finally {

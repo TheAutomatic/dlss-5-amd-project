@@ -146,7 +146,47 @@ if ($PSBoundParameters.ContainsKey('ActiveBackend')) {
     if ($ActiveBackend -notin @('lmxxf','daniel','mochizuki')) { Fail 'ActiveBackend must be lmxxf, daniel, or mochizuki.' }
 }
 
-. (Join-Path $PSScriptRoot 'lmxxf-module-package.ps1')
+function Assert-LmxxfUnlinkedPath([string]$Path) {
+    $full = [IO.Path]::GetFullPath($Path)
+    if ($full.Length -gt [IO.Path]::GetPathRoot($full).Length) { $full = $full.TrimEnd('\', '/') }
+    $cursor = $full
+    while ($cursor) {
+        $item = Get-Item -LiteralPath $cursor -Force -ErrorAction SilentlyContinue
+        if ($item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw "Refusing linked module path (symlink/junction/reparse point): $cursor"
+        }
+        $cursor = [IO.Path]::GetDirectoryName($cursor.TrimEnd('\', '/'))
+    }
+    return $full
+}
+
+function Get-LmxxfUnlinkedFiles([string]$Directory) {
+    $full = Assert-LmxxfUnlinkedPath $Directory
+    if (-not (Test-Path -LiteralPath $full -PathType Container)) { throw "Missing module directory: $full" }
+    $pending = [Collections.Generic.Stack[string]]::new()
+    $pending.Push($full)
+    while ($pending.Count) {
+        foreach ($item in Get-ChildItem -LiteralPath $pending.Pop() -Force -ErrorAction Stop) {
+            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw "Refusing linked module path (symlink/junction/reparse point): $($item.FullName)"
+            }
+            if ($item.PSIsContainer) { $pending.Push($item.FullName) }
+            else { $item }
+        }
+    }
+}
+
+function Remove-LmxxfTemporaryTree([string]$Path, [string]$Parent) {
+    $base = Assert-LmxxfUnlinkedPath $Parent
+    $full = Assert-LmxxfUnlinkedPath $Path
+    if ([IO.Path]::GetDirectoryName($full) -ine $base -or [IO.Path]::GetFileName($full) -notmatch '^\.lmxxf-(stage|previous)-[0-9a-f]{32}$') {
+        throw "Refusing cleanup outside the temporary module owner: $full"
+    }
+    if (Test-Path -LiteralPath $full) {
+        $null = @(Get-LmxxfUnlinkedFiles $full)
+        Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction Stop
+    }
+}
 
 # $Root must not be a param default of $PSScriptRoot: when invoked via powershell -File,
 # $PSScriptRoot is not yet assigned during parameter binding (assigned inside script body).
@@ -698,7 +738,6 @@ $batSrc = Find-FirstFile @(
     (Join-Path $release 'Uninstall_OptiScaler_NR.bat'),
     (Join-Path $Root 'Uninstall_OptiScaler_NR.bat')
 )
-$moduleHelperSrc = Join-Path $PSScriptRoot 'lmxxf-module-package.ps1'
 
 # Hash: only known danielblnc runtimes are supported. The RVA layout is pinned to
 # each binary — a different build will not run correctly. Fail closed.
@@ -1588,7 +1627,6 @@ if ($uninstallFirst) {
         if ($installDaniel) { $srcA = Save-ReinstallSource $srcA }
         $ps1Src = Save-ReinstallSource $ps1Src
         $batSrc = Save-ReinstallSource $batSrc
-        $moduleHelperSrc = Save-ReinstallSource $moduleHelperSrc
     } catch { Fail ("Could not preserve installation sources before uninstall: " + $_.Exception.Message) }
 
     Write-Host ''
@@ -2881,7 +2919,6 @@ $ownedPin = Join-Path $Root 'mochizuki-owned.txt'
 if (Test-Path -LiteralPath $ownedPin -PathType Leaf) {
     Install-One $ownedPin 'mochizuki-owned.txt'
 }
-Install-One $moduleHelperSrc 'lmxxf-module-package.ps1'
 if ($batSrc) {
     Install-One $batSrc 'Uninstall_OptiScaler_NR.bat'
 } else {

@@ -319,7 +319,6 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="shaders\camera_motion\CM_Dx12.h" />
     <ClInclude Include="shaders\camera_motion\CM_Common.h" />
     <ClInclude Include="shaders\camera_motion\precompiled\CM_Shader.h" />
-    <ClCompile Include="dlssnr\amd\RtgiNative.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClInclude Include="shaders\menu_blur\MenuBlur_Common.h" />
     <ClInclude Include="shaders\menu_blur\MenuBlur_Dx11.h" />
     <ClInclude Include="shaders\menu_blur\MenuBlur_Dx12.h" />
@@ -327,18 +326,11 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="shaders\menu_blur\precompile\MenuBlur_Shader.h" />
     <ClInclude Include="shaders\menu_blur\precompile\MenuBlur_Shader_Dx11.h" />
     <ClInclude Include="shaders\menu_blur\precompile\MenuBlur_Shader_Vk.h" />
-    <ClInclude Include="dlssnr\amd\RtgiNative.h" />
-    <ClCompile Include="dlssnr\amd\AmdPreSr.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader><ForcedIncludeFiles>$(IntDir)amd_graphics_source_id.h;%(ForcedIncludeFiles)</ForcedIncludeFiles></ClCompile>
     <ClCompile Include="dlssnr\amd\AmdBridge.cpp" />
     <ClCompile Include="dlssnr\backend\Selector.cpp" />
-    <ClCompile Include="dlssnr\backend\DanielBackend.cpp" />
-    <ClCompile Include="dlssnr\backend\LmxxfBackend.cpp" />
-    <ClCompile Include="dlssnr\backend\MochizukiBackend.cpp" />
     <ClInclude Include="dlssnr\backend\Kind.h" />
     <ClInclude Include="dlssnr\backend\Host.h" />
     <ClInclude Include="dlssnr\backend\Selector.h" />
-    <ClInclude Include="dlssnr\backend\DanielBackend.h" />
-    <ClInclude Include="dlssnr\backend\LmxxfBackend.h" />
     <ClInclude Include="dlssnr\backend\LmxxfEvaluateCut.h" />
     <ClInclude Include="dlssnr\submission\LogicalList.h" />
     <ClInclude Include="dlssnr\submission\CommandListProxy.h" />
@@ -346,7 +338,6 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="dlssnr\submission\SubmissionTls.h" />
     <ClInclude Include="dlssnr\submission\ContinuationState.h" />
     <ClInclude Include="dlssnr\submission\ResourceStateBook.h" />
-    <ClInclude Include="dlssnr\amd\AmdPreSr.h" />
     <ClInclude Include="dlssnr\amd\SubmissionState.h" />
     <ClInclude Include="dlssnr\amd\RuntimeNotification.h" />
     <ClInclude Include="dlssnr\amd\RuntimeHostLoad.h" />
@@ -1111,9 +1102,6 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <WriteLinesToFile File="$(ProjectDir)resource_build_product.h"
                       Lines="#define NR_PRODUCT_VERSION &quot;$(NrProductVersion)&quot;"
                       Overwrite="true" WriteOnlyWhenDifferent="true" Encoding="UTF-8" />
-  </Target>
-  <Target Name="WriteAmdGraphicsSourceIdentity" BeforeTargets="PrepareForBuild" DependsOnTargets="WriteNrProductVersion">
-    <Exec WorkingDirectory="$(ProjectDir)" Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(ProjectDir)..\..\tools\build\write-amd-graphics-source-id.ps1&quot; -ProjectDirectory &quot;$(ProjectDir).&quot; -OutputPath &quot;$(IntDir)amd_graphics_source_id.h&quot;" />
   </Target>
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

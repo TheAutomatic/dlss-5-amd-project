@@ -92,9 +92,6 @@ class WorkerTests(unittest.TestCase):
 if defined PSModulePath exit /b 17
 powershell -NoProfile -NonInteractive -Command "$ErrorActionPreference='Stop'; $null=Get-Command Get-FileHash; Write-Output 'PS51_MODULE_DISCOVERY_OK'"
 if errorlevel 1 exit /b 18
-mkdir exports\\release-ci\\tests\\runtime
-echo test-fixture>exports\\release-ci\\tests\\runtime\\LmxxfNrRuntime.dll
-echo test-fixture>exports\\release-ci\\tests\\runtime-ci.sha256
 exit /b 0
 ''', encoding='ascii')
             env = {key.upper(): value for key, value in os.environ.items()}
@@ -103,7 +100,6 @@ exit /b 0
                                     env=env, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn('PS51_MODULE_DISCOVERY_OK', result.stdout)
-            self.assertEqual((root / 'exports/lmxxf-runtime/LmxxfNrRuntime.dll').read_bytes().strip(), b'test-fixture')
 
 
 if __name__ == '__main__':

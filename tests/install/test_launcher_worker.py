@@ -166,7 +166,7 @@ class LauncherWorkerTests(unittest.TestCase):
         pkg, game = root / "package", root / "game"
         pkg.mkdir()
         game.mkdir()
-        for name in ("launcher-worker.ps1", "proxy-probe.ps1", "install-capabilities.ps1", "lmxxf-small.ps1", "lmxxf-small-manifest.json"):
+        for name in ("launcher-worker.ps1", "proxy-probe.ps1", "install-capabilities.ps1"):
             shutil.copy2(REPO / "tools/install" / name, pkg / name)
         (pkg / "OptiScaler.dll").write_bytes(b"fixture")
         (pkg / "Setup.ps1").write_text("param()\nexit 0\n", encoding="utf-8")
@@ -613,7 +613,6 @@ class LauncherWorkerTests(unittest.TestCase):
         game = Path(tempfile.mkdtemp(prefix="launcher-game-"))
         shutil.copy2(REPO / "tools/install-amd-presr.ps1", pkg / "Setup.ps1")
         shutil.copy2(REPO / "tools/uninstall-amd-presr.ps1", pkg / "Uninstall_OptiScaler_NR.ps1")
-        shutil.copy2(REPO / "tools/lmxxf-module-package.ps1", pkg / "lmxxf-module-package.ps1")
         shutil.copy2(REPO / "tools/install/launcher-worker.ps1", pkg / "launcher-worker.ps1")
         shutil.copy2(REPO / "tools/install/proxy-probe.ps1", pkg / "proxy-probe.ps1")
         shutil.copy2(REPO / "tools/install/install-capabilities.ps1", pkg / "install-capabilities.ps1")

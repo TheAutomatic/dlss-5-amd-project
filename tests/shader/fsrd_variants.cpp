@@ -1,7 +1,7 @@
 // Direct-input production FSRDUpscalerDepth CSO dispatch/readback on WARP.
 // Checks finite reversed-Z near/far, signed intermediate, and invalid zero depth.
 #include <pch.h>
-#include "../lmxxf/lmxxf_gpu_test_utils.h"
+#include "lmxxf_gpu_test_utils.h"
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <vector>

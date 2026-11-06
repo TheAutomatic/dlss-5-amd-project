@@ -1,4 +1,4 @@
-# Common backend capability and weight checking for OptScaler NR.
+﻿# Common backend capability and weight checking for OptScaler NR.
 # Shared between launcher-worker.ps1 and install-amd-presr.ps1.
 
 function Test-LmxxfWeightsDir([string]$Directory) {
@@ -37,8 +37,6 @@ function Get-OptScalerBackendCapabilities([string]$pkgRoot, [string]$gameDir, [s
     foreach ($root in @($pkgRoot, $gameDir)) {
         if ($root) { $sourceDlls += Join-Path $root 'nvngx_dlssnr.dll' }
     }
-    $modelHelper = Join-Path $PSScriptRoot 'lmxxf-small.ps1'
-    if (Test-Path -LiteralPath $modelHelper) { . $modelHelper }
 
     # --- lmxxf ---
     $lmxxfRuntime = $null
@@ -109,9 +107,7 @@ function Get-OptScalerBackendCapabilities([string]$pkgRoot, [string]$gameDir, [s
     }
     # Installed models may be reused; installed/developer code cannot fill an incomplete update.
 
-    $lmxxfHelperReady = $pkgRoot -and (Test-Path -LiteralPath (Join-Path $pkgRoot 'lmxxf-small.ps1') -PathType Leaf) -and
-        (Test-Path -LiteralPath (Join-Path $pkgRoot 'lmxxf-small-manifest.json') -PathType Leaf)
-    $canLmxxfRuntime = [bool]($lmxxfRuntime -and $lmxxfMods -and $lmxxfShaders -and $lmxxfHelperReady)
+    $canLmxxfRuntime = [bool]($lmxxfRuntime -and $lmxxfMods -and $lmxxfShaders)
     $hasLmxxfWeights = [bool]($lmxxfWeights -or $lmxxfSmall)
     $lmxxfEnabled = $canLmxxfRuntime -and $hasLmxxfWeights
     $lmxxfReason = if (-not $canLmxxfRuntime) { 'Runtime missing' } elseif (-not $hasLmxxfWeights) { 'Weights missing' } else { 'Ready' }
@@ -132,8 +128,6 @@ function Get-OptScalerBackendCapabilities([string]$pkgRoot, [string]$gameDir, [s
             if (-not $lmxxfRuntime) { 'LmxxfNrRuntime.dll' }
             if (-not $lmxxfMods) { 'lmxxf-modules/' }
             if (-not $lmxxfShaders) { 'shaders/native_codec_encode.hlsl' }
-            if (-not $pkgRoot -or -not (Test-Path -LiteralPath (Join-Path $pkgRoot 'lmxxf-small.ps1') -PathType Leaf)) { 'lmxxf-small.ps1' }
-            if (-not $pkgRoot -or -not (Test-Path -LiteralPath (Join-Path $pkgRoot 'lmxxf-small-manifest.json') -PathType Leaf)) { 'lmxxf-small-manifest.json' }
         )
     }
 

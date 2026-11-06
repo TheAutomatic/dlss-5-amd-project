@@ -1,7 +1,7 @@
 // Real production shader dispatches, proxy lifecycle, and readback-visible results.
 #include <pch.h>
-#include "../lmxxf/lmxxf_gpu_test_utils.h"
-#include "../lmxxf/queue_faults.h"
+#include "lmxxf_gpu_test_utils.h"
+#include "queue_faults.h"
 #include <shaders/bias/Bias_Dx12.h>
 #include <shaders/output_scaling/OS_Dx12.h>
 #include <shaders/fsrd_preprocess/FSRDCompositionHistory.h>

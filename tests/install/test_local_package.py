@@ -20,7 +20,6 @@ class LocalPackageTests(unittest.TestCase):
         subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
         files = {
             'VERSION': b'1.0.0\r\n',
-            'tools/build/build-lmxxf-runtime.cmd': b'@exit /b 0\r\n',
             'tests/_lib/msvc-env.cmd': b'@exit /b 23\r\n',
             'tools/release/PACKAGE_RELEASE.ps1': b'throw "Must not package a failed build"',
             'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/OptiScaler.vcxproj': b'fixture',

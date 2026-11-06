@@ -13,7 +13,6 @@
 #include "MochizukiNetworkShortcut.h"
 #include <dlssnr/DlssNr_ExposureScan.h>
 #include <dlssnr/AsiTakeover.h>
-#include <dlssnr/amd/AmdPreSr.h>
 
 #include <algorithm>
 #include <cfloat>
@@ -10061,8 +10060,6 @@ void MenuCommon::RenderMainMenuBottomBar(RenderMenuContext& ctx)
     if (MenuUi::Button("Save Settings"))
     {
         config->SaveIni();
-        // Sync Ins-exposed daniel keys; only on explicit save (same contract as SaveIni).
-        AmdPreSr::SaveDanielSettings();
     }
 
     ImGui::SameLine();

@@ -1,8 +1,14 @@
 #pragma once
-#include "../amd/AmdPreSr.h"
+#include <d3d12.h>
 #include "../NrPerformance.h"
 #include <string>
 #include <atomic>
+
+namespace AmdPreSr
+{
+struct Frame {};
+struct Settings {};
+} // namespace AmdPreSr
 
 namespace DlssNr::Backend
 {

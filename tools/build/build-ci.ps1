@@ -25,14 +25,9 @@ if ($Worker -eq 'host') {
 if ($Worker -eq 'tests') {
     # Let Windows PowerShell 5.1 children discover their own modules instead of inheriting pwsh's modules.
     $env:PSModulePath = $null
-    # This entrypoint always tests its own newly built lmxxf DLL.
-    $env:LMXXF_TEST_RUNTIME = $null
     $tier = if ($FullRegression) { 'ci' } else { 'release' }
     cmd /d /c tests\run-all.cmd --tier $tier --out exports\release-ci\tests
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    New-Item -ItemType Directory -Force exports/lmxxf-runtime | Out-Null
-    Copy-Item -LiteralPath "$out/tests/runtime/LmxxfNrRuntime.dll" -Destination exports/lmxxf-runtime/LmxxfNrRuntime.dll
-    Copy-Item -LiteralPath "$out/tests/runtime-ci.sha256" -Destination exports/lmxxf-runtime/runtime-ci.sha256
     exit 0
 }
 

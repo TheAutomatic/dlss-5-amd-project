@@ -50,10 +50,7 @@ class InstallerExitTests(unittest.TestCase):
         # runtime with its default module discovery, like a double-click.
         self.env.pop("PSMODULEPATH", None)
         self.env["PATH"] = str(PS.parent) + os.pathsep + self.env.get("PATH", "")
-        shutil.copy2(REPO / "tools/lmxxf-module-package.ps1", self.package)
         (self.package / 'model-tools').mkdir()
-        for name in ('lmxxf-small.ps1', 'lmxxf-small-manifest.json'):
-            shutil.copy2(REPO / 'tools/install' / name, self.package)
         source = (REPO / "tools/release/PACKAGE_RELEASE.ps1").read_text(encoding="utf-8-sig")
         for title_name, script, file_name in (
             ("Setup", "install", "Setup"),
@@ -152,34 +149,6 @@ class InstallerExitTests(unittest.TestCase):
         path.write_text(json.dumps({"backends": backends, "existingIni": "keep"}), encoding="utf-8")
         return ("-NonInteractive", "-DecisionJson", str(path))
 
-    def test_explicit_active_backend_survives_install_update_and_reinstall(self):
-        self.ready_install()
-        self.ready_lmxxf_dual_arch()
-        (self.package / "OptiScaler.ini").write_text(
-            "[DlssNr]\nNrBackend=lmxxf\nAmdModelScale=0.75\n", encoding="utf-8"
-        )
-        flags = self.backend_decisions(["lmxxf", "daniel"]) + ("-ActiveBackend", "daniel")
-        for action in ("install", "overwrite", "reinstall"):
-            with self.subTest(action=action):
-                if action == "reinstall":
-                    code, output = self.run_direct(name="Uninstall")
-                    self.assertEqual(code, 0, output)
-                code, output = self.run_direct(flags=flags)
-                self.assertEqual(code, 0, output)
-                self.assertIn("Active Backend: daniel", output)
-                ini = (self.game / "OptiScaler.ini").read_text(encoding="utf-8-sig")
-                self.assertRegex(ini, r"NrBackend\s*=\s*daniel")
-                self.assertRegex(ini, r"AmdModelScale\s*=\s*0\.75")
-                record = (self.game / "amd-presr-install.txt").read_text(encoding="utf-8-sig")
-                self.assertIn("backend=daniel", record)
-
-    def test_explicit_backend_list_without_active_uses_first_available(self):
-        self.ready_install()
-        self.ready_lmxxf_dual_arch()
-        code, output = self.run_direct(flags=self.backend_decisions(["daniel", "lmxxf"]))
-        self.assertEqual(code, 0, output)
-        self.assertIn("Active Backend: lmxxf", output)
-
     def test_explicit_mochizuki_active_backend_with_multiple_backends(self):
         self.ready_install()
         self.ready_mochizuki(model=True)
@@ -192,32 +161,6 @@ class InstallerExitTests(unittest.TestCase):
         self.assertIn("Active Backend: mochizuki", output)
         self.assertRegex((self.game / "OptiScaler.ini").read_text(encoding="utf-8-sig"),
                          r"NrBackend\s*=\s*mochizuki")
-
-    def test_failed_active_backend_falls_back_to_installed_backend(self):
-        self.ready_install()
-        self.ready_lmxxf_dual_arch()
-        (self.package / "dlssnr_on_amd_weights.bin").write_bytes(b"truncated")
-        code, output = self.run_direct(
-            flags=self.backend_decisions(["lmxxf", "daniel"]) + ("-ActiveBackend", "daniel")
-        )
-        self.assertEqual(code, 0, output)
-        self.assertIn("Skipping daniel: weights check failed", output)
-        self.assertIn("Active backend changed to lmxxf", output)
-        self.assertIn("Active Backend: lmxxf", output)
-        self.assertFalse((self.game / "dlssnr_amd_pass1.dll").exists())
-
-    def test_invalid_or_unselected_active_backend_does_not_change_game(self):
-        self.ready_install()
-        self.ready_lmxxf_dual_arch()
-        before = snapshot_files(self.game)
-        for active in ("unknown", "", "mochizuki"):
-            with self.subTest(active=active):
-                code, output = self.run_direct(
-                    flags=self.backend_decisions(["lmxxf", "daniel"]) + ("-ActiveBackend", active)
-                )
-                self.assertEqual(code, 1, output)
-                self.assertIn("ActiveBackend", output)
-                self.assertEqual(snapshot_files(self.game), before)
 
     def test_active_backend_requires_explicit_backend_list(self):
         self.ready_install()
@@ -317,19 +260,6 @@ class InstallerExitTests(unittest.TestCase):
         text = ini.read_text(encoding="utf-8-sig")
         self.assertIn("DLSS5_FIT_LARGE = false", text)
         self.assertIn("DLSS5_HIP_PDL = true", text)
-
-    def test_interactive_keep_ini_migrates_legacy_preferences(self):
-        self.ready_legacy_install()
-        (self.package / "OptiScaler.ini").write_text(
-            "[DlssNr]\nDLSS5_FIT_LARGE=true\nDLSS5_HIP_PDL=true\n", encoding="utf-8"
-        )
-        ini = self.game / "OptiScaler.ini"
-        ini.write_text("[DlssNr]\nLmxxfFitLarge=false\nLmxxfPdl=false\n", encoding="utf-8")
-        code, output = self.run_batch(stdin="n\n3\n2\n")
-        self.assertEqual(code, 0, output)
-        text = ini.read_text(encoding="utf-8-sig")
-        self.assertIn("DLSS5_FIT_LARGE = false", text)
-        self.assertIn("DLSS5_HIP_PDL = false", text)
 
     def test_install_success_pauses_once(self):
         self.ready_install()
@@ -610,50 +540,6 @@ class InstallerExitTests(unittest.TestCase):
         (self.game / 'dlssnr-amd/pipeline.cache').write_bytes(b'game-specific cache')
         return files
 
-    def test_game_model_cache_all_backends_then_install_another_game(self):
-        self.ready_install()
-        self.ready_lmxxf_dual_arch()
-        self.ready_mochizuki()
-        shutil.rmtree(self.package / 'native-game-tiled-assets')
-        for name in ('version.dll', 'dlssnr_on_amd_weights.bin'):
-            (self.package / name).rename(self.game / name)
-        expected = self.ready_game_models()
-        # Installing Daniel also caches the two unselected backends' game models.
-        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'daniel'))
-        self.assertEqual(code, 0, output)
-        for relative, data in expected.items():
-            self.assertEqual((self.package / relative).read_bytes(), data)
-            self.assertEqual((self.game / relative).read_bytes(), data)
-        self.assertEqual((self.package / 'version.dll').read_bytes(), FAKE_RUNTIME)
-        self.assertEqual((self.package / 'dlssnr_on_amd_weights.bin').stat().st_size, 1024 * 1024)
-        self.assertFalse((self.package / 'dlssnr-amd/pipeline.cache').exists())
-        self.assertFalse(list(self.package.glob('.amd-presr-model-*')))
-        other_game = self.root / 'another game'
-        other_game.mkdir()
-        code, output = self.run_direct(game=other_game, flags=('-NonInteractive', '-Backend', 'all', '-MochizukiModels', 'original'))
-        self.assertEqual(code, 0, output)
-        self.assertIn('Install SUCCEEDED.', output)
-        for relative, data in expected.items():
-            self.assertEqual((other_game / relative).read_bytes(), data)
-
-    def test_game_model_cache_preserves_existing_package_models(self):
-        self.ready_install()
-        self.ready_game_models()
-        existing = {
-            'native-game-tiled-assets/user-model.bin': b'keep existing partial directory',
-            'dlssnr-amd/CC_SILVER_AARDWOLD.bin': b'keep existing file, even if invalid',
-        }
-        for relative, data in existing.items():
-            path = self.package / relative
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(data)
-        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'daniel'))
-        self.assertEqual(code, 0, output)
-        for relative, data in existing.items():
-            self.assertEqual((self.package / relative).read_bytes(), data)
-        self.assertTrue((self.package / 'native-game-tiled-assets/block0-ffn.f16').exists())
-        self.assertFalse(list(self.package.glob('.amd-presr-model-*')))
-
     def test_small_cache_with_existing_original_installs_next_game(self):
         self.ready_mochizuki(model=True)
         small = b'NRMODEL1' + (0).to_bytes(4, 'little') + bytes(20)
@@ -707,137 +593,6 @@ class InstallerExitTests(unittest.TestCase):
         self.assertEqual((self.game / 'dlssnr-amd/CC_SMALL_FP8.bin').read_bytes(), small)
         self.assertNotIn('MochizukiNetworkModel', (self.game / 'OptiScaler.ini').read_text(encoding='utf-8-sig'))
 
-    def test_game_model_cache_package_is_game_skips_copy_and_cleans_temporary_runtime(self):
-        self.ready_install()
-        expected = self.ready_game_models()
-        for relative, data in expected.items():
-            path = self.package / relative
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(data)
-        code, output = self.run_direct(game=self.package, flags=('-NonInteractive', '-Backend', 'daniel'))
-        self.assertEqual(code, 0, output)
-        self.assertIn('Install SUCCEEDED.', output)
-        for relative, data in expected.items():
-            self.assertEqual((self.package / relative).read_bytes(), data)
-        self.assertFalse(list(self.package.glob('.amd-presr-model-*')))
-        temporary = re.search(r'Copied danielblnc runtime outside game folder: (.+)', output)
-        self.assertIsNotNone(temporary, output)
-        self.assertFalse(Path(temporary.group(1).strip()).exists())
-        self.assertEqual((self.package / 'dlssnr_amd_pass1.dll').read_bytes(), FAKE_RUNTIME)
-
-    def test_game_model_cache_ignores_invalid_game_models(self):
-        self.ready_install()
-        self.ready_game_models()
-        (self.game / 'native-game-tiled-assets/block0-ffn.f16').write_bytes(b'')
-        (self.game / 'dlssnr-amd/CC_SILVER_AARDWOLD.bin').write_bytes(b'not a model')
-        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'daniel'))
-        self.assertEqual(code, 0, output)
-        self.assertIn('Install SUCCEEDED.', output)
-        self.assertFalse((self.package / 'native-game-tiled-assets').exists())
-        self.assertFalse((self.package / 'dlssnr-amd/CC_SILVER_AARDWOLD.bin').exists())
-
-    def test_game_model_cache_failed_copy_cleans_staging_and_continues(self):
-        self.ready_install()
-        expected = self.ready_game_models()
-        with locked_file(self.game / 'native-game-tiled-assets/block1-ffn.f32'):
-            code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'daniel'))
-        self.assertEqual(code, 0, output)
-        self.assertIn('could not save lmxxf game model', output)
-        self.assertIn('Install SUCCEEDED.', output)
-        self.assertFalse((self.package / 'native-game-tiled-assets').exists())
-        self.assertFalse(list(self.package.glob('.amd-presr-model-*')))
-        self.assertEqual((self.package / 'dlssnr-amd/CC_SILVER_AARDWOLD.bin').read_bytes(),
-                         expected['dlssnr-amd/CC_SILVER_AARDWOLD.bin'])
-
-    def test_game_model_cache_blocked_destination_is_nonfatal(self):
-        self.ready_install()
-        expected = self.ready_game_models()
-        (self.package / 'dlssnr-amd').write_bytes(b'preserve non-directory collision')
-        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'daniel'))
-        self.assertEqual(code, 0, output)
-        self.assertIn('could not save mochizuki game model', output)
-        self.assertIn('Install SUCCEEDED.', output)
-        self.assertEqual((self.package / 'dlssnr-amd').read_bytes(), b'preserve non-directory collision')
-        self.assertEqual((self.package / 'native-game-tiled-assets/block0-ffn.f16').read_bytes(),
-                         expected['native-game-tiled-assets/block0-ffn.f16'])
-        self.assertFalse(list(self.package.glob('.amd-presr-model-*')))
-
-    def test_game_model_cache_does_not_follow_unrelated_links(self):
-        self.ready_install()
-        self.ready_game_models()
-        outside = self.root / 'outside model'
-        outside.mkdir()
-        (outside / 'private.bin').write_bytes(b'do not copy')
-        link = self.game / 'native-game-tiled-assets/linked'
-        result = subprocess.run(['cmd.exe', '/d', '/c', 'mklink', '/J', str(link), str(outside)],
-                                capture_output=True)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.addCleanup(link.rmdir)
-        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'daniel'))
-        self.assertEqual(code, 0, output)
-        self.assertIn('Install SUCCEEDED.', output)
-        self.assertTrue((self.package / 'native-game-tiled-assets/block0-ffn.f16').exists())
-        self.assertFalse((self.package / 'native-game-tiled-assets/linked').exists())
-        self.assertEqual((outside / 'private.bin').read_bytes(), b'do not copy')
-        self.assertFalse(list(self.package.glob('.amd-presr-model-*')))
-
-    def test_launcher_update_reuses_game_models_after_package_cache_deleted(self):
-        self.ready_mochizuki(model=True)
-        self.ready_lmxxf_dual_arch()
-        # Synthetic Small inventory exercises production copy/validation without real weights.
-        tensor = b'lmxxf Small fixture'
-        manifest_path = self.package / 'lmxxf-small-manifest.json'
-        manifest = json.loads(manifest_path.read_text())
-        manifest['files'] = {'fixture.f16': dict(bytes=len(tensor), sha256=hashlib.sha256(tensor).hexdigest())}
-        manifest_path.write_text(json.dumps(manifest), encoding='utf-8')
-        small_root = self.package / 'native-game-tiled-assets/small'
-        small_root.mkdir()
-        (small_root / 'fixture.f16').write_bytes(tensor)
-        (small_root / 'model-manifest.json').write_text(json.dumps(dict(model='small',
-            source_dll_sha256=manifest['source_dll_sha256'])), encoding='utf-8')
-        small = b'NRMODEL1' + (0).to_bytes(4, 'little') + bytes(20)
-        (self.package / 'dlssnr-amd/CC_SMALL_FP8.bin').write_bytes(small)
-        decisions = self.root / 'initial-models.json'
-        decisions.write_text(json.dumps(dict(backends=['mochizuki', 'lmxxf'], existingIni='keep',
-            mochizukiModels='both', lmxxfModels='both')), encoding='utf-8')
-        code, output = self.run_direct(flags=('-NonInteractive', '-DecisionJson', str(decisions)))
-        self.assertEqual(code, 0, output)
-        self.assertIn('CC_SILVER_AARDWOLD_OPTIMIZED_INT4 weights generated.', output, 'Fresh installs must still generate INT4')
-        models = [self.game / ('dlssnr-amd/' + name) for name in ('CC_SILVER_AARDWOLD.bin', 'CC_SMALL_FP8.bin', 'CC_SILVER_AARDWOLD_OPTIMIZED.bin', 'CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin')]
-        models += [self.game / 'native-game-tiled-assets/small' / name for name in ('fixture.f16', 'model-manifest.json')]
-        before = {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in models}
-        for name in ('CC_SILVER_AARDWOLD.bin', 'CC_SMALL_FP8.bin'):
-            (self.package / 'dlssnr-amd' / name).unlink()
-        shutil.rmtree(self.package / 'native-game-tiled-assets')
-        # A converter invocation is now fatal: a successful update proves real reuse.
-        (self.package / 'model-tools/dlssnr-int4-weights.exe').write_bytes(b'converter must not run')
-        (self.package / 'OptiScaler.dll').write_bytes(b'version-mismatched package proxy')
-        exe = self.game / 'reuse-game.exe'
-        shutil.copy2(Path(os.environ['SystemRoot']) / 'System32/whoami.exe', exe)
-        for name in ('launcher-worker.ps1', 'proxy-probe.ps1', 'install-capabilities.ps1'):
-            shutil.copy2(REPO / 'tools/install' / name, self.package)
-        request = self.root / 'request.json'
-        request.write_text(json.dumps(dict(schema=1, requestId='reuse-update', action='update',
-            gameExe=str(exe), proxyChoice='dxgi.dll', packageRoot=str(self.package),
-            backends=['mochizuki', 'lmxxf'], activeBackend='mochizuki', explicitDecisions=dict(
-                existingInstall='overwrite', existingIni='keep', mochizukiModels='both', lmxxfModels='both',
-                foreignProxy={'dxgi.dll': 'backup'}))), encoding='utf-8')
-        result = self.root / 'result.json'
-        events = self.root / 'events.jsonl'
-        code, output = self.run_process([str(PS), '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-            '-File', str(self.package / 'launcher-worker.ps1'), '-RequestJson', str(request),
-            '-EventsJsonl', str(events), '-ResultJson', str(result)], timeout=120)
-        body = json.loads(result.read_text(encoding='utf-8-sig'))
-        log = events.read_text(encoding='utf-8-sig')
-        self.assertEqual(code, 0, output + log)
-        self.assertEqual(body['status'], 'success', body)
-        self.assertIn('Reused existing CC_SILVER_AARDWOLD_OPTIMIZED weights', log)
-        self.assertNotIn('Preparing INT4 weights', log)
-        self.assertNotIn('Extracting Mochizuki', log)
-        self.assertNotIn('Preparing lmxxf', log)
-        self.assertEqual((self.game / 'dxgi.dll').read_bytes(), b'version-mismatched package proxy')
-        self.assertEqual({p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in models}, before)
-
     def game_snapshot(self):
         return {p.relative_to(self.game).as_posix(): p.read_bytes() if p.is_file() else None
                 for p in sorted(self.game.rglob('*'))}
@@ -854,19 +609,6 @@ class InstallerExitTests(unittest.TestCase):
                 self.assertIn('only 1000 bytes', output)
                 self.assertIn('Weights check failed for: daniel. Nothing was installed', output)
                 self.assertEqual(self.game_snapshot(), before, output)
-
-    def test_weights_check_incomplete_lmxxf_folder_warns_red(self):
-        self.ready_lmxxf_dual_arch()
-        weights = self.package / 'native-game-tiled-assets'
-        (weights / 'block0-ffn.f16').unlink()
-        (weights / 'other.bin').write_bytes(b'unrelated')
-        code, output = self.run_direct(flags=('-NonInteractive', '-Backend', 'lmxxf'))
-        self.assertEqual(code, 0, output)
-        self.assertIn('WEIGHTS CHECK: problems found', output)
-        self.assertIn('[lmxxf] Wrong folder: ' + str(weights), output)
-        self.assertIn('<lmxxf: warning', output)
-        self.assertIn('WEIGHTS CHECK lmxxf: warning', output)
-        self.assertIn('MODEL SETUP REQUIRED', output)
 
     def test_mochizuki_asi_installs_payload_and_preserves_user_files(self):
         self.ready_mochizuki(model=True, small=True)
@@ -931,19 +673,6 @@ class InstallerExitTests(unittest.TestCase):
         self.assertIn('Extracting Mochizuki ASI models', output)
         self.assertTrue((self.game / 'dlssnr-amd/CC_SILVER_AARDWOLD.bin').is_file())
         self.assertTrue((self.game / 'dlssnr-amd/CC_SMALL_FP8.bin').is_file())
-
-    def test_unselected_mochizuki_never_runs_tools(self):
-        self.ready_install()
-        self.ready_lmxxf_dual_arch()
-        self.ready_mochizuki()
-        (self.package / 'model-tools/dlssnr_extract_model.exe').write_bytes(b'not runnable')
-        for backend in ('lmxxf', 'daniel'):
-            with self.subTest(backend=backend):
-                code, output = self.run_direct(flags=('-NonInteractive', '-Backend', backend))
-                self.assertEqual(code, 0, output)
-                self.assertNotIn('Extracting Mochizuki ASI models', output)
-                self.assertFalse((self.game / 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin').exists())
-
 
     def test_mochizuki_noninteractive_existing_models_does_not_prompt(self):
         self.ready_mochizuki(model=True, small=True)
@@ -1195,37 +924,6 @@ class InstallerExitTests(unittest.TestCase):
         self.assertFalse(asi.exists(), output)
         self.assertEqual((self.game / 'MyPlugins/user.asi').read_bytes(), b'user plugin')
 
-    def test_lmxxf_empty_weight_directory_is_not_ready(self):
-        self.ready_lmxxf_dual_arch()
-        (self.package / "native-game-tiled-assets/block0-ffn.f16").unlink()
-        code, output = self.run_direct()
-        self.assertEqual(code, 0, output)
-        self.assertIn("MODEL SETUP REQUIRED", output)
-        self.assertNotIn("Install SUCCEEDED.", output)
-
-    def test_lmxxf_empty_weight_marker_is_not_ready(self):
-        self.ready_lmxxf_dual_arch()
-        (self.package / "native-game-tiled-assets/block0-ffn.f16").write_bytes(b"")
-        code, output = self.run_direct()
-        self.assertEqual(code, 0, output)
-        self.assertIn("MODEL SETUP REQUIRED", output)
-        self.assertNotIn("Install SUCCEEDED.", output)
-
-    def test_dual_arch_lmxxf_clean_install(self):
-        self.ready_lmxxf_dual_arch()
-        code, output = self.run_direct()
-        self.assertEqual(code, 0, output)
-        self.assertIn("Install SUCCEEDED.", output)
-        self.assertTrue((self.game / "LmxxfNrRuntime.dll").is_file(), output)
-        game_mods = self.game / "lmxxf-modules"
-        self.assertTrue((game_mods / "gfx1200").is_dir(), output)
-        self.assertTrue((game_mods / "gfx1201").is_dir(), output)
-        self.assertEqual(len(list(game_mods.glob("*.hsaco"))), 0, "no flat hsaco in root")
-        self.assertEqual(len(list((game_mods / "gfx1200").glob("*.hsaco"))), 40)
-        self.assertEqual(len(list((game_mods / "gfx1201").glob("*.hsaco"))), 40)
-        self.assertTrue((game_mods / "SHA256SUMS").is_file(), output)
-        self.assertTrue((game_mods / "runtime-manifest.json").is_file(), output)
-
     def ready_legacy_install(self):
         self.ready_lmxxf_dual_arch()
         mods = self.game / "lmxxf-modules"
@@ -1268,61 +966,6 @@ class InstallerExitTests(unittest.TestCase):
         self.assertEqual(len(saved), 1)
         self.assertEqual(saved[0].read_bytes(), b"user-owned GPU code")
 
-    def test_legacy_upgrade_preserves_only_excluded_user_modules(self):
-        mods = self.ready_legacy_install()
-        before = snapshot_files(mods)
-        code, output = self.run_direct()
-        self.assertEqual(code, 0, output)
-        self.assertIn("Install SUCCEEDED", output)
-        self.assertNotIn("Uninstalling the existing", output)
-        self.assert_dual_arch_installed()
-        self.assert_custom_module_backed_up()
-        backups = list(self.game.glob("backup-amd-presr-*/lmxxf-modules"))
-        self.assertEqual(snapshot_files(backups[0]), {"user-custom.hsaco": before["user-custom.hsaco"]})
-        self.assertFalse(list(self.game.glob(".lmxxf-previous-*")))
-        self.assertEqual((mods / "user_weights.bin").read_bytes(), b"user weights")
-        self.assert_legacy_shaders_removed(mods)
-
-    def test_clean_overwrite_has_no_permanent_or_temporary_old_package(self):
-        self.ready_lmxxf_dual_arch()
-        code, output = self.run_direct()
-        self.assertEqual(code, 0, output)
-        mods = self.game / "lmxxf-modules"
-        (mods / "c32_fast.generated.hip").write_bytes(b"obsolete source")
-        (mods / "gfx1201/c32_fast.hsaco.s").write_bytes(b"obsolete disassembly")
-        (mods / "user-notes.txt").write_bytes(b"keep notes")
-        self.add_legacy_shader_files(mods)
-        (self.game / "LmxxfNrRuntime.dll").write_bytes(b"previous runtime")
-        with (self.game / "OptiScaler.ini").open("a", encoding="utf-8") as stream:
-            stream.write("\n[User]\nSentinel=keep\n")
-        for _ in range(2):
-            code, output = self.run_direct()
-            self.assertEqual(code, 0, output)
-            self.assertFalse(list(self.game.glob("backup-amd-presr-*")))
-            self.assertFalse(list(self.game.glob(".lmxxf-previous-*")))
-            self.assertFalse(list(self.game.glob(".lmxxf-stage-*")))
-            self.assertEqual((mods / "user-notes.txt").read_bytes(), b"keep notes")
-            self.assertFalse((mods / "c32_fast.generated.hip").exists())
-            self.assertFalse((mods / "gfx1201/c32_fast.hsaco.s").exists())
-            self.assertEqual((self.game / "LmxxfNrRuntime.dll").read_bytes(),
-                             (self.package / "LmxxfNrRuntime.dll").read_bytes())
-            self.assertIn("Sentinel=keep", (self.game / "OptiScaler.ini").read_text(encoding="utf-8-sig"))
-            self.assert_dual_arch_installed()
-            self.assert_legacy_shaders_removed(mods)
-
-    def test_setup_no_overwrites_legacy_without_uninstall_or_second_proxy_prompt(self):
-        self.ready_legacy_install()
-        code, output = self.run_batch(stdin="n\n3\n2\n")
-        self.assertEqual(code, 0, output)
-        self.assertEqual(output.count("Existing OptiScaler installation detected"), 1, output)
-        self.assertIn("Recommended: uninstall before installing this version", output)
-        self.assertIn("Continuing with an overwrite installation", output)
-        self.assertNotIn("Uninstalling the existing", output)
-        self.assertNotIn("How to continue?", output)
-        self.assert_dual_arch_installed()
-        self.assert_custom_module_backed_up()
-        self.assertIn("UserSentinel", (self.game / "OptiScaler.ini").read_text(encoding="utf-8-sig"))
-
     def test_old_and_new_brand_records_detect_install_without_proxy(self):
         self.ready_install()
         record = self.game / "amd-presr-install.txt"
@@ -1335,189 +978,6 @@ class InstallerExitTests(unittest.TestCase):
                 self.assertIn("Existing OptiScaler installation detected", output)
                 self.assertIn("Continuing with an overwrite installation", output)
                 self.assertIn("project=OptScaler(NR)", record.read_text())
-
-    def test_setup_yes_uses_new_uninstaller_then_installs_without_second_confirmation(self):
-        self.ready_legacy_install()
-        (self.package / "OptiScaler.ini").write_text("[DlssNr]\nPackageSentinel=yes\n", encoding="utf-8")
-        (self.game / "dlssnr_amd_pass3.dll").write_bytes(b"old unused backend")
-        write_ps(self.game / "Uninstall_OptiScaler_NR.ps1", "throw 'old uninstaller must not run'\n")
-        backup = self.game / "backup-amd-presr-existing"
-        backup.mkdir()
-        (backup / "keep.bin").write_bytes(b"old backup")
-        code, output = self.run_batch(stdin="Y\n3\n1\n")
-        self.assertEqual(code, 0, output)
-        self.assertIn("Uninstall SUCCEEDED.", output)
-        self.assertIn("Install SUCCEEDED.", output)
-        self.assertLess(output.index("Uninstall SUCCEEDED."), output.index("Installing OptScaler(NR)"))
-        self.assertNotIn("Type Y to delete", output)
-        self.assertNotIn("Keep these backup folders?", output)
-        self.assertNotIn("old uninstaller must not run", output)
-        self.assert_uninstaller_path(output, self.package / 'Uninstall_OptiScaler_NR.ps1')
-        self.assertIn('uninstallFirst=true', (self.game / 'amd-presr-install.txt').read_text())
-        self.assertFalse((self.game / "dlssnr_amd_pass3.dll").exists())
-        self.assertEqual((backup / "keep.bin").read_bytes(), b"old backup")
-        self.assert_dual_arch_installed()
-        self.assert_custom_module_backed_up()
-        ini = (self.game / "OptiScaler.ini").read_text(encoding="utf-8-sig")
-        self.assertIn("PackageSentinel", ini)
-        self.assertNotIn("UserSentinel", ini)
-        self.assert_legacy_shaders_removed(self.game / 'lmxxf-modules')
-
-    def test_release_uninstaller_wins_over_stale_root_copy(self):
-        self.ready_legacy_install()
-        release = self.package / 'release'
-        release.mkdir()
-        (self.package / 'OptiScaler.dll').rename(release / 'OptiScaler.dll')
-        shutil.copy2(self.package / 'Uninstall_OptiScaler_NR.ps1', release / 'Uninstall_OptiScaler_NR.ps1')
-        write_ps(self.package / 'Uninstall_OptiScaler_NR.ps1', "throw 'stale root uninstaller ran'\n")
-        code, output = self.run_batch(stdin='Y\n3\n1\n')
-        self.assertEqual(code, 0, output)
-        self.assert_uninstaller_path(output, release / 'Uninstall_OptiScaler_NR.ps1')
-        self.assertNotIn('stale root uninstaller ran', output)
-        self.assertIn('Uninstall SUCCEEDED.', output)
-        self.assert_legacy_shaders_removed(self.game / 'lmxxf-modules')
-
-    def test_existing_install_prompt_precedes_proxy_menu(self):
-        self.ready_legacy_install()
-        args = [str(PS), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-                str(self.package / "Setup.ps1"), "-GameDir", str(self.game), "-NoPause"]
-        # Overwrite installation, dxgi proxy, Original model, then overwrite INI.
-        code, output = self.run_process(args, "NO\n1\n3\n1\n")
-        self.assertEqual(code, 0, output)
-        self.assertLess(output.index("Existing OptiScaler installation detected"), output.index("Which proxy DLL"))
-
-    def test_setup_overwrite_moves_other_opti_proxy_without_reprompt(self):
-        self.ready_legacy_install()
-        (self.game / "dxgi.dll").rename(self.game / "winmm.dll")
-        code, output = self.run_batch(stdin="N\n3\n1\n")
-        self.assertEqual(code, 0, output)
-        self.assertFalse((self.game / "winmm.dll").exists())
-        self.assertEqual((self.game / "dxgi.dll").read_bytes(), b"fixture proxy")
-        self.assertFalse(list(self.game.glob("backup-amd-presr-*/winmm.dll*")))
-        self.assertNotIn("How to continue?", output)
-
-    def test_setup_uninstall_failure_stops_before_install(self):
-        self.ready_legacy_install()
-        write_ps(self.package / "Uninstall_OptiScaler_NR.ps1",
-                 "param($GameDir, [switch]$NonInteractive, [switch]$NoPause)\nexit 7\n")
-        before = snapshot_files(self.game)
-        code, output = self.run_batch(stdin="Y\n3\n1\n")
-        self.assertEqual(code, 1, output)
-        self.assertIn("Uninstall failed (exit code 7)", output)
-        self.assertNotIn("Install SUCCEEDED", output)
-        self.assertEqual(snapshot_files(self.game), before)
-        self.assertFalse(list(self.game.glob(".lmxxf-stage-*")))
-
-    def test_setup_missing_new_uninstaller_preserves_old_install(self):
-        self.ready_legacy_install()
-        (self.package / "Uninstall_OptiScaler_NR.ps1").unlink()
-        before = snapshot_files(self.game)
-        code, output = self.run_batch(stdin="Y\n")
-        self.assertEqual(code, 1, output)
-        self.assertIn("Missing Uninstall_OptiScaler_NR.ps1", output)
-        self.assertEqual(snapshot_files(self.game), before)
-
-    def test_setup_corrupt_package_is_rejected_before_agreed_uninstall(self):
-        self.ready_legacy_install()
-        before = snapshot_files(self.game)
-        damage_modules(self.package / "lmxxf-modules", "corrupt")
-        code, output = self.run_batch(stdin="Y\n")
-        self.assertEqual(code, 1, output)
-        self.assertIn("checksum mismatch", output)
-        self.assertNotIn("Uninstalling the existing", output)
-        self.assertEqual(snapshot_files(self.game), before)
-
-    def test_noninteractive_uninstall_requires_explicit_opt_in(self):
-        self.ready_legacy_install()
-        code, output = self.run_direct(flags=("-NonInteractive", "-UninstallExisting"))
-        self.assertEqual(code, 0, output)
-        self.assertIn("Uninstall SUCCEEDED.", output)
-        self.assertIn("Install SUCCEEDED.", output)
-
-    def test_setup_clean_reinstall_rejects_missing_update_components(self):
-        self.ready_lmxxf_dual_arch()
-        code, output = self.run_direct()
-        self.assertEqual(code, 0, output)
-        before = snapshot_files(self.game)
-        for relative in ('LmxxfNrRuntime.dll', 'shaders/native_codec_encode.hlsl', 'lmxxf-modules'):
-            with self.subTest(missing=relative):
-                path = self.package / relative
-                saved = self.root / 'held-update-component'
-                path.rename(saved)
-                try:
-                    code, output = self.run_batch(stdin="yes\n")
-                    self.assertEqual(code, 1, output)
-                    self.assertIn('Incomplete lmxxf package', output)
-                    self.assertNotIn('Uninstalling the existing', output)
-                    self.assertEqual(snapshot_files(self.game), before)
-                    self.assertFalse(list(self.game.glob('.amd-presr-source-*')))
-                finally:
-                    saved.rename(path)
-
-    def test_setup_clean_reinstall_from_package_in_game_preserves_its_sources(self):
-        self.ready_lmxxf_dual_arch()
-        (self.package / "dxgi.dll").write_bytes(b"fixture proxy")
-        code, output = self.run_batch(game=self.package, stdin="Y\n3\n")
-        self.assertEqual(code, 0, output)
-        self.assertIn("Uninstall SUCCEEDED.", output)
-        self.assertTrue((self.package / "LmxxfNrRuntime.dll").is_file())
-        self.assertTrue((self.package / "Uninstall_OptiScaler_NR.ps1").is_file())
-        self.assertTrue((self.package / "lmxxf-module-package.ps1").is_file())
-        self.assertFalse(list(self.package.glob(".amd-presr-source-*")))
-
-    def test_locked_legacy_module_is_preserved(self):
-        mods = self.ready_legacy_install()
-        before = snapshot_files(self.game)
-        # The old directory cannot move: no partial publication or file cleanup.
-        with locked_file(mods, share=3, directory=True):
-            code, output = self.run_direct()
-        self.assertEqual(code, 1, output)
-        self.assertIn("Could not install lmxxf-modules", output)
-        self.assertEqual(snapshot_files(self.game), before)
-
-    def test_locked_excluded_user_module_is_preserved(self):
-        mods = self.ready_legacy_install()
-        before = snapshot_files(self.game)
-        with locked_file(mods / "user-custom.hsaco"):
-            code, output = self.run_direct()
-        self.assertEqual(code, 1, output)
-        self.assertEqual(snapshot_files(self.game), before)
-        self.assertFalse(list(self.game.glob(".lmxxf-previous-*")))
-
-    def test_uninstall_then_install_preserves_extra_hsaco(self):
-        mods = self.ready_legacy_install()
-        code, output = self.run_direct(name="Uninstall")
-        self.assertEqual(code, 0, output)
-        self.assertEqual((mods / "user-custom.hsaco").read_bytes(), b"user-owned GPU code")
-        self.assertEqual(list(mods.glob("*.hsaco")), [mods / "user-custom.hsaco"])
-        self.assertTrue((mods / "user_weights.bin").exists())
-        self.assert_legacy_shaders_removed(mods)
-        code, output = self.run_direct()
-        self.assertEqual(code, 0, output)
-        self.assert_custom_module_backed_up()
-        self.assert_dual_arch_installed()
-        self.assertTrue((mods / "user_weights.bin").exists())
-
-    def test_dual_arch_reinstall_and_uninstall_preserve_user_files(self):
-        self.ready_lmxxf_dual_arch()
-        mods = self.game / "lmxxf-modules"
-        make_modules(mods, marker="old")
-        (mods / "user_extra").mkdir()
-        (mods / "user_extra/info.txt").write_bytes(b"keep me")
-        (mods / "user_weights.bin").write_bytes(b"weights")
-        for _ in range(2):
-            code, output = self.run_direct()
-            self.assertEqual(code, 0, output)
-            self.assertEqual((mods / "user_extra/info.txt").read_bytes(), b"keep me")
-            self.assertEqual((mods / "user_weights.bin").read_bytes(), b"weights")
-        # Extra modules added by the user after installation are not uninstaller-owned.
-        (mods / "gfx1200/user-custom.hsaco").write_bytes(b"extra")
-        code, output = self.run_direct(name="Uninstall")
-        self.assertEqual(code, 0, output)
-        self.assertEqual((mods / "gfx1200/user-custom.hsaco").read_bytes(), b"extra")
-        self.assertFalse((mods / "gfx1200/c32_fast.hsaco").exists())
-        self.assertFalse((mods / "gfx1201").exists())
-        self.assertTrue((mods / "user_extra/info.txt").exists())
 
     def assert_invalid_package_preserves_install(self, kind):
         self.ready_lmxxf_dual_arch()
@@ -1536,50 +996,6 @@ class InstallerExitTests(unittest.TestCase):
         self.assertFalse(list(self.game.glob(".lmxxf-stage-*")))
         self.assertFalse(list(self.game.glob("backup-amd-presr-*")))
         return output
-
-    def test_corrupt_module_rejected_before_dll_or_ini_changes(self):
-        self.assertIn("checksum mismatch", self.assert_invalid_package_preserves_install("corrupt"))
-
-    def test_missing_arch_rejected_before_install(self):
-        self.assert_invalid_package_preserves_install("missing-arch")
-
-    def test_missing_root_manifest_cannot_fall_back_to_installed_modules(self):
-        self.assert_invalid_package_preserves_install("missing-root")
-
-    def test_missing_leaf_rejected_before_install(self):
-        self.assert_invalid_package_preserves_install("missing-leaf")
-
-    def test_parent_leaf_mismatch_rejected_before_install(self):
-        self.assert_invalid_package_preserves_install("leaf-mismatch")
-
-    def test_same_count_renamed_module_rejected_before_install(self):
-        self.assert_invalid_package_preserves_install("rename")
-
-    def test_inconsistent_metadata_rejected_before_install(self):
-        self.assert_invalid_package_preserves_install("wrong-metadata")
-
-    def test_locked_source_leaves_old_modules_and_runtime_intact(self):
-        self.ready_lmxxf_dual_arch()
-        make_modules(self.game / "lmxxf-modules", marker="old")
-        (self.game / "LmxxfNrRuntime.dll").write_bytes(b"old runtime")
-        before = snapshot_files(self.game)
-        with locked_file(self.package / "lmxxf-modules/gfx1201/wave-pointwise.hsaco"):
-            code, output = self.run_direct()
-        self.assertEqual(code, 1, output)
-        self.assertEqual(snapshot_files(self.game), before)
-
-    def test_failed_module_directory_switch_leaves_old_install_intact(self):
-        self.ready_lmxxf_dual_arch()
-        mods = make_modules(self.game / "lmxxf-modules", marker="old")
-        (self.game / "LmxxfNrRuntime.dll").write_bytes(b"old runtime")
-        before = snapshot_files(self.game)
-        with locked_file(mods, share=3, directory=True):
-            code, output = self.run_direct()
-        self.assertEqual(code, 1, output)
-        self.assertIn("Could not install lmxxf-modules", output)
-        self.assertEqual(snapshot_files(self.game), before)
-        self.assertFalse(list(self.game.glob(".lmxxf-stage-*")))
-
 
     def test_install_always_enables_asi_plugin_loading(self):
         self.ready_install()
@@ -1672,5 +1088,66 @@ class InstallerExitTests(unittest.TestCase):
                 self.assertEqual((target / 'README.txt').read_text(), 'user document')
 
 
+    def test_explicit_active_backend_survives_install_update_and_reinstall(self):
+        self.ready_install()
+        self.ready_mochizuki(model=True)
+        (self.package / "OptiScaler.ini").write_text(
+            "[DlssNr]\nNrBackend=mochizuki\nAmdModelScale=0.75\n", encoding="utf-8"
+        )
+        flags = self.backend_decisions(["mochizuki", "daniel"]) + ("-ActiveBackend", "daniel", "-MochizukiModels", "original")
+        for action in ("install", "overwrite", "reinstall"):
+            with self.subTest(action=action):
+                if action == "reinstall":
+                    code, output = self.run_direct(name="Uninstall")
+                    self.assertEqual(code, 0, output)
+                code, output = self.run_direct(flags=flags)
+                self.assertEqual(code, 0, output)
+                self.assertIn("Active Backend: daniel", output)
+                ini = (self.game / "OptiScaler.ini").read_text(encoding="utf-8-sig")
+                self.assertRegex(ini, r"NrBackend\s*=\s*daniel")
+                self.assertRegex(ini, r"AmdModelScale\s*=\s*0\.75")
+                record = (self.game / "amd-presr-install.txt").read_text(encoding="utf-8-sig")
+                self.assertIn("backend=daniel", record)
+
+    def test_launcher_update_reuses_game_models_after_package_cache_deleted(self):
+        self.ready_mochizuki(model=True)
+        small = b'NRMODEL1' + (0).to_bytes(4, 'little') + bytes(20)
+        (self.package / 'dlssnr-amd/CC_SMALL_FP8.bin').write_bytes(small)
+        decisions = self.root / 'initial-models.json'
+        decisions.write_text(json.dumps(dict(backends=['mochizuki'], existingIni='keep',
+            mochizukiModels='both')), encoding='utf-8')
+        code, output = self.run_direct(flags=('-NonInteractive', '-DecisionJson', str(decisions)))
+        self.assertEqual(code, 0, output)
+        self.assertIn('CC_SILVER_AARDWOLD_OPTIMIZED_INT4 weights generated.', output, 'Fresh installs must still generate INT4')
+        models = [self.game / ('dlssnr-amd/' + name) for name in ('CC_SILVER_AARDWOLD.bin', 'CC_SMALL_FP8.bin', 'CC_SILVER_AARDWOLD_OPTIMIZED.bin', 'CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin')]
+        before = {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in models}
+        for name in ('CC_SILVER_AARDWOLD.bin', 'CC_SMALL_FP8.bin'):
+            (self.package / 'dlssnr-amd' / name).unlink()
+        (self.package / 'model-tools/dlssnr-int4-weights.exe').write_bytes(b'converter must not run')
+        (self.package / 'OptiScaler.dll').write_bytes(b'version-mismatched package proxy')
+        exe = self.game / 'reuse-game.exe'
+        shutil.copy2(Path(os.environ['SystemRoot']) / 'System32/whoami.exe', exe)
+        for name in ('launcher-worker.ps1', 'proxy-probe.ps1', 'install-capabilities.ps1'):
+            shutil.copy2(REPO / 'tools/install' / name, self.package)
+        request = self.root / 'request.json'
+        request.write_text(json.dumps(dict(schema=1, requestId='reuse-update', action='update',
+            gameExe=str(exe), proxyChoice='dxgi.dll', packageRoot=str(self.package),
+            backends=['mochizuki'], activeBackend='mochizuki', explicitDecisions=dict(
+                existingInstall='overwrite', existingIni='keep', mochizukiModels='both',
+                foreignProxy={'dxgi.dll': 'backup'}))), encoding='utf-8')
+        result = self.root / 'result.json'
+        events = self.root / 'events.jsonl'
+        code, output = self.run_process([str(PS), '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+            '-File', str(self.package / 'launcher-worker.ps1'), '-RequestJson', str(request),
+            '-EventsJsonl', str(events), '-ResultJson', str(result)], timeout=120)
+        body = json.loads(result.read_text(encoding='utf-8-sig'))
+        log = events.read_text(encoding='utf-8-sig')
+        self.assertEqual(code, 0, output + log)
+        self.assertEqual(body['status'], 'success', body)
+        self.assertIn('Reused existing CC_SILVER_AARDWOLD_OPTIMIZED weights', log)
+        self.assertNotIn('Preparing INT4 weights', log)
+        self.assertNotIn('Extracting Mochizuki', log)
+        self.assertEqual((self.game / 'dxgi.dll').read_bytes(), b'version-mismatched package proxy')
+        self.assertEqual({p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in models}, before)
 if __name__ == "__main__":
     unittest.main(verbosity=2)

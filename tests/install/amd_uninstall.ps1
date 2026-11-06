@@ -263,7 +263,6 @@ public class UninstallProxyFixture { }
     $standalone = Join-Path $testRoot 'standalone-game'
     Put-File (Join-Path $standalone 'lmxxf-modules\c32_fast.generated.hip')
     Copy-Item -LiteralPath $uninstall -Destination (Join-Path $standalone 'Uninstall_OptiScaler_NR.ps1')
-    Copy-Item -LiteralPath (Join-Path $repo 'tools\lmxxf-module-package.ps1') -Destination $standalone
     $out = & $powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $standalone 'Uninstall_OptiScaler_NR.ps1') -NonInteractive -NoPause 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Standalone cleanup failed: $out" }
     Assert-Removed (Join-Path $standalone 'lmxxf-modules')
