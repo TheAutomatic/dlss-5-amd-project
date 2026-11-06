@@ -13,6 +13,8 @@ The Mochizuki adapter also derives from MatheusFerreiraS/neural-amd-opti
 (GPL-3.0); see third_party/mochizuki-asi/UPSTREAM.md for its source revision.
 
 Mochizuki core: MIT; see third_party/mochizuki-asi/LICENSE and UPSTREAM.md.
+OpenRR (DLSS Ray Reconstruction runtime by Matheus Ferreira / OpenNeuralRendering):
+https://github.com/OpenNeuralRendering/OpenRR (MIT; see third_party/openrr/LICENSE and Licenses/OpenRR_MIT.txt).
 RenoDX colour-compositing contributions: MIT; notices remain in the source.
 Other bundled dependencies retain the notices under the product Licenses directory.
 
