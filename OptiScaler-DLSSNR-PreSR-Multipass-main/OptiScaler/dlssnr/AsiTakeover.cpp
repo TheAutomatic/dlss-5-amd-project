@@ -254,8 +254,8 @@ std::string MenuKey()
 
 bool NrRuntimeEnabled()
 {
-    if (!Config::Instance()->DlssNrEnabled.value_or_default())
-        return false;
-    return !Active();
+    // Neural Rendering is owned exclusively by dlssnr-amd.asi; the legacy built-in
+    // NGX forwarder (nvngx.dll_dlssnr.dll) and built-in NR runtimes are retired.
+    return false;
 }
 } // namespace DlssNr::AsiTakeover

@@ -305,6 +305,7 @@ void Engine::init(Gpu& dev, const Kernels& k, const Weights& w) {
 void Engine::drop_display_history() {
     for (auto& b : dh_)
         if (b.addr) dev_->destroy(b);
+    nr_frame_ = ~0ull;
 }
 
 void Engine::drop_transparency_history() {
@@ -312,8 +313,7 @@ void Engine::drop_transparency_history() {
         if (b.addr) dev_->destroy(b);
     for (auto& b : toh_)
         if (b.addr) dev_->destroy(b);
-    nr_frame_ = ~0ull;
-        tl_last_ = to_last_ = false;
+    tl_last_ = to_last_ = false;
 }
 
 void Engine::destroy() {
@@ -360,6 +360,7 @@ void Engine::resize(I2 render, I2 output, I2 max_render) {
         drop_display_history();
         drop_transparency_history();
     } else {
+        nr_frame_ = ~0ull;
         tl_last_ = to_last_ = false;
     }
     render_ = render, output_ = output;

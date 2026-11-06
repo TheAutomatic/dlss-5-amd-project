@@ -857,7 +857,6 @@
 {"Swap sides", "交换两侧"},
 {"Sync Int.", "同步间隔"},
 {"Syncing Settings", "同步设置"},
-{"Synthesises detail in the upscaler's frame, before frame generation sees it.\n\nNeeds two similarly named files beside OptiScaler, one character apart:\n  nvngx_dlssnr.dll       NVIDIA's model (~165 MB) -- you supply it\n  nvngx.dll_dlssnr.dll   the forwarder (~13 KB) -- ships in this package\nUndocumented and driven directly, so none of this is officially supported.", "在帧生成之前为超分画面合成细节。OptiScaler 旁需要两个相近文件名：nvngx_dlssnr.dll 为 NVIDIA 模型（约 165MB，需自备）；nvngx.dll_dlssnr.dll 为转发器（约 13KB，包内提供）。此接口未公开，属于实验支持。"},
 {"Teal", "青色"},
 {"Temporal history", "时序历史"},
 {"Temporal history (anti-flicker)", "时序历史（防闪烁）"},
