@@ -961,9 +961,6 @@ void CSMain(uint3 groupID : SV_GroupID, uint3 gtID : SV_GroupThreadID)
         //
         // Bias-masked pixels are excluded: their colour is not a surface reflection and the
         // hit distance that comes with them is not meaningful.
-        const float specularTracking =
-            SoftBelow(roughness, 0.30f, 0.15f) * (1.0f - isEmissive) * (1.0f - biasWeight);
-
         // The title's own statement that the specular signal's temporal history cannot be
         // trusted. Inert at zero, so it does nothing until asked for.
         const float responsivityRaw = IsSet(FLAGS_HAS_RESPONSIVITY_MASK)
@@ -995,6 +992,9 @@ void CSMain(uint3 groupID : SV_GroupID, uint3 gtID : SV_GroupThreadID)
                 : s_InvalidSpecularHitDistance);
         const bool hasInputHitDist =
             isfinite(rawHitDist) && rawHitDist >= 0.0f && rawHitDist <= 65504.0f;
+        const float specularTracking =
+            (hasInputHitDist ? SoftBelow(roughness, 0.75f, 0.50f) : SoftBelow(roughness, 0.30f, 0.15f)) *
+            (1.0f - isEmissive) * (1.0f - biasWeight);
         // Native ray lengths take precedence. Primary view depth is only a user-enabled
         // heuristic; it cannot recover the actual secondary ray and is kept below the miss sentinel.
         const float reflectionHitDistance = hasInputHitDist ? rawHitDist :

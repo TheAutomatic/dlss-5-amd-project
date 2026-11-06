@@ -367,25 +367,28 @@ float3 GetAdditiveSplitShare(int2 centerPx, float3 centerSpec, float3 centerDiff
     const float3 covAC = sumAC / count - meanA * meanC;
     const float3 varC = max(sumCC / count - meanC * meanC, 0.0f);
     const float3 safeMeanA = max(meanA, 1e-3f);
+    const float3 safeMeanD = max(meanA - meanS, 1e-3f);
     const float3 ratioSlope = meanC / safeMeanA;
     const float3 lambda = 0.02f * meanA * meanA + 1e-6f;
     const float3 fitSlope = (covAC + lambda * ratioSlope) / (varA + lambda);
-    const float3 intercept = clamp(meanC - fitSlope * meanA, 0.0f, meanC);
+    const float3 intercept = clamp(meanC - fitSlope * safeMeanD, 0.0f, meanC);
 
-    // Reject intercepts indistinguishable from sampling uncertainty. This is
-    // approximate local regression evidence, not a denoiser confidence/history.
+    // Reject fits with excessive residual uncertainty. Evaluating the intercept at
+    // D = 0 (spec radiance = meanC - fitSlope * meanD) allows both L_s > L_d highlights
+    // and L_s < L_d textured diffuse surfaces to separate without diffuse-albedo bleed.
     const float3 residualVariance = max(
         varC + fitSlope * fitSlope * varA - 2.0f * fitSlope * covAC, 0.0f);
     const float3 interceptError = sqrt(residualVariance *
-        (1.0f + meanA * meanA / max(varA, 1e-6f)) / count);
-    const float3 b = intercept * saturate(AdditiveLightSplit);
-    const float3 a = (meanC - b) / safeMeanA;
-    const float3 model = (centerSpec + centerDiff) * a + b;
-    const float3 share = saturate((centerSpec * a + b) / max(model, 1e-6f));
+        (1.0f + safeMeanD * safeMeanD / max(varA, 1e-6f)) / count);
+    const float3 b = intercept;
+    const float3 a = (meanC - b) / safeMeanD;
+    const float3 model = centerDiff * a + b;
+    const float3 share1 = saturate(b / max(model, 1e-6f));
+    const float3 share = lerp(baselineShare, share1, saturate(AdditiveLightSplit));
     const float3 rawCenter = FloorRadiance(GetRawColorAt(centerPx));
     fittedChannels = and(stableSpec, varA >= 0.01f * meanA * meanA + 1e-6f);
     fittedChannels = and(fittedChannels,
-        intercept > max(0.01f * meanC, 2.0f * interceptError));
+        abs(meanC - fitSlope * meanA) > max(0.002f * meanC, 0.5f * interceptError));
     fittedChannels = and(fittedChannels, and(fitSlope >= 0.0f, model > 1e-6f));
     fittedChannels = and(fittedChannels, and(isfinite(share), isfinite(intercept)));
     fittedChannels = and(fittedChannels, rawCenter * share <= 65504.0f * remodSpec);
@@ -393,18 +396,18 @@ float3 GetAdditiveSplitShare(int2 centerPx, float3 centerSpec, float3 centerDiff
     ADD_RECORD(10, meanC); ADD_RECORD(11, varC); ADD_RECORD(12, covAC);
     ADD_RECORD(13, lambda); ADD_RECORD(14, varA / (varA + lambda));
     ADD_RECORD(15, ratioSlope); ADD_RECORD(16, covAC / max(varA, 1e-20f));
-    ADD_RECORD(17, fitSlope); ADD_RECORD(18, meanC - fitSlope * meanA);
+    ADD_RECORD(17, fitSlope); ADD_RECORD(18, meanC - fitSlope * safeMeanD);
     ADD_RECORD(19, intercept); ADD_RECORD(20, interceptError);
     ADD_RECORD(21, sqrt(residualVariance)); ADD_RECORD(22, a); ADD_RECORD(23, b);
     ADD_RECORD(24, model); ADD_RECORD(25, g_AdditiveColor[smCenter.x][smCenter.y] - model);
     ADD_CHECK(256u, varA >= 0.01f * meanA * meanA + 1e-6f);
-    ADD_CHECK(512u, intercept > max(0.01f * meanC, 2.0f * interceptError));
+    ADD_CHECK(512u, abs(meanC - fitSlope * meanA) > max(0.002f * meanC, 0.5f * interceptError));
     ADD_CHECK(1024u, fitSlope >= 0.0f);
     ADD_CHECK(2048u, model > 1e-6f);
     ADD_CHECK(4096u, and(isfinite(share), isfinite(intercept)));
     ADD_CHECK(8192u, rawCenter * share <= 65504.0f * remodSpec);
     ADD_RECORD(2, select(fittedChannels, 1.0f, 0.0f));
-    return select(fittedChannels, max(share, baselineShare), baselineShare);
+    return select(fittedChannels, share, baselineShare);
 }
 
 #endif

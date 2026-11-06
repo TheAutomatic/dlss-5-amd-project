@@ -3187,6 +3187,7 @@ static int GuardedMain(int argc, char** argv)
         if (nativeComparison)
         {
             features.FfxDenoiserDenoiseSpecular = sceneCfg.nativeSpecular;
+            features.FfxDenoiserAdditiveLightSplit = sceneCfg.nativeSpecular ? 1.0f : 0.0f;
             const uint32_t wantedMask = sceneCfg.nativeSpecular ? 9u : 1u;
             if (currentPlan.mask != wantedMask)
             {
