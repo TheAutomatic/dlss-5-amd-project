@@ -1140,10 +1140,21 @@ bool OpenNrRrFeatureDx12::EvaluateD3d12(ID3D12GraphicsCommandList* InCommandList
     if (!FillFrame(*InParameters, frame))
         return false;
 
-    void* job = nullptr;
+    Microsoft::WRL::ComPtr<DlssNr::Submission::IRecordingResources> rec;
+    if (InCommandList != nullptr)
+        InCommandList->QueryInterface(__uuidof(DlssNr::Submission::IRecordingResources),
+                                      reinterpret_cast<void**>(rec.GetAddressOf()));
 
-    if (const int32_t rc = s_record(_context, &frame, InCommandList, ONR_RR_EDIT_OFF, nullptr, &job);
-        rc != ONR_RR_OK)
+    if (rec != nullptr)
+        rec->BeginPrivateBindings();
+
+    void* job = nullptr;
+    const int32_t rc = s_record(_context, &frame, InCommandList, ONR_RR_EDIT_OFF, nullptr, &job);
+
+    if (rec != nullptr)
+        rec->EndPrivateBindings();
+
+    if (rc != ONR_RR_OK)
     {
         FallBack(std::format("Record rc={}: {}", rc, RuntimeError()));
         return false;

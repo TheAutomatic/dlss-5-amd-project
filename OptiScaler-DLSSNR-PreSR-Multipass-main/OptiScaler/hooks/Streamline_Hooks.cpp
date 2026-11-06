@@ -1,4 +1,4 @@
-﻿#include <pch.h>
+#include <pch.h>
 
 #include "Streamline_Hooks.h"
 
@@ -3220,10 +3220,12 @@ void StreamlineHooks::hookInterposer(HMODULE slInterposer)
 
                     if (o_slSetTagForFrame != nullptr)
                         DetourAttach(&(PVOID&) o_slSetTagForFrame, hkslSetTagForFrame);
-
-                    if (o_slSetConstants != nullptr)
-                        DetourAttach(&(PVOID&) o_slSetConstants, hkslSetConstants);
                 }
+
+                // Always hook slSetConstants so Ray Reconstruction (FSR-RR / OpenRR) can read camera matrices
+                // even when Frame Generation is disabled.
+                if (o_slSetConstants != nullptr)
+                    DetourAttach(&(PVOID&) o_slSetConstants, hkslSetConstants);
 
                 if (State::Instance().activeFgInput == FGInput::DLSSG)
                 {

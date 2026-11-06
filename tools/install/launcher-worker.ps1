@@ -1,4 +1,4 @@
-﻿# Schema 1 worker. Inspect is read-only. Install/uninstall call the existing scripts.
+# Schema 1 worker. Inspect is read-only. Install/uninstall call the existing scripts.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$RequestJson,
@@ -501,7 +501,28 @@ if ($req.action -eq 'uninstall') {
 $prevEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 if ($req.action -eq 'uninstall') {
-    & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -GameDir $script:gameDir -NonInteractive -NoPause 1>$stdoutLog 2>$stderrLog
+    & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -GameDir $script:gameDir -NonInteractive -NoPause -RemoveBackups 1>$stdoutLog 2>$stderrLog
+    try {
+        $storeDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'OptScalerNR\ModelStore'
+        $dlssnrAmdDir = Join-Path $script:gameDir 'dlssnr-amd'
+        if (Test-Path -LiteralPath $dlssnrAmdDir -PathType Container) {
+            foreach ($modelFile in @(Get-ChildItem -LiteralPath $dlssnrAmdDir -Filter 'CC_*.bin' -File -ErrorAction SilentlyContinue)) {
+                [void][IO.Directory]::CreateDirectory($storeDir)
+                $dest = Join-Path $storeDir $modelFile.Name
+                if (-not (Test-Path -LiteralPath $dest -PathType Leaf)) {
+                    Copy-Item -LiteralPath $modelFile.FullName -Destination $dest -Force
+                }
+                Remove-Item -LiteralPath $modelFile.FullName -Force -ErrorAction SilentlyContinue
+            }
+            if (@(Get-ChildItem -LiteralPath $dlssnrAmdDir -Force -ErrorAction SilentlyContinue).Count -eq 0) {
+                [IO.Directory]::Delete($dlssnrAmdDir, $false)
+            }
+        }
+        $compatBackup = Join-Path $script:gameDir 'OptiScaler-compat-backup'
+        if (Test-Path -LiteralPath $compatBackup -PathType Container) {
+            Remove-Item -LiteralPath $compatBackup -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    } catch { }
 } elseif ($hasRequestedBackends) {
     $activeArguments = @()
     if ($req.activeBackend) { $activeArguments = @('-ActiveBackend', [string]$req.activeBackend) }

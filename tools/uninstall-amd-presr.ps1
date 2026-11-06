@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Remove this project from the folder this script sits in (the game folder after Setup).
   Double-click Uninstall_OptiScaler_NR.bat there. Tests may pass -GameDir.
@@ -157,6 +157,20 @@ $projectLeafNames = @(
     'opennr-rr/shaders/enc_stage_96_128_128_f.spv', 'opennr-rr/shaders/enc_stage_96_128_128_fl.spv', 'opennr-rr/shaders/ingest.spv', 'opennr-rr/shaders/pack.spv',
     'opennr-rr/shaders/pooled_history2.spv', 'opennr-rr/shaders/post_dlt_f.spv', 'opennr-rr/shaders/post_f.spv', 'opennr-rr/shaders/post_tile.spv',
     'opennr-rr/shaders/selftest.spv', 'opennr-rr/shaders/selftest_tex.spv',
+    'opennr-rr/shaders/ae_lt.spv', 'opennr-rr/shaders/d3d_ae_lt.spv', 'opennr-rr/shaders/d3d_downsample_lt.spv', 'opennr-rr/shaders/d3d_downsample_tl_lt.spv',
+    'opennr-rr/shaders/d3d_enc0_attr_f_lt.spv', 'opennr-rr/shaders/d3d_enc0_attr_f_w_lt.spv', 'opennr-rr/shaders/d3d_ingest_lt.spv', 'opennr-rr/shaders/d3d_pack_lt.spv',
+    'opennr-rr/shaders/dec_dfn_128_128_f_lt.spv', 'opennr-rr/shaders/dec_dfn_128_128_fl_lt.spv', 'opennr-rr/shaders/dec_dfn_160_256_f_lt.spv', 'opennr-rr/shaders/dec_dfn_160_256_fl_lt.spv',
+    'opennr-rr/shaders/dec_dfn_64_64_f_lt.spv', 'opennr-rr/shaders/dec_dfn_96_128_f_lt.spv', 'opennr-rr/shaders/dec_dfn_96_128_fl_lt.spv', 'opennr-rr/shaders/dec_head_32_64_f_lt.spv',
+    'opennr-rr/shaders/dec_up_128_128_160_f_lt.spv', 'opennr-rr/shaders/dec_up_128_128_160_fl_lt.spv', 'opennr-rr/shaders/dec_up_160_256_160_f_lt.spv', 'opennr-rr/shaders/dec_up_160_256_160_fl_lt.spv',
+    'opennr-rr/shaders/dec_up_32_64_64_f_lt.spv', 'opennr-rr/shaders/dec_up_64_64_96_f_lt.spv', 'opennr-rr/shaders/dec_up_96_128_128_f_lt.spv', 'opennr-rr/shaders/dec_up_96_128_128_fl_lt.spv',
+    'opennr-rr/shaders/dfn_export_lt.spv', 'opennr-rr/shaders/dfn_import_lt.spv', 'opennr-rr/shaders/downsample_lt.spv', 'opennr-rr/shaders/downsample_tl_lt.spv',
+    'opennr-rr/shaders/enc0_attr_f_lt.spv', 'opennr-rr/shaders/enc0_attr_f_w_lt.spv', 'opennr-rr/shaders/enc0_stage_32_64_f_lt.spv', 'opennr-rr/shaders/enc0_stage_32_64_f_w_lt.spv',
+    'opennr-rr/shaders/enc_stage_128_128_160_f_lt.spv', 'opennr-rr/shaders/enc_stage_128_128_160_fl_lt.spv', 'opennr-rr/shaders/enc_stage_160_256_0_f_lt.spv', 'opennr-rr/shaders/enc_stage_160_256_0_fl_lt.spv',
+    'opennr-rr/shaders/enc_stage_160_256_160_f_lt.spv', 'opennr-rr/shaders/enc_stage_160_256_160_fl_lt.spv', 'opennr-rr/shaders/enc_stage_64_64_96_f_lt.spv',
+    'opennr-rr/shaders/enc_stage_96_128_128_f_lt.spv', 'opennr-rr/shaders/enc_stage_96_128_128_fl_lt.spv', 'opennr-rr/shaders/ingest_lt.spv', 'opennr-rr/shaders/pack_lt.spv',
+    'opennr-rr/shaders/pooled_history2_lt.spv', 'opennr-rr/shaders/post_dlt_f_lt.spv', 'opennr-rr/shaders/post_f_lt.spv', 'opennr-rr/shaders/post_tile_lt.spv',
+    'opennr-rr/shaders/selftest_lt.spv', 'opennr-rr/shaders/selftest_tex_lt.spv',
+    'dlssnr-amd.ini', 'dlssnr-amd.default.ini', 'dlssnr-amd/dlssnr-amd.default.ini', 'dlssnr-amd/nr_present_probe.exe', 'mochizuki-owned.txt',
     'Uninstall_OptiScaler_NR.bat','Uninstall_OptiScaler_NR.ps1',
     'OptiScaler/dlssnr/README.md',
     'OptiScaler/dlssnr/design/frame-hold.md',
@@ -262,6 +276,7 @@ $dependencyPaths = @(
     'D3D12_OptiScaler\D3D12Core.dll',
     'D3D12_OptiScaler\d3d12SDKLayers.dll',
     'plugins\OptiPatcher.asi',
+    'plugins\dlssnr-amd.asi',
     'plugins\OptScaler-NR-plugins-README.txt'
 )
 $protectedNames = @(
