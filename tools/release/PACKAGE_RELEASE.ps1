@@ -50,7 +50,7 @@ foreach ($license in @(
     'third_party/openrr/LICENSE',
     'third_party/fsr-rr-1.2.1/license.md',
     'third_party/fsr-rr-1.2.1/3rdpartynotice.md',
-    'third_party/mochizuki/LICENSE',
+    'third_party/mochizuki-asi/LICENSE',
     'OptiScaler-DLSSNR-PreSR-Multipass-main/external/xess/LICENSE.txt',
     'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK/docs/license.md',
     'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK-v2/docs/license.md',
@@ -677,9 +677,9 @@ foreach ($name in @('dlssnr_extract_model.exe', 'dlssnr-int4-weights.exe')) {
 if (Test-Path -LiteralPath (Join-Path $asiPayload 'model-tools/dlssnr-int4.sha256') -PathType Leaf) {
     Copy-Item -LiteralPath (Join-Path $asiPayload 'model-tools/dlssnr-int4.sha256') -Destination (Join-Path $stage 'model-tools') -Force
 }
-$mochizukiLicenseRoot = Join-Path $root 'third_party/mochizuki'
+$mochizukiLicenseRoot = Join-Path $root 'third_party/mochizuki-asi'
 Copy-Item -LiteralPath (Join-Path $mochizukiLicenseRoot 'LICENSE') -Destination (Join-Path $stage 'Licenses/Mochizuki_MIT.txt') -Force
-Copy-Item -LiteralPath (Join-Path $mochizukiLicenseRoot 'windows/src/core/renodx/LICENSE') -Destination (Join-Path $stage 'Licenses/RenoDX_MIT.txt') -Force
+Copy-Item -LiteralPath (Join-Path $mochizukiLicenseRoot 'RenoDX_MIT.txt') -Destination (Join-Path $stage 'Licenses/RenoDX_MIT.txt') -Force
 Copy-Item -LiteralPath (Join-Path $mochizukiLicenseRoot 'UPSTREAM.md') -Destination (Join-Path $stage 'Licenses/Mochizuki_SOURCES.md') -Force
 Copy-Item -LiteralPath (Join-Path $root 'third_party/mochizuki-asi/README.md') -Destination (Join-Path $stage 'Licenses/Mochizuki_ASI_SOURCES.md') -Force
 # Retired built-in runtime inventory: uninstall and upgrade use it to remove only
@@ -694,7 +694,7 @@ foreach ($name in @('lmxxf-small-model.md','lmxxf-044-consumer-review.md')) {
 }
 
 $mzDoc = [IO.File]::ReadAllText((Join-Path $root 'docs/mochizuki.md'))
-$mzDoc = $mzDoc.Replace('../third_party/mochizuki/UPSTREAM.md', '../Licenses/Mochizuki_SOURCES.md')
+$mzDoc = $mzDoc.Replace('../third_party/mochizuki-asi/UPSTREAM.md', '../Licenses/Mochizuki_SOURCES.md').Replace('../third_party/mochizuki/UPSTREAM.md', '../Licenses/Mochizuki_SOURCES.md')
 [IO.File]::WriteAllText((Join-Path $stage 'docs/mochizuki.md'), $mzDoc, [Text.UTF8Encoding]::new($false))
 # Model preparation without the retired Python extractor: the official 0.0.8.3
 # tools write the models the ASI reads. No hash whitelist and no version gate.

@@ -145,8 +145,8 @@ Add-Type -TypeDefinition 'public static class PackageFixture { public static int
         self.asi_payload = payload
         for name in ('VERSION', 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/library/vulkan/vulkan-1.lib',
                      'docs/mochizuki.md', 'docs/lmxxf-small-model.md', 'docs/lmxxf-044-consumer-review.md',
-                     'third_party/mochizuki/LICENSE', 'third_party/mochizuki/UPSTREAM.md',
-                     'third_party/mochizuki/windows/src/core/renodx/LICENSE',
+                     'third_party/mochizuki-asi/LICENSE', 'third_party/mochizuki-asi/UPSTREAM.md',
+                     'third_party/mochizuki-asi/RenoDX_MIT.txt',
                      'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/backend/lmxxf_runtime/LmxxfNrApi.h',
                      'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/dlssnr/NrPerformance.h'):
             target = self.root / name
@@ -207,7 +207,7 @@ Add-Type -TypeDefinition 'public static class PackageFixture { public static int
         with zipfile.ZipFile(self.archive) as archive:
             for source, dest in [('LICENSE', 'LICENSE'), ('NOTICE', 'NOTICE'),
                                  ('third_party/lmxxf/LICENSE', 'Licenses/Lmxxf_MIT.txt'),
-                                 ('third_party/mochizuki/LICENSE', 'Licenses/Mochizuki_MIT.txt')]:
+                                 ('third_party/mochizuki-asi/LICENSE', 'Licenses/Mochizuki_MIT.txt')]:
                 self.assertEqual(archive.read(dest), (self.root / source).read_bytes())
 
     def run_ps(self, args, env=None, timeout=60):

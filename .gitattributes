@@ -7,7 +7,6 @@
 # Unified patches are applied to LF git-archive files on Windows too.
 tools/lmxxf-sync/patches/*.patch text eol=lf
 # Unified patch blank context lines carry a required space; git apply checks source whitespace.
-tools/mochizuki-sync/patches/*.patch text eol=lf whitespace=-blank-at-eol
 # Dormant research patches must remain directly applicable after a Windows checkout.
 docs/research/nr-capture-proof/*.patch text eol=lf whitespace=-blank-at-eol
 

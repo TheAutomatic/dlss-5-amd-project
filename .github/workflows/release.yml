@@ -419,20 +419,6 @@ jobs:
             }
           }
 
-      - name: Replay Mochizuki upstream pin for test package
-        if: github.event_name == 'workflow_dispatch'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $pin = (Get-Content tools/mochizuki-sync/manifest.json -Raw | ConvertFrom-Json).commit
-          $upstream = Join-Path $env:RUNNER_TEMP 'mochizuki-source-check'
-          git init $upstream
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          git -C $upstream fetch --depth=1 https://github.com/mochizuki0323/DLSSNR-AMD.git $pin
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -B tools/mochizuki-sync/check.py --upstream $upstream
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
       - name: Upload tested package
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v6
@@ -507,19 +493,6 @@ jobs:
         run: |
           ./tools/build/build-ci.ps1 -FullRegression
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Replay Mochizuki upstream pin
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $pin = (Get-Content tools/mochizuki-sync/manifest.json -Raw | ConvertFrom-Json).commit
-          $upstream = Join-Path $env:RUNNER_TEMP 'mochizuki-source-check'
-          git init $upstream
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          git -C $upstream fetch --depth=1 https://github.com/mochizuki0323/DLSSNR-AMD.git $pin
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -B tools/mochizuki-sync/check.py --upstream $upstream
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
       - name: Upload validation logs
         if: always()
         uses: actions/upload-artifact@v6

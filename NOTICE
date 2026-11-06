@@ -10,11 +10,11 @@ https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass
 https://github.com/MatheusGViana/dlss-5-amd-project
 https://github.com/TheAutomatic/dlss-5-amd-project
 The Mochizuki adapter also derives from MatheusFerreiraS/neural-amd-opti
-(GPL-3.0); see third_party/mochizuki/UPSTREAM.md for its source revision.
+(GPL-3.0); see third_party/mochizuki-asi/UPSTREAM.md for its source revision.
 
 lmxxf: MIT, Copyright (c) 2026 Kien. See third_party/lmxxf/LICENSE
 and third_party/lmxxf/UPSTREAM.md. The HIP API header retains AMD's MIT notice.
-Mochizuki core: MIT; see third_party/mochizuki/LICENSE and UPSTREAM.md.
+Mochizuki core: MIT; see third_party/mochizuki-asi/LICENSE and UPSTREAM.md.
 RenoDX colour-compositing contributions: MIT; notices remain in the source.
 Other bundled dependencies retain the notices under the product Licenses directory.
 
