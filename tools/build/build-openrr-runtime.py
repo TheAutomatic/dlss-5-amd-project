@@ -154,7 +154,8 @@ def main() -> None:
         up / 'runtime/src',
     ]
     cflags = [
-        '/nologo', '/std:c++20', '/O2', '/EHsc', '/MD', '/utf-8',
+        '/nologo', '/std:c++20', '/O2', '/EHsc', '/MT', '/utf-8',
+        '/D_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR',
         '/W4', '/permissive-', '/DNOMINMAX', '/D_CRT_SECURE_NO_WARNINGS', '/DNDEBUG',
     ]
     sources = [
