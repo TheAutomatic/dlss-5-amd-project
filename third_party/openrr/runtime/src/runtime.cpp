@@ -422,6 +422,11 @@ struct Ctx {
     uint64_t seq = 0, frames = 0;
     float gpu_last = 0;
     std::vector<float> gpu_hist;
+    struct RawSpan {
+        uint32_t key = 0;
+        float ms = 0;
+    };
+    std::vector<RawSpan> gpu_raw_win;
     std::map<Job*, std::unique_ptr<Job>> jobs;
     std::string last_logged_error;
     uint32_t logged_edit = ONR_RR_EDIT_OFF;
@@ -901,6 +906,50 @@ void keep_hop_timing(Ctx* c, int s) {
                                            at(c->span[s + kSlots][1])};
 }
 
+uint32_t timing_key(const Ctx* c) {
+    if (!c->engine_ready) return 0;
+    const I2 r = c->engine.render();
+    const uint32_t tiles = uint32_t(((r.x + 31) >> 5) * ((r.y + 31) >> 5));
+    return (tiles << 1) | uint32_t(c->engine.lite_active() ? 1u : 0u);
+}
+
+// Filters out wall-clock timestamp inflation caused by concurrent game async-compute queues preempting between
+// the start and end timestamp queries of a frame at the same grid resolution and mode.
+void record_gpu_sample(Ctx* c, float raw_ms, float part[3], bool has_parts) {
+    if (raw_ms <= 0) return;
+    float clean_ms = raw_ms;
+    const uint32_t key = timing_key(c);
+    if (key) {
+        c->gpu_raw_win.push_back({key, raw_ms});
+        if (c->gpu_raw_win.size() > 32) c->gpu_raw_win.erase(c->gpu_raw_win.begin());
+        float same[32];
+        size_t n = 0;
+        for (const auto& s : c->gpu_raw_win)
+            if (s.key == key) same[n++] = s.ms;
+        if (n >= 3) {
+            std::sort(same, same + n);
+            const float base = same[n / 10];
+            const float limit = base * 1.08f;
+            if (raw_ms > limit) {
+                float sum = 0.0f;
+                size_t cnt = 0;
+                for (size_t i = 0; i < n; ++i)
+                    if (same[i] <= limit) sum += same[i], ++cnt;
+                clean_ms = cnt ? sum / float(cnt) : base;
+            }
+        }
+    }
+    if (has_parts) {
+        const float excess = raw_ms - clean_ms;
+        if (excess > 0.0f && part[1] > excess) part[1] -= excess;
+        for (int i = 0; i < 3; ++i) c->split[i] += part[i];
+        ++c->split_n;
+    }
+    c->gpu_last = clean_ms;
+    c->gpu_hist.push_back(clean_ms);
+    if (c->gpu_hist.size() > 64) c->gpu_hist.erase(c->gpu_hist.begin());
+}
+
 // waits for a frame slot's submits (network and post, the host's hop between them not counted) and keeps its time
 void retire_slot(Ctx* c, int s) {
     float ms = 0, part[3] = {};
@@ -914,12 +963,7 @@ void retire_slot(Ctx* c, int s) {
         ms += harvest(c, k, part);
     }
     keep_hop_timing(c, s);
-    if (ms <= 0) return;
-    c->gpu_last = ms;
-    for (int i = 0; i < 3; ++i) c->split[i] += part[i];
-    ++c->split_n;
-    c->gpu_hist.push_back(ms);
-    if (c->gpu_hist.size() > 64) c->gpu_hist.erase(c->gpu_hist.begin());
+    record_gpu_sample(c, ms, part, ms > 0);
 }
 
 // the game queue signals, the Vulkan submit k runs behind that and signals back, the game queue waits for it
@@ -982,6 +1026,8 @@ bool prepare_network(Ctx* c, Gpu& d, I2 render, F&& idle) {
         c->engine.init(d, c->net, c->w);
         if (getenv("ONR_RR_NO_SAMPLER")) c->engine.set_history_sampler(false);   // measurements
         c->engine_ready = true;
+        c->gpu_hist.clear();
+        c->gpu_raw_win.clear();
         c->state = ONR_RR_STATE_READY;
         c->set_message("ready");
     } else if (c->state != ONR_RR_STATE_FAILED && !c->building && !c->built && !c->small_view) {
@@ -2124,15 +2170,14 @@ void d3d_harvest(Ctx* c) {
         c->dq[slot] = 0;
         add_gaps(c, ts, ms);
         const uint32_t a = c->dqnet[slot][0], b = c->dqnet[slot][1];
-        if (b > a && b <= n) {
-            c->split[0] += float(double(ts[a] - ts.front()) * ms);
-            c->split[1] += float(double(ts[b - 1] - ts[a]) * ms);
-            c->split[2] += float(double(ts.back() - ts[b - 1]) * ms);
-            ++c->split_n;
+        float part[3] = {};
+        const bool has_parts = b > a && b <= n;
+        if (has_parts) {
+            part[0] = float(double(ts[a] - ts.front()) * ms);
+            part[1] = float(double(ts[b - 1] - ts[a]) * ms);
+            part[2] = float(double(ts.back() - ts[b - 1]) * ms);
         }
-        c->gpu_last = float(double(ts.back() - ts.front()) * ms);
-        c->gpu_hist.push_back(c->gpu_last);
-        if (c->gpu_hist.size() > 64) c->gpu_hist.erase(c->gpu_hist.begin());
+        record_gpu_sample(c, float(double(ts.back() - ts.front()) * ms), part, has_parts);
     }
 }
 
@@ -2579,15 +2624,14 @@ void vk_harvest(Ctx* c) {
         if (vkGetQueryPoolResults(c->dev.vk(), c->hqp[slot], 0, n, ts.size() * 8, ts.data(), 8, VK_QUERY_RESULT_64_BIT) != VK_SUCCESS) continue;
         add_gaps(c, ts, ms);
         const uint32_t a = c->hqnet[slot][0], b = c->hqnet[slot][1];
-        if (b > a && b <= n) {
-            c->split[0] += float(double(ts[a] - ts.front()) * ms);
-            c->split[1] += float(double(ts[b - 1] - ts[a]) * ms);
-            c->split[2] += float(double(ts.back() - ts[b - 1]) * ms);
-            ++c->split_n;
+        float part[3] = {};
+        const bool has_parts = b > a && b <= n;
+        if (has_parts) {
+            part[0] = float(double(ts[a] - ts.front()) * ms);
+            part[1] = float(double(ts[b - 1] - ts[a]) * ms);
+            part[2] = float(double(ts.back() - ts[b - 1]) * ms);
         }
-        c->gpu_last = float(double(ts.back() - ts.front()) * ms);
-        c->gpu_hist.push_back(c->gpu_last);
-        if (c->gpu_hist.size() > 64) c->gpu_hist.erase(c->gpu_hist.begin());
+        record_gpu_sample(c, float(double(ts.back() - ts.front()) * ms), part, has_parts);
     }
 }
 

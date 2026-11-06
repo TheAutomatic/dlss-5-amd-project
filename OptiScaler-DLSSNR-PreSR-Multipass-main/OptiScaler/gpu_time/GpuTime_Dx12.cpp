@@ -121,7 +121,58 @@ std::optional<double> GpuTime_Dx12::ReadGpuTime(ID3D12CommandQueue* commandQueue
             return elapsedTimeMs;
         }
 
-        elapsedTimeMs = (endTime - startTime) / static_cast<double>(gpuFrequency) * 1000.0;
+        double rawMs = (endTime - startTime) / static_cast<double>(gpuFrequency) * 1000.0;
+
+        // Filter out wall-clock timestamp inflation when a concurrent async-compute queue preempts between Start and End.
+        if (rawMs > 0.0 && rawMs < 100.0)
+        {
+            if (_rawCount >= 2)
+            {
+                const double prevMs = _rawWindow[(_rawHead + RAW_WINDOW_SIZE - 1) % RAW_WINDOW_SIZE];
+                double minWin = _rawWindow[0];
+                for (size_t i = 1; i < _rawCount; ++i)
+                    minWin = (std::min)(minWin, _rawWindow[i]);
+
+                if ((prevMs > minWin * 2.0 && rawMs > minWin * 2.0) || rawMs < minWin * 0.5)
+                {
+                    _rawWindow[0] = prevMs;
+                    _rawCount = 1;
+                    _rawHead = 1;
+                }
+            }
+
+            _rawWindow[_rawHead] = rawMs;
+            _rawHead = (_rawHead + 1) % RAW_WINDOW_SIZE;
+            if (_rawCount < RAW_WINDOW_SIZE)
+                ++_rawCount;
+
+            if (_rawCount >= 3)
+            {
+                std::array<double, RAW_WINDOW_SIZE> sorted {};
+                for (size_t i = 0; i < _rawCount; ++i)
+                    sorted[i] = _rawWindow[i];
+                std::sort(sorted.begin(), sorted.begin() + _rawCount);
+
+                const double base = sorted[_rawCount / 10];
+                const double limit = base * 1.08;
+                if (rawMs > limit)
+                {
+                    double sum = 0.0;
+                    size_t cnt = 0;
+                    for (size_t i = 0; i < _rawCount; ++i)
+                    {
+                        if (sorted[i] <= limit)
+                        {
+                            sum += sorted[i];
+                            ++cnt;
+                        }
+                    }
+                    rawMs = cnt > 0 ? (sum / static_cast<double>(cnt)) : base;
+                }
+            }
+        }
+
+        elapsedTimeMs = rawMs;
     }
     else
     {

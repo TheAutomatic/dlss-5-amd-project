@@ -14,6 +14,11 @@ class GpuTime_Dx12
     bool _init = false;
     bool _deferredRetirement = true;
 
+    static constexpr size_t RAW_WINDOW_SIZE = 32;
+    std::array<double, RAW_WINDOW_SIZE> _rawWindow {};
+    size_t _rawCount = 0;
+    size_t _rawHead = 0;
+
   public:
     GpuTime_Dx12(ID3D12Device* device, bool deferredRetirement = true);
     ~GpuTime_Dx12();
