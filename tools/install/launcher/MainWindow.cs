@@ -1862,7 +1862,7 @@ namespace OptScalerNR.Launcher
             var fastProxy = PeProbe.QuickRecommend(game.Exe);
             UpdateProxyRecommendation(fastProxy);
             _decisions.OptiPatcher = (_optiPatcherToggle != null && _optiPatcherToggle.IsChecked == true) ? "install" : "skip";
-            _decisions.OpenRr = (_openRrToggle == null || _openRrToggle.IsChecked == true) ? "install" : "skip";
+            _decisions.OpenRr = (_openRrToggle != null && _openRrToggle.IsChecked == true) ? "install" : "skip";
             if (TryFastInspect(game, fastProxy)) return;
 
             if (_session != null)
@@ -2493,30 +2493,23 @@ namespace OptScalerNR.Launcher
             if (installing && !multiBackendMode && !keepModelChoice)
             {
                 bool nrOn = checkedBackends.Contains("mochizuki");
-                bool rrOn = _openRrToggle == null || _openRrToggle.IsChecked == true;
-                if (!nrOn || !rrOn)
+                bool rrOn = _openRrToggle != null && _openRrToggle.IsChecked == true;
+                if (!nrOn)
                 {
-                    string warnMsg;
-                    if (!nrOn && !rrOn)
-                        warnMsg = L(
+                    string warnMsg = !rrOn
+                        ? L(
                             "当前未启用神经渲染（Mochizuki）与 DLSS 光线重建（OpenRR），本次将仅安装基础版 OptiScaler（支持超分、帧生成与内置 FSR-RR），无法获得神经渲染光影重塑与原生 DLSS 光线重建效果。\n\n是否继续？",
-                            "Neither Mochizuki Neural Rendering nor OpenRR (DLSS Ray Reconstruction) is enabled. Only base OptiScaler will be installed (supporting upscaling, frame generation, and built-in FSR-RR, without Neural Rendering or native DLSS Ray Reconstruction).\n\nContinue anyway?");
-                    else if (!nrOn)
-                        warnMsg = L(
+                            "Neither Mochizuki Neural Rendering nor OpenRR (DLSS Ray Reconstruction) is enabled. Only base OptiScaler will be installed (supporting upscaling, frame generation, and built-in FSR-RR, without Neural Rendering or native DLSS Ray Reconstruction).\n\nContinue anyway?")
+                        : L(
                             "当前未启用神经渲染（Mochizuki），将无法获得神经渲染光影重塑效果。\n\n是否继续？",
                             "Mochizuki Neural Rendering is not enabled; Neural Rendering lighting effects will not be available.\n\nContinue anyway?");
-                    else
-                        warnMsg = L(
-                            "当前未启用 DLSS 光线重建（OpenRR），光线重建将使用内置 FSR-RR，无法获得原生 DLSS 光线重建效果。\n\n是否继续？",
-                            "OpenRR (DLSS Ray Reconstruction) is not enabled; Ray Reconstruction will use built-in FSR-RR instead of native DLSS Ray Reconstruction.\n\nContinue anyway?");
                     if (DialogTheme.Show(_window, warnMsg, _window.Title, MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
                     {
                         ReleaseLock();
                         return;
                     }
-                }
-                if (!nrOn)
                     checkedBackends.Add("none");
+                }
             }
             if (installing && !PrepareMissingModelSource(action, checkedBackends)) { ReleaseLock(); return; }
 
@@ -2542,7 +2535,7 @@ namespace OptScalerNR.Launcher
 
             _decisions.ExistingIni = (_replaceIni != null && _replaceIni.IsChecked == true) ? "overwrite" : "keep";
             _decisions.OptiPatcher = (_optiPatcherToggle != null && _optiPatcherToggle.IsChecked == true) ? "install" : "skip";
-            _decisions.OpenRr = (_openRrToggle == null || _openRrToggle.IsChecked == true) ? "install" : "skip";
+            _decisions.OpenRr = (_openRrToggle != null && _openRrToggle.IsChecked == true) ? "install" : "skip";
 
             var req = new LauncherRequest
             {

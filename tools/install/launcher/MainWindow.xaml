@@ -555,7 +555,7 @@
                         </Border>
                         <Button x:Name="OpenRrImportButton" Style="{DynamicResource GhostButton}" Height="24" FontSize="10.5" Padding="9,0" Margin="7,0,0,0" VerticalAlignment="Center"/>
                       </StackPanel>
-                      <CheckBox x:Name="OpenRrToggle" IsChecked="True" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"/>
+                      <CheckBox x:Name="OpenRrToggle" IsChecked="False" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"/>
                     </DockPanel>
                     <TextBlock x:Name="OpenRrDescription" FontSize="10.5" Foreground="{DynamicResource ThemeMuted}" Margin="0,5,0,0" TextWrapping="Wrap"/>
                   </StackPanel>

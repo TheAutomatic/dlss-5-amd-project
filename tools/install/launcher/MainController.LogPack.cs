@@ -66,6 +66,7 @@ namespace OptScalerNR.Launcher
                     copied += CopyGlobs(dir, tempDir, taken, new[]
                     {
                         "OptiScaler.log", "OptiScaler.?.log", "OptiScaler.ini",
+                        "opennr_rr.log", "opennr_rr*.log",
                         "dlssnr-amd.ini", "dlssnr-amd.default.ini",
                         "mochizuki_nr.log", "dlssnr-amd*.log", "dlssnr-amd-crash.dmp"
                     });

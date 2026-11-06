@@ -37,7 +37,7 @@ namespace OptScalerNR.Launcher
         }
         void RememberOpenRrChoice()
         {
-            _decisions.OpenRr=_openRrToggle==null||_openRrToggle.IsChecked==true?"install":"skip";
+            _decisions.OpenRr=_openRrToggle!=null&&_openRrToggle.IsChecked==true?"install":"skip";
             if(_selectingOpenRr||_loadingSettings||_applyingLanguage||_selectedGame==null||string.IsNullOrEmpty(_selectedGame.Id))return;
             _openRrByGame[_selectedGame.Id]=_openRrToggle.IsChecked==true;
             SaveSettings();
@@ -65,7 +65,7 @@ namespace OptScalerNR.Launcher
             try{if(_optiPatcherToggle!=null)_optiPatcherToggle.IsChecked=optiPatcher;}
             finally{_selectingOptiPatcher=false;}
             _decisions.OptiPatcher=optiPatcher?"install":"skip";
-            bool openRr=true,savedOpenRr;
+            bool openRr=false,savedOpenRr;
             if(_selectedGame!=null&&_openRrByGame.TryGetValue(_selectedGame.Id,out savedOpenRr))openRr=savedOpenRr;
             _selectingOpenRr=true;
             try{if(_openRrToggle!=null)_openRrToggle.IsChecked=openRr;}

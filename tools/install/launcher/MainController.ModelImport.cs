@@ -191,7 +191,7 @@ namespace OptScalerNR.Launcher
         void RefreshOpenRrCard()
         {
             if (_openRrStatusText == null || _openRrBadge == null) return;
-            var enabled = _openRrToggle == null || _openRrToggle.IsChecked == true;
+            var enabled = _openRrToggle != null && _openRrToggle.IsChecked == true;
             var hasDlssd = HasValidOpenRrDlssd();
             if (!enabled)
             {

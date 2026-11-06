@@ -2966,11 +2966,21 @@ if ($wantOpenRr) {
             Write-Host "Installed user-supplied nvngx_dlssd.dll (310.9.1) into opennr-rr\nvngx_dlssd.dll." -ForegroundColor Green
         }
         if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
-            Set-IniSettings $gameIni 'OpenNR-RR' ([ordered]@{ 'Enabled' = 'auto' }) -OnlyMissing:(-not $iniFromTemplate)
+            Set-IniSettings $gameIni 'OpenNR-RR' ([ordered]@{ 'Enabled' = 'true' })
         }
         Write-Host 'Installed OpenRR runtime (OpenNrRrRuntime.dll + opennr-rr\shaders).' -ForegroundColor Green
     }
 } else {
+    foreach ($staleRr in @('OpenNrRrRuntime.dll', 'opennr_rr.dll', 'OptiScaler\OpenNrRrRuntime.dll', 'OptiScaler\opennr_rr.dll')) {
+        $stalePath = Join-Path $game $staleRr
+        if (Test-Path -LiteralPath $stalePath -PathType Leaf) {
+            Remove-Item -LiteralPath $stalePath -Force -ErrorAction SilentlyContinue
+        }
+    }
+    $staleRrShaders = Join-Path $game 'opennr-rr\shaders'
+    if (Test-Path -LiteralPath $staleRrShaders -PathType Container) {
+        Remove-Item -LiteralPath $staleRrShaders -Recurse -Force -ErrorAction SilentlyContinue
+    }
     if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
         Set-IniSettings $gameIni 'OpenNR-RR' ([ordered]@{ 'Enabled' = 'false' })
         Set-IniSettings $gameIni 'FSR-RR' ([ordered]@{ 'Enabled' = 'true' })
