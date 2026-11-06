@@ -1,3 +1,7 @@
+g_fswin32d.spv g_fswin32.spv
+g_fswin32nhd.spv g_fswin32nh.spv
+g_fswin32nhv.spv g_fswin32nh.spv
+g_fswin32v.spv g_fswin32.spv
 g_fswindsp32nh.spv g_fswindsp32.spv
 g_fswinfusedup32nh.spv g_fswinfusedup32.spv
 g_gemmprojc.spv g_gemmproj.spv

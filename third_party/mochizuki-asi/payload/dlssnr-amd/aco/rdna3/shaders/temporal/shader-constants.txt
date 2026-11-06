@@ -29,3 +29,5 @@ ffwd_fm2_min 2560
 post_alpha 1
 tchain 1
 kswap 1
+post_no_out1 1
+noise_buffer 1
