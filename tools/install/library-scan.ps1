@@ -1,7 +1,7 @@
 ﻿# Known-store library scan. No full-disk walk. Does not write library.json.
 function Test-OptScalerGameExeName([string]$name) {
     return $name -match '(?i)\.exe$' -and
-        $name -notmatch '(?i)^(setup|install|unins|crash|unitycrash|vc_redist|dxsetup|easyanticheat|eac_|battleye|beclient|beservice|unrealcef|webview|cefsubprocess|shadercompile|bugsplat|crs-|redprelauncher|larilauncher|2klauncher).*\.exe$' -and
+        $name -notmatch '(?i)^(setup|install|unins|crash|unitycrash|vc_redist|dxsetup|easyanticheat|eac_|battleye|beclient|beservice|unrealcef|epicwebhelper|webview|cefsubprocess|shadercompile|bugsplat|crs-|redprelauncher|larilauncher|2klauncher|8za|7za|checkenv).*\.exe$' -and
         $name -notmatch '(?i)(prelauncher|launcher|crashreport|crashhandler|crs-handler|errorreporter|updater|patcher|uninstaller|benchmark|dedicatedserver)\.exe$' -and
         $name -notmatch '(?i)^(gamelaunchhelper|person-worker|activationui|cleanup|touchup|config)\.exe$'
 }
@@ -29,6 +29,7 @@ function Get-OptScalerExeRank([string]$fullPath, [string]$rootDir, [int]$depth) 
     elseif ($leaf -match '(?i)-Win64-Shipping\.exe$') { $rank = 1 }
     elseif ($leaf -match '(?i)Shipping\.exe$') { $rank = 2 }
     elseif ($rel -match '(?i)(^|[\\/])(x64_dx12|dx12)([\\/]|$)' -or $leaf -match '(?i)dx12') { $rank = 1 }
+    elseif ($rel -match '(?i)^platform[\\/](steam|epic|wegame|gog|xbox)[\\/]' -or (Test-Path -LiteralPath (Join-Path $exeDir 'D3D12\D3D12Core.dll') -PathType Leaf)) { $rank = 1 }
     elseif ($rel -match '(?i)(^|[\\/])(binaries[\\/](win64|wingdk)|bin[\\/](x64|win64))([\\/]|$)') { $rank = 2 }
     elseif (Test-Path -LiteralPath (Join-Path $exeDir 'UnityPlayer.dll') -PathType Leaf) { $rank = 2 }
     if (Test-OptScalerUpscalerAnchor $exeDir) {
@@ -76,19 +77,20 @@ function Get-OptScalerPrimaryExes([string]$dir, [int]$depth = 4) {
             $seen++
             if (-not (Test-OptScalerGameExeName $leaf)) { continue }
             $rank = Get-OptScalerExeRank $entry $rootFull $cur.Depth
-            [void]$found.Add(@{ path = $entry; rank = $rank; name = $leaf })
+            $len = try { (Get-Item -LiteralPath $entry -Force -ErrorAction Stop).Length } catch { 0L }
+            [void]$found.Add(@{ path = $entry; rank = $rank; name = $leaf; length = [long]$len })
         }
         } catch { } finally { if ($entries) { $entries.Dispose() } }
         foreach ($sd in ($subDirs | Sort-Object {
             $n = [IO.Path]::GetFileName($_)
-            if ($n -match '(?i)^(bin|binaries|x64_dx12|x64|win64|wingdk|game|client|content)$') { 0 } else { 1 }
+            if ($n -match '(?i)^(bin|binaries|x64_dx12|x64|win64|wingdk|game|client|content|platform)$') { 0 } else { 1 }
         }, { [IO.Path]::GetFileName($_) })) {
             if ($seen -ge 400 -or $timer.ElapsedMilliseconds -ge 2000) { break }
             $seen++
             $queue.Enqueue(@{ Path = $sd; Depth = $cur.Depth + 1 })
         }
     }
-    return @($found | Sort-Object { $_.rank }, { $_.name }, { $_.path } | Select-Object -First 8)
+    return @($found | Sort-Object { $_.rank }, { $_.name }, { -([long]$_.length) }, { $_.path } | Select-Object -First 8)
 }
 
 function Get-OptScalerXboxExes([string]$dir) {

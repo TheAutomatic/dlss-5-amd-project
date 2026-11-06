@@ -63,7 +63,7 @@ namespace OptScalerNR.Launcher
         }
         void RefreshLibraryActions()
         {
-            bool busy=_writeBusy||(_session!=null&&_session.IsRunning)||_folderScan!=null;
+            bool busy=_writeBusy||(_session!=null&&_session.IsRunning&&(_presentationBusy||!_session.CanKill))||_folderScan!=null;
             bool canManage=_selectedGame!=null&&!busy;
             if(_addFolderButton!=null){_addFolderButton.Content=L("+ 添加文件夹","+ Add Folder");_addFolderButton.IsEnabled=!busy;}
             if(_manageGameButton!=null){

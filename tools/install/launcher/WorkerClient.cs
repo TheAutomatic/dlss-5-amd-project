@@ -37,7 +37,7 @@ namespace OptScalerNR.Launcher
             CanKill = canKill;
             _events = new FileStream(eventsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             _reader = new StreamReader(_events, Encoding.UTF8);
-            _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+            _timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(100) };
             _timer.Tick += OnTick;
             _timer.Start();
         }

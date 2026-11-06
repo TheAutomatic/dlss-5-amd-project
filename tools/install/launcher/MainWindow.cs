@@ -625,9 +625,26 @@ namespace OptScalerNR.Launcher
 
             StartHardwareDetection();
             RefreshProfiles();
+            if (_selectedGame == null && _allGames.Count > 0 && _gameList != null && _gameList.Items.Count > 0)
+            {
+                int targetIdx = 0;
+                if (!string.IsNullOrEmpty(_recentGameId))
+                {
+                    for (int i = 0; i < _gameList.Items.Count; i++)
+                    {
+                        var vm = _gameList.Items[i] as GameItemViewModel;
+                        if (vm != null && vm.Info != null && string.Equals(vm.Info.Id, _recentGameId, StringComparison.OrdinalIgnoreCase))
+                        {
+                            targetIdx = i;
+                            break;
+                        }
+                    }
+                }
+                _gameList.SelectedIndex = targetIdx;
+            }
             if (_isScanOnStartup)
             {
-                RunScan();
+                RunScan(_allGames.Count > 0);
             }
         }
 
@@ -1621,7 +1638,7 @@ namespace OptScalerNR.Launcher
                 || (_mochiCheck != null && _mochiCheck.IsChecked == true);
 
             var proxyChosen = !string.IsNullOrEmpty(CurrentSelectedProxy);
-            var isBusy = _session != null && _session.IsRunning;
+            var isBusy = _session != null && _session.IsRunning && (_presentationBusy || !_session.CanKill);
             if (!_selectedGame.HasExecutable) {
                 _primaryButton.IsEnabled = !isBusy && !_writeBusy && _folderScan == null;
                 if (_launchGameButton != null) _launchGameButton.IsEnabled = false;
@@ -1667,13 +1684,13 @@ namespace OptScalerNR.Launcher
             UpdateActiveUI();
         }
 
-        void RunScan()
+        void RunScan(bool background = false)
         {
             if (_session != null && _session.IsRunning) return;
-            SetBusy(true, "scan");
+            if (!background) SetBusy(true, "scan");
             if (_statusText != null) _statusText.Text = _language == "zh" ? "正在扫描游戏库…" : "Scanning library…";
             if (_statusLed != null) _statusLed.Fill = WarningBrush;
-            if (_progress != null) _progress.IsIndeterminate = true;
+            if (_progress != null && !background) _progress.IsIndeterminate = true;
 
             var req = new LauncherRequest
             {
@@ -1836,16 +1853,20 @@ namespace OptScalerNR.Launcher
         void InspectGame(GameInfo game)
         {
             if (_writeBusy) return;
-            if (_session != null)
-            {
-                if (_session.CanKill) CancelReadSession();
-                else return;
-            }
             if (game == null || !game.HasExecutable) { RefreshInspectionText(); return; }
 
             _lastInspectResult = null;
             var fastProxy = PeProbe.QuickRecommend(game.Exe);
             UpdateProxyRecommendation(fastProxy);
+            _decisions.OptiPatcher = (_optiPatcherToggle != null && _optiPatcherToggle.IsChecked == true) ? "install" : "skip";
+            _decisions.OpenRr = (_openRrToggle == null || _openRrToggle.IsChecked == true) ? "install" : "skip";
+            if (TryFastInspect(game, fastProxy)) return;
+
+            if (_session != null)
+            {
+                if (_session.CanKill) CancelReadSession();
+                else return;
+            }
 
             SetBusy(true, "inspect");
             _pendingAction = "inspect";
@@ -1853,8 +1874,6 @@ namespace OptScalerNR.Launcher
             if (_statusLed != null) _statusLed.Fill = WarningBrush;
             if (_progress != null) _progress.IsIndeterminate = true;
             UpdatePrimaryButtonState();
-            _decisions.OptiPatcher = (_optiPatcherToggle != null && _optiPatcherToggle.IsChecked == true) ? "install" : "skip";
-            _decisions.OpenRr = (_openRrToggle == null || _openRrToggle.IsChecked == true) ? "install" : "skip";
 
             var req = new LauncherRequest
             {
@@ -2006,7 +2025,7 @@ namespace OptScalerNR.Launcher
 
         void UpdateCompatibilitySummary()
         {
-            var busy = _writeBusy || (_session != null && _session.IsRunning);
+            var busy = _writeBusy || (_session != null && _session.IsRunning && (_presentationBusy || !_session.CanKill));
             var report = _lastInspectResult == null ? null : _lastInspectResult.Compatibility;
             var available = _selectedGame != null && report != null && !busy;
             if (_compatButton != null) _compatButton.IsEnabled = available;
@@ -2424,6 +2443,10 @@ namespace OptScalerNR.Launcher
         {
             var installing = action == "install" || action == "update";
             if (_selectedGame == null || !_selectedGame.HasExecutable) return;
+            if (!_writeBusy && _session != null && _session.IsRunning && _session.CanKill)
+            {
+                CancelReadSession();
+            }
             if (_writeBusy || _folderScan != null || (_session != null && _session.IsRunning))
             {
                 DialogTheme.Show(_window, _language == "zh" ? "操作正在进行中…" : "An operation is already in progress.", _window.Title);
@@ -2479,6 +2502,7 @@ namespace OptScalerNR.Launcher
             }
 
             SetBusy(true, action);
+            _pendingLog.Length = 0;
             if (_logView != null) _logView.Clear();
             if (_statusLed != null) _statusLed.Fill = WarningBrush;
             if (_progress != null) _progress.IsIndeterminate = true;
@@ -2686,7 +2710,7 @@ namespace OptScalerNR.Launcher
                             if (_mochiCheck != null)
                             {
                                 _mochiCheck.IsEnabled = true;
-                                if (!hasUserChoice) _mochiCheck.IsChecked = b.Enabled;
+                                if (!hasUserChoice) _mochiCheck.IsChecked = b.Enabled || b.RuntimeState == "ready";
                             }
                         }
                     }
@@ -2849,11 +2873,24 @@ namespace OptScalerNR.Launcher
             session.Dispose();
         }
 
+        readonly StringBuilder _pendingLog = new StringBuilder();
+        bool _logFlushScheduled;
+
         void AppendLog(string line)
         {
             if (_logView == null || string.IsNullOrEmpty(line)) return;
-            _logView.AppendText(line + Environment.NewLine);
-            _logView.ScrollToEnd();
+            _pendingLog.Append(line).Append(Environment.NewLine);
+            if (_logFlushScheduled) return;
+            _logFlushScheduled = true;
+            _window.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, new Action(() =>
+            {
+                _logFlushScheduled = false;
+                if (_logView == null || _pendingLog.Length == 0) return;
+                var batch = _pendingLog.ToString();
+                _pendingLog.Length = 0;
+                _logView.AppendText(batch);
+                if (_logView.IsVisible) _logView.ScrollToEnd();
+            }));
         }
 
         void OnClosing(object sender, System.ComponentModel.CancelEventArgs e)

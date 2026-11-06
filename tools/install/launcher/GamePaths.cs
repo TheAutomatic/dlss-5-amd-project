@@ -125,6 +125,37 @@ namespace OptScalerNR.Launcher
     public static class PeProbe
     {
         static readonly string[] CandidateDlls = ProxyRecommendations.ProxyNames;
+        static readonly Dictionary<string, Tuple<long, long, bool>> OptiDllCache =
+            new Dictionary<string, Tuple<long, long, bool>>(StringComparer.OrdinalIgnoreCase);
+        static readonly Dictionary<string, Tuple<long, long, HashSet<string>>> ExeImportCache =
+            new Dictionary<string, Tuple<long, long, HashSet<string>>>(StringComparer.OrdinalIgnoreCase);
+
+        static bool IsOptiScalerDll(string path)
+        {
+            try
+            {
+                var info = new FileInfo(path);
+                if (!info.Exists) return false;
+                var full = info.FullName;
+                var len = info.Length;
+                var ticks = info.LastWriteTimeUtc.Ticks;
+                lock (OptiDllCache)
+                {
+                    Tuple<long, long, bool> cached;
+                    if (OptiDllCache.TryGetValue(full, out cached) && cached.Item1 == len && cached.Item2 == ticks)
+                        return cached.Item3;
+                }
+                var vi = FileVersionInfo.GetVersionInfo(full);
+                var isOpti = vi != null && (vi.ProductName == "OptiScaler" || vi.FileDescription == "OptiScaler");
+                lock (OptiDllCache)
+                {
+                    if (OptiDllCache.Count > 128) OptiDllCache.Clear();
+                    OptiDllCache[full] = Tuple.Create(len, ticks, isOpti);
+                }
+                return isOpti;
+            }
+            catch { return false; }
+        }
 
         public static string QuickRecommend(string exePath)
         {
@@ -137,20 +168,30 @@ namespace OptScalerNR.Launcher
                     foreach (var c in CandidateDlls)
                     {
                         var p = Path.Combine(dir, c);
-                        if (File.Exists(p))
-                        {
-                            try
-                            {
-                                var vi = FileVersionInfo.GetVersionInfo(p);
-                                if (vi != null && (vi.ProductName == "OptiScaler" || vi.FileDescription == "OptiScaler"))
-                                    return c;
-                            }
-                            catch { }
-                        }
+                        if (IsOptiScalerDll(p)) return c;
                     }
                 }
 
-                var imports = ReadImports(exePath);
+                HashSet<string> imports = null;
+                var exeInfo = new FileInfo(exePath);
+                var exeFull = exeInfo.FullName;
+                var exeLen = exeInfo.Length;
+                var exeTicks = exeInfo.LastWriteTimeUtc.Ticks;
+                lock (ExeImportCache)
+                {
+                    Tuple<long, long, HashSet<string>> cached;
+                    if (ExeImportCache.TryGetValue(exeFull, out cached) && cached.Item1 == exeLen && cached.Item2 == exeTicks)
+                        imports = cached.Item3;
+                }
+                if (imports == null)
+                {
+                    imports = ReadImports(exeFull);
+                    lock (ExeImportCache)
+                    {
+                        if (ExeImportCache.Count > 64) ExeImportCache.Clear();
+                        ExeImportCache[exeFull] = Tuple.Create(exeLen, exeTicks, imports);
+                    }
+                }
                 if (imports != null)
                 {
                     foreach (var c in CandidateDlls)

@@ -244,7 +244,7 @@ namespace OptScalerNR.Launcher
             if (!string.IsNullOrEmpty(r.Status) && r.Status != "success") { _heroKicker.Text = L("检查未完成 · 请重试", "INSPECTION INCOMPLETE · RETRY"); return; }
             bool missing = string.IsNullOrEmpty(r.PackageRoot);
             if (r.Backends != null) foreach (var backend in r.Backends)
-                if (backend != null && backend.MissingPackageFiles != null && backend.MissingPackageFiles.Length > 0) missing = true;
+                if (backend != null && IsBackendSelected(backend.Id) && backend.MissingPackageFiles != null && backend.MissingPackageFiles.Length > 0) missing = true;
             if (missing) { _heroKicker.Text = L("安装包不完整 · 请检查设置", "Package incomplete · Check settings"); return; }
             _heroKicker.Text = _selectedGame.Installed ? (PackageDiffers(_selectedGame)
                 ? L("已安装 · 版本不同", "Installed · Version differs")
@@ -252,7 +252,7 @@ namespace OptScalerNR.Launcher
         }
         bool PresentationIdle
         {
-            get { return !_presentationBusy && !_writeBusy && _folderScan == null && (_session == null || !_session.IsRunning); }
+            get { return !_presentationBusy && !_writeBusy && _folderScan == null && (_session == null || !_session.IsRunning || _session.CanKill); }
         }
         sealed class PackageComparisonRequest
         {

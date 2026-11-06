@@ -116,7 +116,7 @@ namespace OptScalerNR.Launcher
         internal static bool Auxiliary(string path)
         {
             var name=System.IO.Path.GetFileNameWithoutExtension(path).ToLowerInvariant();
-            if(new[] {"setup","install","unins","crash","unitycrash","vc_redist","dxsetup","easyanticheat","eac_","battleye","beclient","beservice","unrealcef","webview","cefsubprocess","person-worker","gamelaunchhelper","shadercompile","bugsplat","crs-","redprelauncher","larilauncher","2klauncher","activationui","cleanup","touchup"}.Any(p=>name.StartsWith(p,StringComparison.Ordinal)))return true;
+            if(new[] {"setup","install","unins","crash","unitycrash","vc_redist","dxsetup","easyanticheat","eac_","battleye","beclient","beservice","unrealcef","epicwebhelper","webview","cefsubprocess","person-worker","gamelaunchhelper","shadercompile","bugsplat","crs-","redprelauncher","larilauncher","2klauncher","activationui","cleanup","touchup","8za","7za","checkenv"}.Any(p=>name.StartsWith(p,StringComparison.Ordinal)))return true;
             return new[] {"prelauncher","launcher","crashreport","crashhandler","crs-handler","errorreporter","updater","patcher","uninstaller","benchmark","dedicatedserver"}.Any(s=>name.EndsWith(s,StringComparison.Ordinal));
         }
         static bool HasUpscalerAnchor(string exeDir)
@@ -169,7 +169,7 @@ namespace OptScalerNR.Launcher
         static int Priority(string path)
         {
             var name=System.IO.Path.GetFileName(path).ToLowerInvariant();
-            return new[] {"binaries","win64","wingdk","x64_dx12","x64","windowsnoeditor","client","bin"}.Contains(name) ? 0 : name=="engine" || name=="content" ? 1 : 2;
+            return new[] {"binaries","win64","wingdk","x64_dx12","x64","windowsnoeditor","client","bin","platform"}.Contains(name) ? 0 : name=="engine" || name=="content" ? 1 : 2;
         }
         public static async Task<FolderScanResult> ScanAsync(string directory,CancellationToken cancellation,Action<int,int> progress)
         {

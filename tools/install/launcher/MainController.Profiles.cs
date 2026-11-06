@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -88,6 +88,7 @@ namespace OptScalerNR.Launcher
             if (_iniApplyButton != null) _iniApplyButton.Content = L("应用所选配置", "Apply selection");
             if (_iniFolderButton != null) _iniFolderButton.Content = L("配置文件夹", "Profiles folder");
             if (_iniSearchBox != null) _iniSearchBox.ToolTip = L("搜索共享配置", "Search shared profiles");
+            RefreshModelImportLanguage();
             RefreshUnlockerLanguage();
             PopulateIniProfiles();
             RenderIniStatus();
@@ -161,7 +162,7 @@ namespace OptScalerNR.Launcher
             RefreshUnlockerPlugin();
         }
 
-        bool IniBusy() { return _writeBusy || _session != null || _folderScan != null; }
+        bool IniBusy() { return _writeBusy || (_session != null && (_presentationBusy || !_session.CanKill)) || _folderScan != null; }
         IniGameIdentity CaptureIniGame()
         {
             var game = _selectedGame;

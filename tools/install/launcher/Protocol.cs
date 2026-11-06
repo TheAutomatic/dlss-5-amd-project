@@ -173,12 +173,24 @@ namespace OptScalerNR.Launcher
 
     public static class JsonUtil
     {
+        static readonly object SerializerGate = new object();
+        static readonly Dictionary<Type, DataContractJsonSerializer> Serializers = new Dictionary<Type, DataContractJsonSerializer>();
+
         static DataContractJsonSerializer Serializer(Type type)
         {
-            return new DataContractJsonSerializer(type, new DataContractJsonSerializerSettings
+            lock (SerializerGate)
             {
-                UseSimpleDictionaryFormat = true
-            });
+                DataContractJsonSerializer ser;
+                if (!Serializers.TryGetValue(type, out ser))
+                {
+                    ser = new DataContractJsonSerializer(type, new DataContractJsonSerializerSettings
+                    {
+                        UseSimpleDictionaryFormat = true
+                    });
+                    Serializers[type] = ser;
+                }
+                return ser;
+            }
         }
 
         public static string Write<T>(T value)

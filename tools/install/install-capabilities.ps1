@@ -197,33 +197,49 @@ function Get-OptScalerBackendCapabilities([string]$pkgRoot, [string]$gameDir, [s
         foreach ($cand in @((Join-Path $pkgRoot 'OptiScaler\plugins\dlssnr-amd.asi'), (Join-Path $pkgRoot 'dlssnr-amd.asi'))) {
             if (Test-Path -LiteralPath $cand -PathType Leaf) { $mochiAsi = $cand; break }
         }
-        $cand = Join-Path $pkgRoot 'dlssnr-amd\CC_SILVER_AARDWOLD.bin'
-        if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiModel = $cand }
-        $cand = Join-Path $pkgRoot 'dlssnr-amd\CC_SMALL_FP8.bin'
-        if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiSmall = $cand }
-        $cand = Join-Path $pkgRoot 'dlssnr-amd\CC_SMALL_FP8_EXPERIMENTAL.bin'
-        if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiExperimental = $cand }
-        $cand = Join-Path $pkgRoot 'dlssnr-amd\CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin'
-        if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiInt4 = $cand }
+        foreach ($rel in @('dlssnr-amd\CC_SILVER_AARDWOLD.bin', 'dlssnr-amd\dlssnr.bin')) {
+            $cand = Join-Path $pkgRoot $rel
+            if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiModel = $cand; break }
+        }
+        foreach ($rel in @('dlssnr-amd\CC_SMALL_FP8.bin', 'dlssnr-amd\dlssnr-small.bin')) {
+            $cand = Join-Path $pkgRoot $rel
+            if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiSmall = $cand; break }
+        }
+        foreach ($rel in @('dlssnr-amd\CC_SMALL_FP8_EXPERIMENTAL.bin', 'dlssnr-amd\dlssnr-small-experimental.bin')) {
+            $cand = Join-Path $pkgRoot $rel
+            if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiExperimental = $cand; break }
+        }
+        foreach ($rel in @('dlssnr-amd\CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin', 'dlssnr-amd\dlssnr-int4.bin')) {
+            $cand = Join-Path $pkgRoot $rel
+            if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiInt4 = $cand; break }
+        }
         $cand = Join-Path $pkgRoot 'nvngx_dlssnr.dll'
         if (Test-Path -LiteralPath $cand -PathType Leaf) { $mochiNv = $cand }
     }
     if ($gameDir) {
         if (-not $mochiModel) {
-            $cand = Join-Path $gameDir 'dlssnr-amd\CC_SILVER_AARDWOLD.bin'
-            if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiModel = $cand }
+            foreach ($rel in @('dlssnr-amd\CC_SILVER_AARDWOLD.bin', 'dlssnr-amd\dlssnr.bin')) {
+                $cand = Join-Path $gameDir $rel
+                if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiModel = $cand; break }
+            }
         }
         if (-not $mochiSmall) {
-            $cand = Join-Path $gameDir 'dlssnr-amd\CC_SMALL_FP8.bin'
-            if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiSmall = $cand }
+            foreach ($rel in @('dlssnr-amd\CC_SMALL_FP8.bin', 'dlssnr-amd\dlssnr-small.bin')) {
+                $cand = Join-Path $gameDir $rel
+                if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiSmall = $cand; break }
+            }
         }
         if (-not $mochiExperimental) {
-            $cand = Join-Path $gameDir 'dlssnr-amd\CC_SMALL_FP8_EXPERIMENTAL.bin'
-            if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiExperimental = $cand }
+            foreach ($rel in @('dlssnr-amd\CC_SMALL_FP8_EXPERIMENTAL.bin', 'dlssnr-amd\dlssnr-small-experimental.bin')) {
+                $cand = Join-Path $gameDir $rel
+                if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiExperimental = $cand; break }
+            }
         }
         if (-not $mochiInt4) {
-            $cand = Join-Path $gameDir 'dlssnr-amd\CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin'
-            if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiInt4 = $cand }
+            foreach ($rel in @('dlssnr-amd\CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin', 'dlssnr-amd\dlssnr-int4.bin')) {
+                $cand = Join-Path $gameDir $rel
+                if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiInt4 = $cand; break }
+            }
         }
         if (-not $mochiNv) {
             $cand = Join-Path $gameDir 'nvngx_dlssnr.dll'

@@ -1,4 +1,4 @@
-# XeSS compatibility repair. Inspection reads PE metadata only; never executes DLLs.
+﻿# XeSS compatibility repair. Inspection reads PE metadata only; never executes DLLs.
 # All writes are restricted to four known names beside the selected game EXE.
 $script:XessGroups = [ordered]@{
     sr = @('libxess.dll')
@@ -10,12 +10,46 @@ $script:XessGroups = [ordered]@{
     fsr_vk = @('amd_fidelityfx_vk.dll')
 }
 
+$script:XessFileCache = $null
+$script:XessFileCacheDirty = $false
+$script:XessFileCachePath = Join-Path ([IO.Path]::GetTempPath()) 'OptScalerNR-launcher\xess-file-cache.json'
+
+function Ensure-XessFileCache {
+    if ($null -ne $script:XessFileCache) { return }
+    $script:XessFileCache = @{}
+    try {
+        if ([IO.File]::Exists($script:XessFileCachePath)) {
+            $raw = [IO.File]::ReadAllText($script:XessFileCachePath, [Text.Encoding]::UTF8) | ConvertFrom-Json
+            foreach ($p in $raw.PSObject.Properties) {
+                $script:XessFileCache[$p.Name] = $p.Value
+            }
+        }
+    } catch { $script:XessFileCache = @{} }
+}
+
+function Save-XessFileCache {
+    if (-not $script:XessFileCacheDirty -or $null -eq $script:XessFileCache) { return }
+    $script:XessFileCacheDirty = $false
+    try {
+        $dir = [IO.Path]::GetDirectoryName($script:XessFileCachePath)
+        if (-not [IO.Directory]::Exists($dir)) { [void][IO.Directory]::CreateDirectory($dir) }
+        $tmp = $script:XessFileCachePath + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
+        [IO.File]::WriteAllText($tmp, ($script:XessFileCache | ConvertTo-Json -Compress), (New-Object Text.UTF8Encoding($false)))
+        if ([IO.File]::Exists($script:XessFileCachePath)) { [IO.File]::Delete($script:XessFileCachePath) }
+        [IO.File]::Move($tmp, $script:XessFileCachePath)
+    } catch { }
+}
+
 function Assert-XessPath([string]$Path) {
     $current = [IO.Path]::GetFullPath($Path)
     while ($current) {
-        if (Test-Path -LiteralPath $current) {
-            $item = Get-Item -LiteralPath $current -Force
-            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Linked paths are not supported: $current" }
+        if ([IO.File]::Exists($current) -or [IO.Directory]::Exists($current)) {
+            try {
+                $attr = [IO.File]::GetAttributes($current)
+                if ($attr -band [IO.FileAttributes]::ReparsePoint) { throw "Linked paths are not supported: $current" }
+            } catch {
+                if ($_.Exception.Message -like 'Linked paths*') { throw }
+            }
         }
         $parent = [IO.Path]::GetDirectoryName($current)
         if ($parent -eq $current) { break }
@@ -24,14 +58,31 @@ function Assert-XessPath([string]$Path) {
 }
 function Get-XessHash([string]$Path) {
     Assert-XessPath $Path
-    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    $sha = [Security.Cryptography.SHA256]::Create()
+    $fs = [IO.File]::Open($Path, 'Open', 'Read', 'ReadWrite,Delete')
+    try {
+        return ([BitConverter]::ToString($sha.ComputeHash($fs))).Replace('-', '').ToLowerInvariant()
+    } finally {
+        $fs.Dispose()
+        $sha.Dispose()
+    }
 }
 function Get-XessFile([string]$Path) {
     Assert-XessPath $Path
     $info = @{ present = $false; hash = ''; version = ''; valid = $false }
-    if (-not (Test-Path -LiteralPath $Path)) { return $info }
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Not a regular file: $Path" }
+    if ([IO.Directory]::Exists($Path)) { throw "Not a regular file: $Path" }
+    if (-not [IO.File]::Exists($Path)) { return $info }
     $info.present = $true
+    $fi = New-Object IO.FileInfo($Path)
+    $cacheKey = $null
+    if ($fi.Length -gt 65536) {
+        Ensure-XessFileCache
+        $cacheKey = "$($fi.FullName.ToLowerInvariant())|$($fi.Length)|$($fi.LastWriteTimeUtc.Ticks)"
+        if ($script:XessFileCache.ContainsKey($cacheKey)) {
+            $c = $script:XessFileCache[$cacheKey]
+            return @{ present = $true; hash = [string]$c.hash; version = [string]$c.version; valid = [bool]$c.valid }
+        }
+    }
     $info.hash = Get-XessHash $Path
     $stream = [IO.File]::Open($Path, 'Open', 'Read', 'ReadWrite,Delete')
     $reader = New-Object IO.BinaryReader($stream)
@@ -49,6 +100,11 @@ function Get-XessFile([string]$Path) {
         }
     } finally { $reader.Dispose() }
     $info.version = [Diagnostics.FileVersionInfo]::GetVersionInfo($Path).FileVersion
+    if ($cacheKey) {
+        if ($script:XessFileCache.Count -gt 256) { $script:XessFileCache.Clear() }
+        $script:XessFileCache[$cacheKey] = @{ hash = $info.hash; version = $info.version; valid = $info.valid }
+        $script:XessFileCacheDirty = $true
+    }
     return $info
 }
 function Get-XessJournal([string]$GameDir) {
@@ -127,6 +183,7 @@ function Get-XessCompatibility([string]$GameDir, [string]$PackageRoot) {
     $restoreFiles = @()
     if ($active) { $restoreFiles = @($journal.files | ForEach-Object { $_.name }) }
     $transaction = if ($active) { $journal.transaction } else { '' }
+    Save-XessFileCache
     return @{ groups = $groups; active = $active; fingerprint = $token; evidence = $evidence; restoreFiles = $restoreFiles; transaction = $transaction }
 }
 function Get-XessRecoveryInfo([string]$GameDir) {

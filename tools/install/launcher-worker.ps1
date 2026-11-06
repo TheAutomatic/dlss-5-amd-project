@@ -1,4 +1,4 @@
-# Schema 1 worker. Inspect is read-only. Install/uninstall call the existing scripts.
+﻿# Schema 1 worker. Inspect is read-only. Install/uninstall call the existing scripts.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$RequestJson,
@@ -16,6 +16,16 @@ function Write-Event([string]$stage, [string]$message) {
     if ($null -ne $message) { $message = [string]::new($message.ToCharArray()) }
     $line = (@{ schema = 1; requestId = $script:rid; stage = $stage; message = $message } | ConvertTo-Json -Compress)
     [IO.File]::AppendAllText($EventsJsonl, $line + [Environment]::NewLine)
+}
+function Write-EventBatch([string]$stage, [string[]]$messages) {
+    if (-not $messages -or $messages.Count -eq 0) { return }
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($m in $messages) {
+        $msg = if ($null -ne $m) { [string]::new($m.ToCharArray()) } else { '' }
+        $line = (@{ schema = 1; requestId = $script:rid; stage = $stage; message = $msg } | ConvertTo-Json -Compress)
+        [void]$sb.AppendLine($line)
+    }
+    if ($sb.Length -gt 0) { [IO.File]::AppendAllText($EventsJsonl, $sb.ToString()) }
 }
 function Write-Result($obj) {
     $tmp = $ResultJson + '.tmp'
@@ -504,10 +514,10 @@ if ($req.action -eq 'uninstall') {
 $code = $LASTEXITCODE
 $ErrorActionPreference = $prevEap
 if (Test-Path -LiteralPath $stdoutLog) {
-    Get-Content -LiteralPath $stdoutLog -ErrorAction SilentlyContinue | ForEach-Object { Write-Event 'log' $_ }
+    Write-EventBatch 'log' @(Get-Content -LiteralPath $stdoutLog -ErrorAction SilentlyContinue)
 }
 if (Test-Path -LiteralPath $stderrLog) {
-    Get-Content -LiteralPath $stderrLog -ErrorAction SilentlyContinue | ForEach-Object { Write-Event 'error' $_ }
+    Write-EventBatch 'error' @(Get-Content -LiteralPath $stderrLog -ErrorAction SilentlyContinue)
 }
 if ($code -eq 0) {
     Write-Event 'verify' 'setup process exit 0'

@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "OpenNrRrFeature_Dx12.h"
+#include <upscalers/fsr31/FSRDFeature_Dx12.h>
 
 #include <Config.h>
 #include <Util.h>
@@ -978,6 +979,8 @@ bool OpenNrRrFeatureDx12::EvaluateInternal(ID3D12GraphicsCommandList* InCommandL
     if (!IsInited() || _context == nullptr || _fellBack)
         return false;
 
+    ReapDeferredFeatures();
+    FSRDFeatureDx12::ReapDeferredFeatures();
     DropStaleJob();
 
     if (const int32_t rc = s_enqueueRc.exchange(ONR_RR_OK, std::memory_order_acq_rel); rc != ONR_RR_OK)

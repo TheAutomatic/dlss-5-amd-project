@@ -20,19 +20,34 @@ function Read-UInt32([byte[]]$b, [int]$o) {
     if ($o -lt 0 -or ($o + 4) -gt $b.Length) { throw 'truncated uint32' }
     return [BitConverter]::ToUInt32($b, $o)
 }
-function RvaToOffset([object[]]$secs, [uint32]$rva, [int]$fileLen) {
+function RvaToOffset([object[]]$secs, [uint32]$rva, [int64]$fileLen) {
     foreach ($s in $secs) {
         $size = [Math]::Max([uint32]$s.VSize, [uint32]$s.RawSize)
         if ($rva -ge $s.VA -and $rva -lt ($s.VA + $size)) {
             $off = [int64]$s.Raw + ($rva - $s.VA)
             if ($off -lt 0 -or $off -ge $fileLen) { return $null }
-            return [int]$off
+            return [int64]$off
         }
     }
     return $null
 }
+function Read-Slice([IO.FileStream]$fs, [byte[]]$head, [int64]$off, [int]$maxLen, [int64]$fileLen) {
+    if ($off -lt 0 -or $off -ge $fileLen -or $maxLen -le 0) { return $null }
+    $count = [int][Math]::Min([int64]$maxLen, $fileLen - $off)
+    if (($off + $count) -le $head.Length) {
+        $slice = New-Object byte[] $count
+        [Array]::Copy($head, [int]$off, $slice, 0, $count)
+        return $slice
+    }
+    $fs.Position = $off
+    $buf = New-Object byte[] $count
+    $got = $fs.Read($buf, 0, $count)
+    if ($got -le 0) { return $null }
+    if ($got -lt $count) { $buf = $buf[0..($got - 1)] }
+    return $buf
+}
 function Read-AsciiZ([byte[]]$b, [int]$o, [int]$max) {
-    if ($o -lt 0 -or $o -ge $b.Length) { return $null }
+    if (-not $b -or $o -lt 0 -or $o -ge $b.Length) { return $null }
     $end = [Math]::Min($b.Length, $o + $max)
     $i = $o
     while ($i -lt $end -and $b[$i] -ne 0) { $i++ }
@@ -54,14 +69,14 @@ function Get-PeImports([string]$path) {
         return $info
     }
     try {
-        $len = (Get-Item -LiteralPath $path).Length
+        $len = [int64](Get-Item -LiteralPath $path).Length
     } catch {
         $info.error = 'unreadable'
         $info.partial = $true
         return $info
     }
     if ($len -lt 64) { $info.error = 'too-small'; return $info }
-    $read = [int][Math]::Min($len, $script:MaxBytes)
+    $read = [int][Math]::Min($len, 65536L)
     try {
         $fs = [IO.File]::Open($path, 'Open', 'Read', 'ReadWrite')
     } catch {
@@ -73,8 +88,6 @@ function Get-PeImports([string]$path) {
         $b = New-Object byte[] $read
         $got = $fs.Read($b, 0, $read)
         if ($got -lt $read) { $b = $b[0..($got-1)] }
-    } finally { $fs.Dispose() }
-    try {
         if ($b[0] -ne 0x4D -or $b[1] -ne 0x5A) { $info.error = 'not-pe'; return $info }
         $pe = [int](Read-UInt32 $b 0x3C)
         if ($pe + 24 -gt $b.Length) { $info.error = 'truncated'; $info.partial = $true; return $info }
@@ -107,17 +120,20 @@ function Get-PeImports([string]$path) {
         function Read-NameList([uint32]$rva) {
             $names = @()
             if ($rva -eq 0) { return $names }
-            $off = RvaToOffset $secs $rva $b.Length
+            $off = RvaToOffset $secs $rva $len
             if ($null -eq $off) { return $names }
+            $table = Read-Slice $fs $b $off (256 * 20) $len
+            if (-not $table) { return $names }
             for ($n = 0; $n -lt 256; $n++) {
-                $row = $off + 20 * $n
-                if ($row + 20 -gt $b.Length) { $script:partial = $true; break }
-                $nameRva = Read-UInt32 $b ($row + 12)
-                $first = Read-UInt32 $b $row
+                $row = 20 * $n
+                if ($row + 20 -gt $table.Length) { $script:partial = $true; break }
+                $nameRva = Read-UInt32 $table ($row + 12)
+                $first = Read-UInt32 $table $row
                 if ($nameRva -eq 0 -and $first -eq 0) { break }
-                $no = RvaToOffset $secs $nameRva $b.Length
+                $no = RvaToOffset $secs $nameRva $len
                 if ($null -eq $no) { continue }
-                $nm = Read-AsciiZ $b $no 260
+                $nb = Read-Slice $fs $b $no 260 $len
+                $nm = Read-AsciiZ $nb 0 260
                 if ($nm) { $names += $nm.ToLowerInvariant() }
             }
             return $names
@@ -129,29 +145,35 @@ function Get-PeImports([string]$path) {
         $delayRva = Read-UInt32 $b ($dd + 13 * 8)
         $delay = @()
         if ($delayRva -ne 0) {
-            $off = RvaToOffset $secs $delayRva $b.Length
+            $off = RvaToOffset $secs $delayRva $len
             if ($null -eq $off) { $script:partial = $true }
             else {
-                for ($n = 0; $n -lt 128; $n++) {
-                    $row = $off + 32 * $n
-                    if ($row + 32 -gt $b.Length) { $script:partial = $true; break }
-                    $nameRva = Read-UInt32 $b ($row + 4)
-                    $attr = Read-UInt32 $b $row
-                    if ($nameRva -eq 0 -and $attr -eq 0) { break }
-                    $no = RvaToOffset $secs $nameRva $b.Length
-                    if ($null -eq $no) { continue }
-                    $nm = Read-AsciiZ $b $no 260
-                    if ($nm) { $delay += $nm.ToLowerInvariant() }
+                $table = Read-Slice $fs $b $off (128 * 32) $len
+                if (-not $table) { $script:partial = $true }
+                else {
+                    for ($n = 0; $n -lt 128; $n++) {
+                        $row = 32 * $n
+                        if ($row + 32 -gt $table.Length) { $script:partial = $true; break }
+                        $nameRva = Read-UInt32 $table ($row + 4)
+                        $attr = Read-UInt32 $table $row
+                        if ($nameRva -eq 0 -and $attr -eq 0) { break }
+                        $no = RvaToOffset $secs $nameRva $len
+                        if ($null -eq $no) { continue }
+                        $nb = Read-Slice $fs $b $no 260 $len
+                        $nm = Read-AsciiZ $nb 0 260
+                        if ($nm) { $delay += $nm.ToLowerInvariant() }
+                    }
                 }
             }
         }
         $info.delayImports = $delay
         $info.ok = $true
         $info.partial = [bool]$script:partial
-        if ($len -gt $script:MaxBytes) { $info.partial = $true; $info.error = 'size-cap' }
     } catch {
         $info.error = $_.Exception.Message
         $info.partial = $true
+    } finally {
+        $fs.Dispose()
     }
     return $info
 }
@@ -215,10 +237,10 @@ function Get-LocalImportWalk([string]$startExe, [Diagnostics.Stopwatch]$sw) {
         if ($item.Depth -ge $script:MaxDepth) { continue }
         $dirs = Get-RelatedDirs ([IO.Path]::GetDirectoryName($path))
         foreach ($n in $found) {
-            if ($n -notmatch '\.dll$') { continue }
+            if ($n -notmatch '\.dll$' -or [IO.Path]::GetFileName($n) -ne $n) { continue }
             foreach ($d in $dirs) {
-                $cand = Join-Path $d $n
-                if (Test-Path -LiteralPath $cand -PathType Leaf) {
+                $cand = [IO.Path]::Combine($d, $n)
+                if ([IO.File]::Exists($cand)) {
                     $queue.Enqueue(@{ Path = $cand; Depth = $item.Depth + 1 })
                 }
             }

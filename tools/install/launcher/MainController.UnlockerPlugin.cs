@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
@@ -34,12 +34,30 @@ namespace OptScalerNR.Launcher
             if (_openPluginsFolderButton != null) _openPluginsFolderButton.Content = L("打开插件文件夹", "Open plugins folder");
         }
 
+        string _cachedAsiIniPath;
+        long _cachedAsiIniLen = -1, _cachedAsiIniTicks = -1;
+        bool _cachedAsiEnabled;
+
         bool CanShowUnlockerPlugin(IniGameIdentity game)
         {
             if (game == null || !Directory.Exists(Path.Combine(game.Directory, "OptiScaler"))) return false;
             // ASI plugins are on by default now; OptiPatcher still implies plugin loading.
             if (_optiPatcherToggle != null && _optiPatcherToggle.IsChecked == true) return true;
-            try { return string.Equals(UnlockerPlugin.LoadAsiValue(UnlockerPlugin.ReadIni(Path.Combine(game.Directory, "OptiScaler.ini"))), "true", StringComparison.OrdinalIgnoreCase); }
+            try
+            {
+                var iniPath = Path.Combine(game.Directory, "OptiScaler.ini");
+                var info = new FileInfo(iniPath);
+                if (!info.Exists) return false;
+                if (string.Equals(_cachedAsiIniPath, info.FullName, StringComparison.OrdinalIgnoreCase) &&
+                    _cachedAsiIniLen == info.Length && _cachedAsiIniTicks == info.LastWriteTimeUtc.Ticks)
+                    return _cachedAsiEnabled;
+                var enabled = string.Equals(UnlockerPlugin.LoadAsiValue(UnlockerPlugin.ReadIni(iniPath)), "true", StringComparison.OrdinalIgnoreCase);
+                _cachedAsiIniPath = info.FullName;
+                _cachedAsiIniLen = info.Length;
+                _cachedAsiIniTicks = info.LastWriteTimeUtc.Ticks;
+                _cachedAsiEnabled = enabled;
+                return enabled;
+            }
             catch (IOException) { return false; }
             catch (UnauthorizedAccessException) { return false; }
         }

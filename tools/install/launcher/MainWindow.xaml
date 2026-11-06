@@ -494,7 +494,7 @@
             <Border x:Name="HeroCard" Background="#101522" CornerRadius="18" Height="166" ClipToBounds="True">
               <Grid>
                 <TextBlock x:Name="HeroMonogram" Text="N" FontSize="190" FontWeight="Black" Foreground="#26394C" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,-50,40,-50"/>
-                <Image x:Name="HeroBgImage" Stretch="UniformToFill" Opacity="0.75"/>
+                <Image x:Name="HeroBgImage" Stretch="UniformToFill" Opacity="0.75" CacheMode="BitmapCache"/>
                 <Border><Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,0"><GradientStop Color="#F2101522" Offset="0"/><GradientStop Color="#B0101522" Offset="0.55"/><GradientStop Color="#50101522" Offset="1"/></LinearGradientBrush></Border.Background></Border>
                 <Border><Border.Background><LinearGradientBrush StartPoint="0,1" EndPoint="0,0"><GradientStop Color="#C0101522" Offset="0"/><GradientStop Color="#00101522" Offset="1"/></LinearGradientBrush></Border.Background></Border>
                 <Grid Margin="20,18"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="310"/></Grid.ColumnDefinitions>

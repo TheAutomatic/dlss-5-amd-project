@@ -1078,7 +1078,8 @@ void MenuCommon::RenderUpscalerCombo(const API api, Upscaler currentUpscaler, co
                             ImGui::InsertNotification(notification);
                             continue;
                         }
-                        opt = Upscaler::FFX;
+                        if (currentUpscaler != Upscaler::OpenNrRr && currentUpscaler != Upscaler::DLSSD)
+                            opt = Upscaler::FFX;
                     }
                     State::Instance().newBackend = opt;
                 }
@@ -3585,7 +3586,16 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
 
         bool openRrEnabled = config->OpenNrRrEnabled.value_or_default();
         if (MenuUi::Checkbox("Enable OpenRR (DLSS Ray Reconstruction)", &openRrEnabled))
+        {
             config->OpenNrRrEnabled = openRrEnabled;
+            if (!openRrEnabled && currentFeature->Api() == API::DX12 &&
+                FfxApiProxy::IsDenoiserApiImplementedDx12() && DlssNr::Backend::RecordingHooksPrepared())
+            {
+                config->FsrRrEnabled = true;
+                state.newBackend = Upscaler::FSR_RR;
+                MARK_ALL_BACKENDS_CHANGED();
+            }
+        }
         ShowHelpMarker("OpenRR: runs NVIDIA's DLSS Ray Reconstruction network (nvngx_dlssd.dll 310.9.1)\n"
                        "directly on AMD RX 9000 (RDNA4) GPUs.\n"
                        "Unchecking applies on the next feature creation (or switch to FSR-RR in Upscalers above).");
@@ -3731,7 +3741,17 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
         ImGui::Spacing();
         bool openRrEnabled = config->OpenNrRrEnabled.value_or_default();
         if (MenuUi::Checkbox("Enable OpenRR (DLSS Ray Reconstruction)", &openRrEnabled))
+        {
             config->OpenNrRrEnabled = openRrEnabled;
+            if (openRrEnabled &&
+                (currentFeature->GetUpscalerType() == Upscaler::FSR_RR ||
+                 currentFeature->GetUpscalerType() == Upscaler::DLSSD) &&
+                OpenNrRr::DlssdFound())
+            {
+                state.newBackend = Upscaler::OpenNrRr;
+                MARK_ALL_BACKENDS_CHANGED();
+            }
+        }
         ShowHelpMarker("OpenRR: runs NVIDIA's DLSS Ray Reconstruction network (nvngx_dlssd.dll 310.9.1)\n"
                        "directly on AMD RX 9000 (RDNA4) GPUs.\n"
                        "Takes priority over FSR-RR when nvngx_dlssd.dll (310.9.1.0) is available.");

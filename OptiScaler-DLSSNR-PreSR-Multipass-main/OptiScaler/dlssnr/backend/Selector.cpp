@@ -138,11 +138,7 @@ bool HasOpenRrInstalled()
 
 bool ProxyWrapWanted()
 {
-    if (Config::Instance()->FsrRrEnabled.value_or_default())
-        return true;
-    const bool openRrVulkanWanted =
-        Config::Instance()->OpenNrRrEnabled.value_or_default() && HasOpenRrInstalled() &&
-        _stricmp(Config::Instance()->OpenNrRrBackend.value_or_default().c_str(), "vulkan") == 0;
-    return openRrVulkanWanted;
+    return Config::Instance()->FsrRrEnabled.value_or_default() ||
+           (Config::Instance()->OpenNrRrEnabled.value_or_default() && HasOpenRrInstalled());
 }
 } // namespace DlssNr::Backend

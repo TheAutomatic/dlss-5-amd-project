@@ -241,12 +241,34 @@ namespace OptScalerNR.Launcher
                 if (p.Names.Length == 0 && p.PathSegments.Length == 0) throw new InvalidDataException("Missing game identity.");
             }
         }
+        string _lastMatchKey;
+        long _lastMatchRevision;
+        ProxyProfile _lastMatchProfile;
+
         public ProxyProfile Match(GameInfo game)
         {
             if (game == null) return null;
             ProxyProfileDocument doc;
             lock (_gate) doc = _current;
             if (doc == null || doc.Profiles == null) return null;
+            var matchKey = (game.Name ?? "") + "\0" + (game.DisplayName ?? "") + "\0" + (game.Root ?? "") + "\0" + (game.Exe ?? "");
+            lock (_gate)
+            {
+                if (_lastMatchRevision == doc.Revision && string.Equals(_lastMatchKey, matchKey, StringComparison.Ordinal))
+                    return _lastMatchProfile;
+            }
+            var matched = MatchCore(doc, game);
+            lock (_gate)
+            {
+                _lastMatchRevision = doc.Revision;
+                _lastMatchKey = matchKey;
+                _lastMatchProfile = matched;
+            }
+            return matched;
+        }
+
+        static ProxyProfile MatchCore(ProxyProfileDocument doc, GameInfo game)
+        {
             var paths = ((game.Root ?? "") + "\\" + (game.Exe ?? "")).Split(new[] {'\\','/'}, StringSplitOptions.RemoveEmptyEntries);
             var primary = NormalizeIdentity(game.Name);
             var display = NormalizeIdentity(game.DisplayName);
@@ -691,31 +713,37 @@ namespace OptScalerNR.Launcher
         {
             if (_disposed || Interlocked.Exchange(ref _updating, 1) != 0) return "busy";
             var timer = Stopwatch.StartNew();
-            HttpWebRequest request;
-            try {
-                // OPTSCALERNR_WIKI_URL may name a file:// or ftp:// URI that WebRequest maps to another type.
-                request = WebRequest.Create(_url) as HttpWebRequest;
-                if (request != null) {
-                    request.UserAgent = "OptScalerNR-Launcher/1";
-                    request.Timeout = request.ReadWriteTimeout = DeadlineMs;
-                    request.AllowAutoRedirect = false;
-                    if (!string.IsNullOrEmpty(_etag)) request.Headers[HttpRequestHeader.IfNoneMatch] = _etag;
-                }
-            } catch (Exception) { request = null; }
-            if (request == null) { Interlocked.Exchange(ref _updating, 0); return "invalid"; }
             var deadline = new CancellationTokenSource();
-            lock (_gate) {
-                if (_disposed) { Interlocked.Exchange(ref _updating, 0); deadline.Dispose(); return "cancelled"; }
-                _request = request;
-            }
-            var work = Task.Run(() => Download(request, deadline.Token, timer));
+            var work = Task.Run(() => {
+                HttpWebRequest request;
+                try {
+                    // OPTSCALERNR_WIKI_URL may name a file:// or ftp:// URI that WebRequest maps to another type.
+                    request = WebRequest.Create(_url) as HttpWebRequest;
+                    if (request != null) {
+                        request.UserAgent = "OptScalerNR-Launcher/1";
+                        request.Timeout = request.ReadWriteTimeout = DeadlineMs;
+                        request.AllowAutoRedirect = false;
+                        if (!string.IsNullOrEmpty(_etag)) request.Headers[HttpRequestHeader.IfNoneMatch] = _etag;
+                    }
+                } catch (Exception) { request = null; }
+                if (request == null) return "invalid";
+                lock (_gate) {
+                    if (_disposed) return "cancelled";
+                    _request = request;
+                }
+                return Download(request, deadline.Token, timer);
+            });
             try {
                 var completed = await Task.WhenAny(work, Task.Delay(DeadlineMs)).ConfigureAwait(false);
-                if (completed != work) { deadline.Cancel(); request.Abort(); return "timeout"; }
+                if (completed != work) {
+                    deadline.Cancel();
+                    lock (_gate) { if (_request != null) try { _request.Abort(); } catch { } }
+                    return "timeout";
+                }
                 return await work.ConfigureAwait(false);
             } finally {
                 deadline.Cancel();
-                lock (_gate) if (ReferenceEquals(_request, request)) _request = null;
+                lock (_gate) _request = null;
                 Interlocked.Exchange(ref _updating, 0);
                 // The token remains valid for a DNS request that completes after cancellation.
                 ReleaseWhenDone(work, deadline);

@@ -951,9 +951,18 @@ function Test-MochizukiModelHeader([string]$Path, [uint32]$Entries = 599) {
     return Test-MochizukiModelFile $Path $Entries
 }
 $mochizukiModel = $null
-$modelCandidates = @((Join-Path $Root 'dlssnr-amd/CC_SILVER_AARDWOLD.bin'), (Join-Path $Root 'CC_SILVER_AARDWOLD.bin'))
-if ($mochizukiAssets) { $modelCandidates += (Join-Path $mochizukiAssets 'CC_SILVER_AARDWOLD.bin') }
+$modelCandidates = @(
+    (Join-Path $Root 'dlssnr-amd/CC_SILVER_AARDWOLD.bin'),
+    (Join-Path $Root 'CC_SILVER_AARDWOLD.bin'),
+    (Join-Path $Root 'dlssnr-amd/dlssnr.bin'),
+    (Join-Path $Root 'dlssnr.bin')
+)
+if ($mochizukiAssets) {
+    $modelCandidates += (Join-Path $mochizukiAssets 'CC_SILVER_AARDWOLD.bin')
+    $modelCandidates += (Join-Path $mochizukiAssets 'dlssnr.bin')
+}
 $modelCandidates += (Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD.bin')
+$modelCandidates += (Join-Path $game 'dlssnr-amd/dlssnr.bin')
 foreach ($candidate in $modelCandidates) {
     # Presence only: the ASI owns the model format.
     if ((Test-Path -LiteralPath $candidate -PathType Leaf) -and (Get-Item -LiteralPath $candidate).Length -gt 0) {
@@ -962,9 +971,18 @@ foreach ($candidate in $modelCandidates) {
 }
 
 $mochizukiSmallModel = $null
-$smallModelCandidates = @((Join-Path $Root 'dlssnr-amd/CC_SMALL_FP8.bin'), (Join-Path $Root 'CC_SMALL_FP8.bin'))
-if ($mochizukiAssets) { $smallModelCandidates += (Join-Path $mochizukiAssets 'CC_SMALL_FP8.bin') }
+$smallModelCandidates = @(
+    (Join-Path $Root 'dlssnr-amd/CC_SMALL_FP8.bin'),
+    (Join-Path $Root 'CC_SMALL_FP8.bin'),
+    (Join-Path $Root 'dlssnr-amd/dlssnr-small.bin'),
+    (Join-Path $Root 'dlssnr-small.bin')
+)
+if ($mochizukiAssets) {
+    $smallModelCandidates += (Join-Path $mochizukiAssets 'CC_SMALL_FP8.bin')
+    $smallModelCandidates += (Join-Path $mochizukiAssets 'dlssnr-small.bin')
+}
 $smallModelCandidates += (Join-Path $game 'dlssnr-amd/CC_SMALL_FP8.bin')
+$smallModelCandidates += (Join-Path $game 'dlssnr-amd/dlssnr-small.bin')
 foreach ($candidate in $smallModelCandidates) {
     if ((Test-Path -LiteralPath $candidate -PathType Leaf) -and (Get-Item -LiteralPath $candidate).Length -gt 0) {
         $mochizukiSmallModel = $candidate; break
@@ -2430,6 +2448,47 @@ if ($installMochizuki) {
     } else {
         $experimentalReady = (Test-Path -LiteralPath $experimentalOut -PathType Leaf) -and
             (Get-Item -LiteralPath $experimentalOut).Length -gt 0
+    }
+
+    # Migrate or remove legacy 0.0.8.1 model filenames once current CC_*.bin names are in place.
+    foreach ($pair in @(
+        @('dlssnr-amd/dlssnr.bin', 'dlssnr-amd/CC_SILVER_AARDWOLD.bin'),
+        @('dlssnr-amd/dlssnr-small.bin', 'dlssnr-amd/CC_SMALL_FP8.bin'),
+        @('dlssnr-amd/dlssnr-small-experimental.bin', 'dlssnr-amd/CC_SMALL_FP8_EXPERIMENTAL.bin')
+    )) {
+        foreach ($baseDir in @($game, $Root)) {
+            if (-not $baseDir) { continue }
+            $oldBin = Join-Path $baseDir $pair[0]
+            $newBin = Join-Path $baseDir $pair[1]
+            if (Test-Path -LiteralPath $oldBin -PathType Leaf) {
+                try {
+                    if (-not (Test-Path -LiteralPath $newBin -PathType Leaf) -and (Get-Item -LiteralPath $oldBin).Length -gt 0) {
+                        Move-Item -LiteralPath $oldBin -Destination $newBin -Force -ErrorAction Stop
+                        Write-Host "Migrated legacy model $($pair[0]) -> $($pair[1])" -ForegroundColor Green
+                    } else {
+                        Remove-Item -LiteralPath $oldBin -Force -ErrorAction Stop
+                        Write-Host "Removed retired legacy model $($pair[0])" -ForegroundColor DarkGray
+                    }
+                } catch { }
+            }
+        }
+    }
+    foreach ($baseDir in @($game, $Root)) {
+        if (-not $baseDir) { continue }
+        $oldInt4 = Join-Path $baseDir 'dlssnr-amd/dlssnr-int4.bin'
+        if (Test-Path -LiteralPath $oldInt4 -PathType Leaf) {
+            try {
+                Remove-Item -LiteralPath $oldInt4 -Force -ErrorAction Stop
+                Write-Host 'Removed retired legacy model dlssnr-amd/dlssnr-int4.bin' -ForegroundColor DarkGray
+            } catch { }
+        }
+    }
+    $retiredPersonDir = Join-Path $game 'person-model'
+    if (Test-Path -LiteralPath $retiredPersonDir -PathType Container) {
+        try {
+            Remove-Item -LiteralPath $retiredPersonDir -Recurse -Force -ErrorAction Stop
+            Write-Host 'Removed retired person-model directory.' -ForegroundColor DarkGray
+        } catch { }
     }
 
     # Assets this version no longer installs, but the previous install owned.

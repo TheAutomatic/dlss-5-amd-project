@@ -9,6 +9,7 @@
 #include "hooks/Streamline_Hooks.h"
 #include "resource_tracking/ResTrack_Dx12.h"
 #include "FSRDFeature_Dx12.h"
+#include <upscalers/opennr_rr/OpenNrRrFeature_Dx12.h>
 #include "FSRDResultClassification.h"
 #include "FSRInputAlignment.h"
 #include "FSRDTaggedResourceExtent.h"
@@ -2092,6 +2093,7 @@ RRResult FSRDFeatureDx12::EvaluateRayRegeneration(ID3D12GraphicsCommandList* InC
     std::erase_if(_recordingTickets, [&tracker](uint64_t ticket) { return tracker.Retired(ticket); });
     _recordingTickets.push_back(tracker.Record(InCommandList));
     ReapDeferredFeatures();
+    OpenNrRrFeatureDx12::ReapDeferredFeatures();
 
     // The application submitted a new evaluation even when a later validation,
     // composition, or upscaler step fails. Keep RR frame indices unique on every
