@@ -2504,6 +2504,9 @@ if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
             $dlssnrSettings['LmxxfNetworkModel'] = if ($lmxxfSelectedModels -eq 'small') { '1' } else { '0' }
         }
     }
+    if ($iniFromTemplate) {
+        $dlssnrSettings['Enabled'] = 'true'
+    }
     Set-IniSettings $gameIni 'DlssNr' $dlssnrSettings
     # A user's explicit Enabled choice is preserved; only a missing key is seeded.
     Set-IniSettings $gameIni 'DlssNr' ([ordered]@{ 'Enabled' = 'true' }) -OnlyMissing
