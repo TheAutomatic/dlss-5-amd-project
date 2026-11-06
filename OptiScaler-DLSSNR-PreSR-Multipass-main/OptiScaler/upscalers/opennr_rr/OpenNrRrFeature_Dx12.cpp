@@ -41,9 +41,6 @@ decltype(&OnrRrGetFastMode) s_getFastMode = nullptr;
 decltype(OnrRrApi4::RecordPost) s_recordPost = nullptr;
 // ABI 5: the Vulkan host backend (PrepareVkDevice / FinishVkDevice / RecordVk); null with an older runtime
 OnrRrApi5 s_api5 {};
-// ABI 6: D3D12 recording fence & invalidation tracking; null with an older runtime
-decltype(OnrRrApi6::NoteD3d12Fence) s_noteD3d12Fence = nullptr;
-decltype(OnrRrApi6::NoteD3d12Invalidated) s_noteD3d12Invalidated = nullptr;
 bool s_loadTried = false;
 bool s_checked = false;
 bool s_usable = false;
@@ -98,48 +95,39 @@ bool Load()
     }
 
     auto getApi = reinterpret_cast<PFN_OnrRrGetApi>(GetProcAddress(module, "OnrRrGetApi"));
-    OnrRrApi6 api6 {};
-    OnrRrApi5& api5 = api6.v5;
+    OnrRrApi5 api5 {};
     OnrRrApi4& api4 = api5.v4;
     OnrRrApi3& api3 = api4.v3;
     OnrRrApi2& api2 = api3.v2;
     OnrRrApi& api = api2.v1;
-    // ABI 6, 5, 4, 3 or 2 when the runtime has it, otherwise 1
-    int32_t rc = getApi != nullptr ? getApi(ONR_RR_ABI_VERSION_6, &api) : ONR_RR_FAILED;
-    const bool has6 = rc == ONR_RR_OK && api.abi_version == ONR_RR_ABI_VERSION_6 && api6.NoteD3d12Fence &&
-                      api6.NoteD3d12Invalidated && api5.PrepareVkDevice && api5.FinishVkDevice && api5.RecordVk &&
-                      api4.GetBackend && api4.Record && api4.RecordPost;
-    if (!has6)
-    {
-        api6 = {};
-        rc = getApi != nullptr ? getApi(ONR_RR_ABI_VERSION_5, &api) : ONR_RR_FAILED;
-    }
-    const bool has5 = has6 || (rc == ONR_RR_OK && api.abi_version == ONR_RR_ABI_VERSION_5 && api5.PrepareVkDevice &&
-                               api5.FinishVkDevice && api5.RecordVk && api4.GetBackend && api4.Record && api4.RecordPost);
+    // ABI 5, 4, 3 or 2 when the runtime has it, otherwise 1
+    int32_t rc = getApi != nullptr ? getApi(ONR_RR_ABI_VERSION_5, &api) : ONR_RR_FAILED;
+    const bool has5 = rc == ONR_RR_OK && api.abi_version == ONR_RR_ABI_VERSION_5 && api5.PrepareVkDevice &&
+                      api5.FinishVkDevice && api5.RecordVk && api4.GetBackend && api4.Record && api4.RecordPost;
     if (!has5)
     {
-        api6 = {};
+        api5 = {};
         rc = getApi != nullptr ? getApi(ONR_RR_ABI_VERSION_4, &api) : ONR_RR_FAILED;
     }
     if (!has5 && (rc != ONR_RR_OK || api.abi_version != ONR_RR_ABI_VERSION_4 || !api4.GetBackend || !api4.Record || !api4.RecordPost))
     {
-        api6 = {};
+        api5 = {};
         rc = getApi != nullptr ? getApi(ONR_RR_ABI_VERSION_3, &api) : ONR_RR_FAILED;
     }
     if (rc != ONR_RR_OK || api.abi_version < ONR_RR_ABI_VERSION_3 || !api3.GetHopTiming)
     {
-        api6 = {};
+        api5 = {};
         rc = getApi != nullptr ? getApi(ONR_RR_ABI_VERSION_2, &api) : ONR_RR_FAILED;
     }
     if (rc != ONR_RR_OK || api.abi_version < ONR_RR_ABI_VERSION_2 || !api2.PrepareDenoised || !api2.EnqueueNetwork ||
         !api2.EnqueuePost)
     {
-        api6 = {};
+        api5 = {};
         rc = getApi != nullptr ? getApi(ONR_RR_ABI_VERSION, &api) : ONR_RR_FAILED;
     }
 
     if (rc != ONR_RR_OK ||
-        api.abi_version < ONR_RR_ABI_VERSION || api.abi_version > ONR_RR_ABI_VERSION_6 ||
+        api.abi_version < ONR_RR_ABI_VERSION || api.abi_version > ONR_RR_ABI_VERSION_5 ||
         !api.Check || !api.Create || !api.Destroy ||
         !api.SetMode || !api.RecordInputs || !api.Enqueue || !api.RecordOutput || !api.Cancel || !api.GetInfo ||
         !api.GetLastError)
@@ -163,11 +151,6 @@ bool Load()
     s_recordPost = api4.RecordPost;
     if (has5)
         s_api5 = api5;
-    if (has6)
-    {
-        s_noteD3d12Fence = api6.NoteD3d12Fence;
-        s_noteD3d12Invalidated = api6.NoteD3d12Invalidated;
-    }
     LOG_INFO("OpenRR: runtime loaded from {} (ABI {})", wstring_to_string(path.wstring()), api.abi_version);
     return true;
 }
@@ -1116,41 +1099,6 @@ bool OpenNrRrFeatureDx12::EvaluateD3d12(ID3D12GraphicsCommandList* InCommandList
         return false;
     }
 
-    const uint64_t serial = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(job));
-    if (serial != 0 && s_noteD3d12Fence != nullptr && s_noteD3d12Invalidated != nullptr)
-    {
-        Microsoft::WRL::ComPtr<DlssNr::Submission::ILogicalCommandList> logical;
-        Microsoft::WRL::ComPtr<DlssNr::Submission::IRecordingResources> resources;
-        if (SUCCEEDED(InCommandList->QueryInterface(IID_PPV_ARGS(&logical))) && logical &&
-            SUCCEEDED(InCommandList->QueryInterface(IID_PPV_ARGS(&resources))) && resources)
-        {
-            struct D3dObserver final : DlssNr::Submission::RecordingObserver
-            {
-                void* ctx = nullptr;
-                uint64_t ser = 0;
-                DlssNr::Submission::RecordingIdentity id {};
-                void Executed(const DlssNr::Submission::RecordingExecution& e) noexcept override
-                {
-                    if ((e.producerSubmitted || e.continuationSubmitted) && SUCCEEDED(e.status) && e.fence && e.fenceValue)
-                        s_noteD3d12Fence(ctx, ser, e.fence, e.fenceValue);
-                }
-                void Invalidated(DlssNr::Submission::RecordingIdentity inv) noexcept override
-                {
-                    if (id == inv)
-                        s_noteD3d12Invalidated(ctx, ser);
-                }
-            };
-            s_noteD3d12Fence(_context, serial, nullptr, 0);
-            auto obs = std::make_shared<D3dObserver>();
-            obs->ctx = _context;
-            obs->ser = serial;
-            obs->id = logical->Identity();
-            resources->ObserveResources(obs);
-        }
-    }
-
-    RecordingsRetired();
-    _recordingTickets.push_back(DlssNr::Submission::GpuBatch::Tracker::Instance().Record(InCommandList));
     _hasColor = true;
     _hasDepth = true;
     _hasMV = true;

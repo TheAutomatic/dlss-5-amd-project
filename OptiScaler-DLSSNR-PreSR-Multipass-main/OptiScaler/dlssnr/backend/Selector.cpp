@@ -194,8 +194,6 @@ bool ProxyWrapWanted()
     // disabled and the ASI hooks D3D12 command lists, queues and swapchains itself.
     if (DlssNr::AsiTakeover::Active())
         return false;
-    if (Config::Instance()->OpenNrRrEnabled.value_or_default() && HasOpenRrInstalled())
-        return true;
     // Common effects need recording lifetime callbacks even with a single backend.
     // This requests only the proxy; it never instantiates the inactive backend.
     if (!Config::Instance()->DlssNrRunBeforeSr.value_or_default() ||

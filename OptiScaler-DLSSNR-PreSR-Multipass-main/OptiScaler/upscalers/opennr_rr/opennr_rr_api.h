@@ -65,7 +65,6 @@ extern "C" {
 #define ONR_RR_ABI_VERSION_3 3
 #define ONR_RR_ABI_VERSION_4 4
 #define ONR_RR_ABI_VERSION_5 5
-#define ONR_RR_ABI_VERSION_6 6
 
 #define ONR_RR_RUNTIME_VERSION "0.1.1"
 #define ONR_RR_RUNTIME_VERSION_RC 0, 1, 1, 0
@@ -333,12 +332,6 @@ typedef struct OnrRrApi5 {
     // is the colour, scaled bilinearly.
     int32_t (*RecordVk)(void* context, const OnrRrFrame* frame, void* command_buffer);
 } OnrRrApi5;
-
-typedef struct OnrRrApi6 {
-    OnrRrApi5 v5;                  // v5.v4.v3.v2.v1.abi_version = 6
-    int32_t (*NoteD3d12Fence)(void* context, uint64_t serial, void* fence, uint64_t value);
-    int32_t (*NoteD3d12Invalidated)(void* context, uint64_t serial);
-} OnrRrApi6;
 
 // abi_version 1 fills an OnrRrApi; 2 fills the OnrRrApi2 that api points to; 3 the OnrRrApi3; 4 the OnrRrApi4; 5 the
 // OnrRrApi5.

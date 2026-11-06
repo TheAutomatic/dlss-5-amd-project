@@ -299,18 +299,7 @@ void D3dDevice::submit_own() {
 bool D3dDevice::slot_retired(SlotState& s, uint32_t idx) {
     if (!s.serial) return true;
     if (dev_ && FAILED(dev_->GetDeviceRemovedReason())) return true;
-    std::erase_if(s.proofs, [](FenceProof& p) {
-        const uint64_t done = p.fence->GetCompletedValue();
-        if (done != UINT64_MAX && done >= p.value) {
-            p.fence->Release();
-            return true;
-        }
-        return false;
-    });
     if (s.own) return s.own_fv != 0 && fence_ && fence_->GetCompletedValue() >= s.own_fv;
-    if (!s.proofs.empty()) return false;
-    if (s.has_fence || s.invalidated) return true;
-    if (s.host_tracked) return false;
     if (binds_ - s.serial >= kGameSlots) return true;
     return s.query_count > 0 && done_map_ && done_map_[idx * kSlotQueries + s.query_count - 1] != 0;
 }
@@ -318,17 +307,6 @@ bool D3dDevice::slot_retired(SlotState& s, uint32_t idx) {
 bool D3dDevice::overflow_retired(OverflowUpload& o) {
     if (!o.serial) return true;
     if (dev_ && FAILED(dev_->GetDeviceRemovedReason())) return true;
-    std::erase_if(o.proofs, [](FenceProof& p) {
-        const uint64_t done = p.fence->GetCompletedValue();
-        if (done != UINT64_MAX && done >= p.value) {
-            p.fence->Release();
-            return true;
-        }
-        return false;
-    });
-    if (!o.proofs.empty()) return false;
-    if (o.has_fence || o.invalidated) return true;
-    if (o.host_tracked) return false;
     if (binds_ - o.serial >= kGameSlots) return true;
     return o.done && *o.done != 0;
 }
@@ -344,13 +322,8 @@ bool D3dDevice::serial_retired(uint64_t serial) {
 
 void D3dDevice::reap(bool all) {
     if (all) {
-        for (auto& s : slots_) {
-            for (auto& p : s.proofs) p.fence->Release();
-            s.proofs.clear();
-            s.serial = 0;
-        }
+        for (auto& s : slots_) s.serial = 0;
         for (auto& o : overflow_) {
-            for (auto& p : o.proofs) p.fence->Release();
             if (o.qrb && o.done) o.qrb->Unmap(0, nullptr);
             if (o.qrb) o.qrb->Release();
             if (o.qh) o.qh->Release();
@@ -368,7 +341,6 @@ void D3dDevice::reap(bool all) {
             slots_[i].serial = 0;
     std::erase_if(overflow_, [&](OverflowUpload& o) {
         if (o.serial == current_serial_ || !overflow_retired(o)) return false;
-        for (auto& p : o.proofs) p.fence->Release();
         if (o.qrb && o.done) o.qrb->Unmap(0, nullptr);
         if (o.qrb) o.qrb->Release();
         if (o.qh) o.qh->Release();
@@ -386,53 +358,6 @@ void D3dDevice::reap(bool all) {
         if (g.obj) g.obj->Release();
     }
     grave_.resize(keep);
-}
-
-void D3dDevice::note_fence(uint64_t serial, ID3D12Fence* fence, uint64_t value) {
-    if (!serial || value == UINT64_MAX) return;
-    for (auto& s : slots_) {
-        if (s.serial != serial) continue;
-        s.host_tracked = true;
-        if (!fence || !value) return;
-        s.has_fence = true;
-        for (auto& p : s.proofs)
-            if (p.fence == fence) {
-                p.value = std::max(p.value, value);
-                return;
-            }
-        fence->AddRef();
-        s.proofs.push_back({fence, value});
-        return;
-    }
-    for (auto& o : overflow_) {
-        if (o.serial != serial) continue;
-        o.host_tracked = true;
-        if (!fence || !value) return;
-        o.has_fence = true;
-        for (auto& p : o.proofs)
-            if (p.fence == fence) {
-                p.value = std::max(p.value, value);
-                return;
-            }
-        fence->AddRef();
-        o.proofs.push_back({fence, value});
-        return;
-    }
-}
-
-void D3dDevice::note_invalidated(uint64_t serial) {
-    if (!serial) return;
-    for (auto& s : slots_)
-        if (s.serial == serial) {
-            s.host_tracked = true;
-            s.invalidated = true;
-        }
-    for (auto& o : overflow_)
-        if (o.serial == serial) {
-            o.host_tracked = true;
-            o.invalidated = true;
-        }
-    reap(false);
 }
 
 bool D3dDevice::all_retired() {
@@ -482,11 +407,9 @@ uint64_t D3dDevice::bind(ID3D12GraphicsCommandList* cl, uint32_t slot) {
         using_overflow_ = false;
         desc_slot_ = slot_;
         auto& s = slots_[slot_];
-        for (auto& p : s.proofs) p.fence->Release();
         s = SlotState{};
         s.serial = current_serial_;
         s.own = (cl == own_);
-        s.invalidated = false;
         if (done_map_) memset(const_cast<uint64_t*>(done_map_) + size_t(slot_) * kSlotQueries, 0, kSlotQueries * 8);
         cur_ring_ = ring_;
         cur_ring_map_ = ring_map_;
@@ -509,7 +432,6 @@ uint64_t D3dDevice::bind(ID3D12GraphicsCommandList* cl, uint32_t slot) {
         OverflowUpload o;
         o.serial = current_serial_;
         o.desc_slot = desc_slot_;
-        o.invalidated = false;
         o.ring = buffer(dev_, 1u << 16, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ, false);
         check(o.ring->Map(0, nullptr, reinterpret_cast<void**>(&o.map)), "Map");
         D3D12_QUERY_HEAP_DESC oqhd{D3D12_QUERY_HEAP_TYPE_TIMESTAMP, 1};

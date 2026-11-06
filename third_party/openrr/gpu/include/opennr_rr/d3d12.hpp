@@ -65,8 +65,6 @@ public:
     void unbind();
     uint32_t bound_slot() const { return slot_; }
     bool using_overflow() const { return using_overflow_; }
-    void note_fence(uint64_t serial, ID3D12Fence* fence, uint64_t value);
-    void note_invalidated(uint64_t serial);
     bool all_retired();
     ID3D12GraphicsCommandList* list() const { return cl_; }
     // views of the game's textures in the bound recording's descriptor table (set 0 of the d3d_ kernels, its low
@@ -138,19 +136,11 @@ private:
     ID3D12GraphicsCommandList* own_ = nullptr;
     ID3D12Fence* fence_ = nullptr;
     uint64_t fv_ = 0;
-    struct FenceProof {
-        ID3D12Fence* fence = nullptr;
-        uint64_t value = 0;
-    };
     struct SlotState {
         uint64_t serial = 0;
         bool own = false;
         uint64_t own_fv = 0;
-        bool host_tracked = false;
-        bool has_fence = false;
-        bool invalidated = true;
         uint32_t query_count = 0;
-        std::vector<FenceProof> proofs;
     };
     struct OverflowUpload {
         uint64_t serial = 0;
@@ -160,10 +150,6 @@ private:
         ID3D12QueryHeap* qh = nullptr;
         ID3D12Resource* qrb = nullptr;
         volatile uint64_t* done = nullptr;
-        bool host_tracked = false;
-        bool has_fence = false;
-        bool invalidated = true;
-        std::vector<FenceProof> proofs;
     };
     struct Grave {
         std::vector<uint64_t> wait_serials;

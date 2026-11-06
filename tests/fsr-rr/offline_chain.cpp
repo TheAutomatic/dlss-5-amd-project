@@ -2566,10 +2566,9 @@ RWTexture2D<float4> radiance : register(u0);
 struct OpenRrRoute
 {
     HMODULE module = nullptr;
-    OnrRrApi6 api6{};
+    OnrRrApi5 api5{};
     void* ctx = nullptr;
     GpuTexture output;
-    uint64_t lastSerial = 0;
     uint32_t activeBackend = ONR_RR_BACKEND_D3D12;
     std::string runtimeSha256, runtimeVersion, dlssdSha256, dlssdVersion;
 
@@ -2582,8 +2581,8 @@ struct OpenRrRoute
         module = LoadLibraryExW(runtimePath.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
         if (!module) Die("LoadLibraryExW failed for OpenNrRrRuntime.dll");
         auto getApi = reinterpret_cast<PFN_OnrRrGetApi>(GetProcAddress(module, "OnrRrGetApi"));
-        if (!getApi || getApi(ONR_RR_ABI_VERSION_6, &api6.v5.v4.v3.v2.v1) != ONR_RR_OK)
-            Die("OpenNrRrRuntime.dll does not offer ABI 6");
+        if (!getApi || getApi(ONR_RR_ABI_VERSION_5, &api5.v4.v3.v2.v1) != ONR_RR_OK)
+            Die("OpenNrRrRuntime.dll does not offer ABI 5");
     }
     uint32_t curRenderW = 0, curRenderH = 0, curOutW = 0, curOutH = 0;
     bool isReady = false;
@@ -2609,15 +2608,15 @@ struct OpenRrRoute
         ci.dlssd_path = dlssdW.c_str();
         ci.data_dir = dataDirW.c_str();
         ci.backend = backendStr == "vulkan" ? ONR_RR_BACKEND_CHOICE_VULKAN : ONR_RR_BACKEND_CHOICE_D3D12;
-        if (api6.v5.v4.v3.v2.v1.Create(&ci, &ctx) != ONR_RR_OK || !ctx)
+        if (api5.v4.v3.v2.v1.Create(&ci, &ctx) != ONR_RR_OK || !ctx)
             Die("OpenRR Create failed");
-        if (api6.v5.v4.GetBackend) api6.v5.v4.GetBackend(ctx, &activeBackend);
+        if (api5.v4.GetBackend) api5.v4.GetBackend(ctx, &activeBackend);
     }
     void DestroyContext()
     {
-        if (ctx && api6.v5.v4.v3.v2.v1.Destroy)
+        if (ctx && api5.v4.v3.v2.v1.Destroy)
         {
-            api6.v5.v4.v3.v2.v1.Destroy(ctx);
+            api5.v4.v3.v2.v1.Destroy(ctx);
             ctx = nullptr;
         }
     }
@@ -3602,7 +3601,7 @@ static int GuardedMain(int argc, char** argv)
                                 void* warmJob = nullptr;
                                 if (openrrRoute.activeBackend == ONR_RR_BACKEND_D3D12)
                                 {
-                                    if (openrrRoute.api6.v5.v4.Record(openrrRoute.ctx, &of, orCl.Get(), ONR_RR_EDIT_OFF, nullptr, &warmJob) != ONR_RR_OK)
+                                    if (openrrRoute.api5.v4.Record(openrrRoute.ctx, &of, orCl.Get(), ONR_RR_EDIT_OFF, nullptr, &warmJob) != ONR_RR_OK)
                                         Die("OpenRR warmup Record failed");
                                     CHECK_HR(orCl->Close(), "close OpenRR warmup");
                                     ID3D12CommandList* wLists[] = {orCl.Get()};
@@ -3610,14 +3609,11 @@ static int GuardedMain(int argc, char** argv)
                                     fenceValue += 1;
                                     const uint64_t wfv = fenceValue;
                                     CHECK_HR(gpu.queue->Signal(frameFence.Get(), wfv), "warm Signal");
-                                    const uint64_t wser = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(warmJob));
-                                    if (wser != 0 && openrrRoute.api6.NoteD3d12Fence)
-                                        openrrRoute.api6.NoteD3d12Fence(openrrRoute.ctx, wser, frameFence.Get(), wfv);
                                     WaitFence(wfv);
                                     if (gpu.info) gpu.info->ClearStoredMessages();
                                 }
                                 OnrRrInfo info{}; info.size = sizeof(info);
-                                if (openrrRoute.api6.v5.v4.v3.v2.v1.GetInfo(openrrRoute.ctx, &info) != ONR_RR_OK)
+                                if (openrrRoute.api5.v4.v3.v2.v1.GetInfo(openrrRoute.ctx, &info) != ONR_RR_OK)
                                     Die("OpenRR GetInfo failed");
                                 if (info.state == ONR_RR_STATE_READY) { openrrRoute.isReady = true; break; }
                                 if (info.state == ONR_RR_STATE_FAILED) Die(std::string("OpenRR build failed: ") + info.message);
@@ -3634,9 +3630,8 @@ static int GuardedMain(int argc, char** argv)
                         void* job = nullptr;
                         if (openrrRoute.activeBackend == ONR_RR_BACKEND_D3D12)
                         {
-                            if (openrrRoute.api6.v5.v4.Record(openrrRoute.ctx, &of, orCl.Get(), ONR_RR_EDIT_OFF, nullptr, &job) != ONR_RR_OK)
+                            if (openrrRoute.api5.v4.Record(openrrRoute.ctx, &of, orCl.Get(), ONR_RR_EDIT_OFF, nullptr, &job) != ONR_RR_OK)
                                 Die("OpenRR D3D12 Record failed");
-                            openrrRoute.lastSerial = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(job));
                         }
                         openrrTimer.End(orCl.Get(), frame, StageDenoiser);
                         openrrTimer.Begin(orCl.Get(), frame, StageComposition); openrrTimer.End(orCl.Get(), frame, StageComposition);
@@ -3648,8 +3643,6 @@ static int GuardedMain(int argc, char** argv)
                         fenceValue += 1;
                         const uint64_t ofv = fenceValue;
                         CHECK_HR(gpu.queue->Signal(frameFence.Get(), ofv), "orCl Signal");
-                        if (openrrRoute.lastSerial != 0 && openrrRoute.api6.NoteD3d12Fence)
-                            openrrRoute.api6.NoteD3d12Fence(openrrRoute.ctx, openrrRoute.lastSerial, frameFence.Get(), ofv);
                         WaitFence(ofv);
                         if (gpu.info) gpu.info->ClearStoredMessages();
                     }

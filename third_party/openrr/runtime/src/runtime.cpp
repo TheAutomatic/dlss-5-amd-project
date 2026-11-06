@@ -48,7 +48,6 @@ thread_local std::string t_error;
 // keeps its barrier, and on a Vulkan game's device always (its features come and go with others in flight).
 // ONR_RR_FLOW=0: never, =1: always (measurements).
 std::atomic<int> g_live{0};
-std::atomic<bool> g_abi6_host{false};
 const char* const g_flow = getenv("ONR_RR_FLOW");
 
 int32_t fail(int32_t code, const std::string& what) {
@@ -2329,7 +2328,7 @@ int32_t Record(void* ctx, const OnrRrFrame* f, void* list, uint32_t edit, OnrRrD
 
         const uint32_t hint = uint32_t(c->drecords++ % D3dDevice::kGameSlots);
         d3d_harvest(c);
-        const uint64_t serial = d.bind(cl, hint);
+        d.bind(cl, hint);
         const uint32_t slot = d.bound_slot();
         const bool overflow = d.using_overflow();
         uint32_t dummy_qnet[2] = {};
@@ -2365,11 +2364,7 @@ int32_t Record(void* ctx, const OnrRrFrame* f, void* list, uint32_t edit, OnrRrD
         if (g_stamps && !hop && !overflow && network) c->stamp_names = d.stamp_names;
         d.unbind();
         if (network) log_frame(c, render);
-        if (!hop) {
-            if (g_abi6_host.load(std::memory_order_relaxed) && edit == ONR_RR_EDIT_OFF && !image)
-                *job = reinterpret_cast<void*>(uintptr_t(serial));
-            return ONR_RR_OK;
-        }
+        if (!hop) return ONR_RR_OK;
         j->d3d = true;
         j->post_pending = true;
         image->buffer = c->dimage.res;
@@ -2926,22 +2921,6 @@ int32_t GetHopTiming(void* ctx, uint64_t hop, OnrRrHopTiming* t) {
     return ONR_RR_OK;
 }
 
-int32_t NoteD3d12Fence(void* ctx, uint64_t serial, void* fence, uint64_t value) {
-    if (!ctx || !serial) return ONR_RR_INVALID_ARGUMENT;
-    auto* c = static_cast<Ctx*>(ctx);
-    std::lock_guard l(c->m);
-    if (c->dx) c->dx->note_fence(serial, static_cast<ID3D12Fence*>(fence), value);
-    return ONR_RR_OK;
-}
-
-int32_t NoteD3d12Invalidated(void* ctx, uint64_t serial) {
-    if (!ctx || !serial) return ONR_RR_INVALID_ARGUMENT;
-    auto* c = static_cast<Ctx*>(ctx);
-    std::lock_guard l(c->m);
-    if (c->dx) c->dx->note_invalidated(serial);
-    return ONR_RR_OK;
-}
-
 int32_t GetLastErrorText(char* buf, uint32_t n) {
     if (buf && n) copy_str(buf, n, t_error);
     return ONR_RR_OK;
@@ -2972,13 +2951,7 @@ extern "C" int32_t OnrRrSetDeltaRate(void* context, float rate) {
 }
 
 extern "C" int32_t OnrRrGetApi(uint32_t abi, OnrRrApi* api) {
-    if (abi < ONR_RR_ABI_VERSION || abi > ONR_RR_ABI_VERSION_6 || !api) return ONR_RR_INVALID_ARGUMENT;
-    if (abi >= ONR_RR_ABI_VERSION_6) {
-        g_abi6_host.store(true, std::memory_order_relaxed);
-        auto* a6 = reinterpret_cast<OnrRrApi6*>(api);
-        a6->NoteD3d12Fence = NoteD3d12Fence;
-        a6->NoteD3d12Invalidated = NoteD3d12Invalidated;
-    }
+    if (abi < ONR_RR_ABI_VERSION || abi > ONR_RR_ABI_VERSION_5 || !api) return ONR_RR_INVALID_ARGUMENT;
     if (abi >= ONR_RR_ABI_VERSION_5) {
         auto* a5 = reinterpret_cast<OnrRrApi5*>(api);
         a5->PrepareVkDevice = PrepareVkDevice;
