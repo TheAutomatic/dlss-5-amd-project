@@ -103,9 +103,12 @@ jobs:
           - **游戏内 `OpenRR` ↔ `FSR-RR` 无缝实时热切与显存回收**：支持在游戏内通过顶部超分下拉框或 `启用 OpenRR (DLSS 光线重建)` 复选框当场热切 `OpenRR` 与 `FSR-RR`，无需重启游戏；切换后 1 帧内 100% 释放旧后端占用的显存（~983 MB）。
           - **显存优化、DRS 预分配与跨队列去抢占计时滤波**：通过金字塔暂存区复用与按需分配将单实例显存占用降至 ~966 MB；修复 DRS 仅改变渲染分辨率时的历史帧重置并采用 64 槽位完成证明；新增零损耗跨队列异步计算（Async Compute）去抢占计时滤波，消除 UE5 等游戏异步光追队列穿插导致的耗时读数虚高。
 
-          ## Mochizuki 0.0.8.3 Direct ELF 与 FSR-RR 1.2.1 更新
+          ## 神经渲染架构插件化转型（Mochizuki 0.0.8.3 ASI）与 FSR-RR 1.2.1 更新
 
-          - **升级 Mochizuki `0.0.8.3` Direct ELF ASI 载荷**：新增完整的 D3D12 Direct ELF 零拷贝 Stage（涵盖 SDR 与 HDR `NR_LIN_IO` 预热及配套 D3D12 HLSL 着色器），直接在游戏的 D3D12 命令列表上运行 ACO 网络，省去跨 Vulkan 设备桥接拷贝与额外显存开销；全面移除退役的 `lmxxf`、`daniel`、内置 `MochizukiNrRuntime` 及 `person-model` 组件。
+          - **移除宿主内置后端，全面转向独立 `.asi` 插件架构**：
+            - 本版本已正式移除原先硬编码集成在 OptiScaler 宿主内部的 **`Mochizuki`、`lmxxf`、`Daniel`** 神经渲染后端及 `person-model` 辅助组件，全面转为集成独立的 **`Mochizuki ASI`（`dlssnr-amd.asi 0.0.8.3`）** 插件；
+            - **后续规划**：我们后续计划与其他作者深入合作，共同推动相关神经渲染后端与扩展统一采用标准 **`.asi` 独立插件形式**开发与分发，实现宿主与各后端的解耦独立迭代，减少多端重复移植与维护的负担。
+          - **升级 Mochizuki `0.0.8.3` Direct ELF ASI 载荷**：新增完整的 D3D12 Direct ELF 零拷贝 Stage（涵盖 SDR 与 HDR `NR_LIN_IO` 预热及配套 D3D12 HLSL 着色器），直接在游戏的 D3D12 命令列表上运行 ACO 网络，省去跨 Vulkan 设备桥接拷贝与额外显存开销。
           - **升级 FSR 光线再生（FSR-RR）至 `1.2.1`（SDK v2.4.0）**：修复 `AdditiveLightSplit` 漫反射反照率分解与粗糙镜面命中距离（Glossy `hitDist`）丢失导致的反射模糊问题；新增 `CanRecordOwnedCompute()` 修复《红色沙漠》等 D3D12 Enhanced Barriers 游戏的崩溃回归。
 
           ## 启动器（Launcher）体验与模型管理优化
@@ -142,9 +145,12 @@ jobs:
           - **Seamless In-Game `OpenRR` ↔ `FSR-RR` Live Switching & VRAM Reaping**: Switch between `OpenRR` and `FSR-RR` on the fly via the Upscaler combo or the `Enable OpenRR` checkbox without restarting the game; cross-reaping frees 100% of the retired backend's VRAM (~983 MB) within 1 frame.
           - **VRAM Optimization, DRS Preallocation & Cross-Queue Preemption Timing Filter**: Reduced per-feature VRAM footprint to ~966 MB via pyramid scratch aliasing and on-demand staging; fixed DRS render-only delta reset (`nr_frame_`) with 64-slot GPU retirement proofs; added a zero-overhead cross-queue async-compute preemption filter so concurrent UE5 async ray-tracing queues no longer inflate reported Upscaler GPU times.
 
-          ## Mochizuki 0.0.8.3 Direct ELF & FSR-RR 1.2.1 Updates
+          ## Neural Rendering Transition to `.asi` Plugin Architecture (Mochizuki 0.0.8.3) & FSR-RR 1.2.1
 
-          - **Upgraded Mochizuki `0.0.8.3` Direct ELF ASI Payload**: Added zero-copy SDR/HDR (`NR_LIN_IO` prewarm) D3D12 Direct ELF stages and bundled D3D12 HLSL shaders so the ACO network executes directly on the game's D3D12 command list without D3D12↔Vulkan bridge copies; retired legacy `lmxxf`, `daniel`, built-in `MochizukiNrRuntime`, and `person-model` components.
+          - **Retired Built-in NR Backends in Favor of Standalone `.asi` Plugins**:
+            - Removed the legacy host-integrated **`Mochizuki`**, **`lmxxf`**, and **`Daniel`** neural rendering backends (along with `person-model` helpers) from the OptiScaler host binary, transitioning fully to the standalone **`Mochizuki ASI` (`dlssnr-amd.asi 0.0.8.3`)** plugin;
+            - **Future Direction**: Going forward, we plan to collaborate with other authors to standardize related backends and extensions as modular **`.asi` plugins**, decoupling host and backend release cycles and eliminating duplicated integration and maintenance work across projects.
+          - **Upgraded Mochizuki `0.0.8.3` Direct ELF ASI Payload**: Added zero-copy SDR/HDR (`NR_LIN_IO` prewarm) D3D12 Direct ELF stages and bundled D3D12 HLSL shaders so the ACO network executes directly on the game's D3D12 command list without D3D12↔Vulkan bridge copies.
           - **Upgraded FSR Ray Regeneration (FSR-RR) to `1.2.1` (SDK v2.4.0)**: Fixed `AdditiveLightSplit` diffuse albedo regression and preserved glossy `hitDist` to restore sharp specular reflections; added `CanRecordOwnedCompute()` to fix the `v1.14.1` FSR-RR crash regression on D3D12 Enhanced Barrier games (e.g. Crimson Desert).
 
           ## Launcher Responsiveness & Model Management
