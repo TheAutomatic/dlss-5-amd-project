@@ -2476,8 +2476,8 @@ namespace OptScalerNR.Launcher
             }
 
             var checkedBackends = new List<string>();
-            if (_lmxxfCheck != null && _lmxxfCheck.IsChecked == true) checkedBackends.Add("lmxxf");
-            if (_danielCheck != null && _danielCheck.IsChecked == true) checkedBackends.Add("daniel");
+            if (_lmxxfCheck != null && _lmxxfCheck.IsChecked == true && FindBackend("lmxxf") != null) checkedBackends.Add("lmxxf");
+            if (_danielCheck != null && _danielCheck.IsChecked == true && FindBackend("daniel") != null) checkedBackends.Add("daniel");
             if (_mochiCheck != null && _mochiCheck.IsChecked == true) checkedBackends.Add("mochizuki");
 
             if (installing && checkedBackends.Count == 0)
@@ -2686,6 +2686,22 @@ namespace OptScalerNR.Launcher
             {
                 if (result.Backends != null)
                 {
+                    bool hasLmxxf = FindBackend("lmxxf") != null;
+                    bool hasDaniel = FindBackend("daniel") != null;
+                    if (!hasLmxxf && _lmxxfCheck != null)
+                    {
+                        _lmxxfCheck.IsChecked = false;
+                        _lmxxfCheck.IsEnabled = false;
+                        if (preferredActiveBackend == "lmxxf") preferredActiveBackend = "mochizuki";
+                    }
+                    if (!hasDaniel && _danielCheck != null)
+                    {
+                        _danielCheck.IsChecked = false;
+                        _danielCheck.IsEnabled = false;
+                        if (preferredActiveBackend == "daniel") preferredActiveBackend = "mochizuki";
+                    }
+                    if (!hasLmxxf && !hasDaniel && _mochiCheck != null && _mochiCheck.IsChecked != true)
+                        _mochiCheck.IsChecked = true;
                     foreach (var b in result.Backends)
                     {
                         if (b == null) continue;
