@@ -422,11 +422,9 @@ struct Ctx {
     uint64_t seq = 0, frames = 0;
     float gpu_last = 0;
     std::vector<float> gpu_hist;
-    struct RawSpan {
-        uint32_t key = 0;
-        float ms = 0;
-    };
-    std::vector<RawSpan> gpu_raw_win;
+    uint32_t gpu_timing_key = 0;
+    float gpu_base_ms = 0;
+    float gpu_clean_ms = 0;
     std::map<Job*, std::unique_ptr<Job>> jobs;
     std::string last_logged_error;
     uint32_t logged_edit = ONR_RR_EDIT_OFF;
@@ -919,24 +917,19 @@ void record_gpu_sample(Ctx* c, float raw_ms, float part[3], bool has_parts) {
     if (raw_ms <= 0) return;
     float clean_ms = raw_ms;
     const uint32_t key = timing_key(c);
-    if (key) {
-        c->gpu_raw_win.push_back({key, raw_ms});
-        if (c->gpu_raw_win.size() > 32) c->gpu_raw_win.erase(c->gpu_raw_win.begin());
-        float same[32];
-        size_t n = 0;
-        for (const auto& s : c->gpu_raw_win)
-            if (s.key == key) same[n++] = s.ms;
-        if (n >= 3) {
-            std::sort(same, same + n);
-            const float base = same[n / 10];
-            const float limit = base * 1.08f;
-            if (raw_ms > limit) {
-                float sum = 0.0f;
-                size_t cnt = 0;
-                for (size_t i = 0; i < n; ++i)
-                    if (same[i] <= limit) sum += same[i], ++cnt;
-                clean_ms = cnt ? sum / float(cnt) : base;
-            }
+    if (key && raw_ms >= 1.0f) {
+        if (c->gpu_timing_key != key || c->gpu_base_ms <= 0.0f) {
+            c->gpu_timing_key = key;
+            c->gpu_base_ms = raw_ms;
+            c->gpu_clean_ms = raw_ms;
+        } else if (raw_ms < c->gpu_base_ms) {
+            c->gpu_base_ms = raw_ms < c->gpu_base_ms * 0.94f ? raw_ms : (c->gpu_base_ms * 0.2f + raw_ms * 0.8f);
+            c->gpu_clean_ms = raw_ms < c->gpu_clean_ms * 0.94f ? raw_ms : (c->gpu_clean_ms * 0.7f + raw_ms * 0.3f);
+        } else if (raw_ms <= c->gpu_base_ms * 1.06f) {
+            c->gpu_base_ms = c->gpu_base_ms * 0.99f + raw_ms * 0.01f;
+            c->gpu_clean_ms = c->gpu_clean_ms * 0.85f + raw_ms * 0.15f;
+        } else {
+            clean_ms = c->gpu_clean_ms;
         }
     }
     if (has_parts) {
@@ -1027,7 +1020,9 @@ bool prepare_network(Ctx* c, Gpu& d, I2 render, F&& idle) {
         if (getenv("ONR_RR_NO_SAMPLER")) c->engine.set_history_sampler(false);   // measurements
         c->engine_ready = true;
         c->gpu_hist.clear();
-        c->gpu_raw_win.clear();
+        c->gpu_timing_key = 0;
+        c->gpu_base_ms = 0;
+        c->gpu_clean_ms = 0;
         c->state = ONR_RR_STATE_READY;
         c->set_message("ready");
     } else if (c->state != ONR_RR_STATE_FAILED && !c->building && !c->built && !c->small_view) {

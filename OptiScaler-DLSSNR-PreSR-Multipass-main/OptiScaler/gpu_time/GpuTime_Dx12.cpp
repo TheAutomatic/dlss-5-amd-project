@@ -126,48 +126,47 @@ std::optional<double> GpuTime_Dx12::ReadGpuTime(ID3D12CommandQueue* commandQueue
         // Filter out wall-clock timestamp inflation when a concurrent async-compute queue preempts between Start and End.
         if (rawMs > 0.0 && rawMs < 100.0)
         {
-            if (_rawCount >= 2)
-            {
-                const double prevMs = _rawWindow[(_rawHead + RAW_WINDOW_SIZE - 1) % RAW_WINDOW_SIZE];
-                double minWin = _rawWindow[0];
-                for (size_t i = 1; i < _rawCount; ++i)
-                    minWin = (std::min)(minWin, _rawWindow[i]);
-
-                if ((prevMs > minWin * 2.0 && rawMs > minWin * 2.0) || rawMs < minWin * 0.5)
-                {
-                    _rawWindow[0] = prevMs;
-                    _rawCount = 1;
-                    _rawHead = 1;
-                }
-            }
-
             _rawWindow[_rawHead] = rawMs;
             _rawHead = (_rawHead + 1) % RAW_WINDOW_SIZE;
             if (_rawCount < RAW_WINDOW_SIZE)
                 ++_rawCount;
 
-            if (_rawCount >= 3)
+            if (rawMs >= 1.0)
             {
-                std::array<double, RAW_WINDOW_SIZE> sorted {};
-                for (size_t i = 0; i < _rawCount; ++i)
-                    sorted[i] = _rawWindow[i];
-                std::sort(sorted.begin(), sorted.begin() + _rawCount);
-
-                const double base = sorted[_rawCount / 10];
-                const double limit = base * 1.08;
-                if (rawMs > limit)
+                if (_baseMs < 1.0)
                 {
-                    double sum = 0.0;
-                    size_t cnt = 0;
-                    for (size_t i = 0; i < _rawCount; ++i)
+                    _baseMs = rawMs;
+                    _cleanMs = rawMs;
+                }
+                else if (rawMs < _baseMs)
+                {
+                    _baseMs = rawMs < _baseMs * 0.94 ? rawMs : (_baseMs * 0.2 + rawMs * 0.8);
+                    _cleanMs = rawMs < _cleanMs * 0.94 ? rawMs : (_cleanMs * 0.7 + rawMs * 0.3);
+                }
+                else if (rawMs <= _baseMs * 1.06)
+                {
+                    _baseMs = _baseMs * 0.99 + rawMs * 0.01;
+                    _cleanMs = _cleanMs * 0.85 + rawMs * 0.15;
+                }
+                else
+                {
+                    // Check if the entire recent 32-frame window has shifted to a tight new steady-state floor
+                    // (e.g. switching Fast -> Legacy mode, where max/min spread is < 5%, unlike noisy async preemption).
+                    if (_rawCount == RAW_WINDOW_SIZE)
                     {
-                        if (sorted[i] <= limit)
+                        double minW = _rawWindow[0], maxW = _rawWindow[0];
+                        for (size_t i = 1; i < RAW_WINDOW_SIZE; ++i)
                         {
-                            sum += sorted[i];
-                            ++cnt;
+                            minW = (std::min)(minW, _rawWindow[i]);
+                            maxW = (std::max)(maxW, _rawWindow[i]);
+                        }
+                        if (minW > _baseMs * 1.06 && maxW <= minW * 1.05)
+                        {
+                            _baseMs = minW;
+                            _cleanMs = minW;
                         }
                     }
-                    rawMs = cnt > 0 ? (sum / static_cast<double>(cnt)) : base;
+                    rawMs = _cleanMs;
                 }
             }
         }
