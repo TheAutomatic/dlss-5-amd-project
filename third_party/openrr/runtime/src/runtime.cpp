@@ -908,7 +908,11 @@ uint32_t timing_key(const Ctx* c) {
     if (!c->engine_ready) return 0;
     const I2 r = c->engine.render();
     const uint32_t tiles = uint32_t(((r.x + 31) >> 5) * ((r.y + 31) >> 5));
-    return (tiles << 1) | uint32_t(c->engine.lite_active() ? 1u : 0u);
+    uint32_t k = (tiles << 1) | uint32_t(c->engine.lite_active() ? 1u : 0u);
+    k ^= uint32_t((c->logged_tl + 1) & 3) << 18;
+    k ^= uint32_t((c->logged_opt + 1) & 15) << 20;
+    k ^= uint32_t((c->logged_more + 1) & 255) << 24;
+    return k;
 }
 
 // Filters out wall-clock timestamp inflation caused by concurrent game async-compute queues preempting between
@@ -929,6 +933,7 @@ void record_gpu_sample(Ctx* c, float raw_ms, float part[3], bool has_parts) {
             c->gpu_base_ms = c->gpu_base_ms * 0.99f + raw_ms * 0.01f;
             c->gpu_clean_ms = c->gpu_clean_ms * 0.85f + raw_ms * 0.15f;
         } else {
+            c->gpu_base_ms += 0.002f;
             clean_ms = c->gpu_clean_ms;
         }
     }

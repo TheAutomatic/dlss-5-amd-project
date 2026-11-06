@@ -150,6 +150,7 @@ std::optional<double> GpuTime_Dx12::ReadGpuTime(ID3D12CommandQueue* commandQueue
                 }
                 else
                 {
+                    _baseMs += 0.002;
                     // Check if the entire recent 32-frame window has shifted to a tight new steady-state floor
                     // (e.g. switching Fast -> Legacy mode, where max/min spread is < 5%, unlike noisy async preemption).
                     if (_rawCount == RAW_WINDOW_SIZE)
