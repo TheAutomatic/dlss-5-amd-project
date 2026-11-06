@@ -768,7 +768,7 @@ namespace OptScalerNR.Launcher
                 if (_replaceIni != null) _replaceIni.Content = isZh ? "覆盖现有 OptiScaler.ini 配置文件 (推荐)" : "Replace existing OptiScaler.ini (recommended)";
                 SetLabel("OptiPatcherToggle", "安装 OptiPatcher（DLSS 伪装增强，按 Wiki 推荐预选）", "Install OptiPatcher (DLSS spoofing enhancement, preselected by Wiki recommendation)");
                 if (_optiPatcherToggle != null) _optiPatcherToggle.ToolTip = L("优先下载最新版本（30 秒时限），失败时回退包内离线副本，并启用 LoadAsiPlugins。", "Downloads the latest version with a 30-second limit, falls back to the bundled offline copy, and enables LoadAsiPlugins.");
-                SetLabel("OpenRrToggle", "OpenRR 光线重建 (DLSS-RR 0.1.0 · RX 9000 专属)", "OpenRR Ray Reconstruction (DLSS-RR 0.1.0 · RX 9000)");
+                SetLabel("OpenRrToggle", "OpenRR 光线重建 (DLSS-RR 0.1.1 · RX 9000 专属)", "OpenRR Ray Reconstruction (DLSS-RR 0.1.1 · RX 9000)");
                 SetLabel("OpenRrDescription",
                     "在 RX 9000 (RDNA4) 显卡上原生运行 NVIDIA DLSS 光线重建网络（支持 D3D12 直录与 Vulkan）。需导入一次 310.9.1.0 版 nvngx_dlssd.dll；取消勾选或非 RX 9000 显卡将自动使用内置 FSR 光线再生 (FSR-RR)。",
                     "Runs NVIDIA's DLSS Ray Reconstruction network natively on RX 9000 (RDNA4) GPUs (D3D12 & Vulkan). Import nvngx_dlssd.dll (310.9.1.0) once; unchecking or non-RX 9000 GPUs automatically use built-in FSR Ray Regeneration (FSR-RR).");
