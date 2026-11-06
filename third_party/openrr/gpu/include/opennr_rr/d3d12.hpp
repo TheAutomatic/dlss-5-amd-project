@@ -154,8 +154,12 @@ private:
     };
     struct OverflowUpload {
         uint64_t serial = 0;
+        uint32_t desc_slot = 0;
         ID3D12Resource* ring = nullptr;
         uint8_t* map = nullptr;
+        ID3D12QueryHeap* qh = nullptr;
+        ID3D12Resource* qrb = nullptr;
+        volatile uint64_t* done = nullptr;
         bool host_tracked = false;
         bool has_fence = false;
         bool invalidated = true;

@@ -126,8 +126,8 @@ bool Device::init(std::string& err, const DeviceOptions& opt) {
         if (!has_cm) v13.pNext = nullptr;
         // aliased shared blocks (vector views of the LDS of the network kernels)
         VkPhysicalDeviceDescriptorBufferFeaturesEXT dbf{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_FEATURES_EXT};
-        if (opt.descriptors) {
-            if (!has(VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME)) throw std::runtime_error("device lacks VK_EXT_descriptor_buffer");
+        const bool has_desc = opt.descriptors && has(VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME);
+        if (has_desc) {
             want.push_back(VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME);
             dbf.pNext = v11.pNext;
             v11.pNext = &dbf;
@@ -245,8 +245,6 @@ void Device::setup_common() {
     qpi.queryType = VK_QUERY_TYPE_TIMESTAMP;
     qpi.queryCount = kMaxQueries;
     check(vkCreateQueryPool(dev_, &qpi, nullptr, &qpool_), "vkCreateQueryPool");
-
-    staging_ = create_ex(kStaging, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &staging_map_);
 }
 
 bool Device::adopt(const HostDevice& h, std::string& err) {
@@ -309,6 +307,7 @@ void Device::sweep(bool all) {
     if (!all && dev_) {
         std::erase_if(active_queries_, [&](const QueryProof& q) {
             if (q.serial == current_serial_) return false;
+            if (binds_ - q.serial >= kViewSlots) return true;
             uint64_t ts = 0;
             return vkGetQueryPoolResults(dev_, q.pool, q.query, 1, sizeof(ts), &ts, sizeof(ts), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS;
         });
@@ -426,8 +425,14 @@ void Device::one_shot_copy(VkBuffer src, VkBuffer dst, VkDeviceSize so, VkDevice
 }
 
 void Device::upload(const Buffer& b, const void* src, VkDeviceSize size, VkDeviceSize off) {
+    if (!size) return;
+    const VkDeviceSize need = std::min(kStaging, std::max<VkDeviceSize>((size + 65535) & ~VkDeviceSize(65535), 4ull << 20));
+    if (staging_.size < need) {
+        destroy(staging_);
+        staging_ = create_ex(need, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &staging_map_);
+    }
     for (VkDeviceSize done = 0; done < size;) {
-        VkDeviceSize n = std::min(kStaging, size - done);
+        VkDeviceSize n = std::min(staging_.size, size - done);
         memcpy(staging_map_, static_cast<const char*>(src) + done, size_t(n));
         one_shot_copy(staging_.buf, b.buf, 0, off + done, n);
         done += n;
@@ -435,8 +440,14 @@ void Device::upload(const Buffer& b, const void* src, VkDeviceSize size, VkDevic
 }
 
 void Device::download(const Buffer& b, void* dst, VkDeviceSize size, VkDeviceSize off) {
+    if (!size) return;
+    const VkDeviceSize need = std::min(kStaging, std::max<VkDeviceSize>((size + 65535) & ~VkDeviceSize(65535), 4ull << 20));
+    if (staging_.size < need) {
+        destroy(staging_);
+        staging_ = create_ex(need, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &staging_map_);
+    }
     for (VkDeviceSize done = 0; done < size;) {
-        VkDeviceSize n = std::min(kStaging, size - done);
+        VkDeviceSize n = std::min(staging_.size, size - done);
         one_shot_copy(b.buf, staging_.buf, off + done, 0, n);
         memcpy(static_cast<char*>(dst) + done, staging_map_, size_t(n));
         done += n;

@@ -24,7 +24,7 @@ class OpenNrRrFeatureVk : public IFeature_Vk
     ~OpenNrRrFeatureVk();
 
     // OpenRR's release, as the overlay and the menu show it (not the runtime's ABI)
-    feature_version Version() override { return { 0, 1, 0 }; }
+    feature_version Version() override { return { 0, 1, 1 }; }
     Upscaler GetUpscalerType() const override { return Upscaler::OpenNrRr; }
     bool IsWithDx12() final { return false; }
 

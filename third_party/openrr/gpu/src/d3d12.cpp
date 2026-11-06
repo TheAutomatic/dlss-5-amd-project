@@ -311,6 +311,7 @@ bool D3dDevice::slot_retired(SlotState& s, uint32_t idx) {
     if (!s.proofs.empty()) return false;
     if (s.has_fence || s.invalidated) return true;
     if (s.host_tracked) return false;
+    if (binds_ - s.serial >= kGameSlots) return true;
     return s.query_count > 0 && done_map_ && done_map_[idx * kSlotQueries + s.query_count - 1] != 0;
 }
 
@@ -326,7 +327,10 @@ bool D3dDevice::overflow_retired(OverflowUpload& o) {
         return false;
     });
     if (!o.proofs.empty()) return false;
-    return o.has_fence || o.invalidated;
+    if (o.has_fence || o.invalidated) return true;
+    if (o.host_tracked) return false;
+    if (binds_ - o.serial >= kGameSlots) return true;
+    return o.done && *o.done != 0;
 }
 
 bool D3dDevice::serial_retired(uint64_t serial) {
@@ -347,6 +351,9 @@ void D3dDevice::reap(bool all) {
         }
         for (auto& o : overflow_) {
             for (auto& p : o.proofs) p.fence->Release();
+            if (o.qrb && o.done) o.qrb->Unmap(0, nullptr);
+            if (o.qrb) o.qrb->Release();
+            if (o.qh) o.qh->Release();
             if (o.ring && o.map) o.ring->Unmap(0, nullptr);
             if (o.ring) o.ring->Release();
         }
@@ -362,6 +369,9 @@ void D3dDevice::reap(bool all) {
     std::erase_if(overflow_, [&](OverflowUpload& o) {
         if (o.serial == current_serial_ || !overflow_retired(o)) return false;
         for (auto& p : o.proofs) p.fence->Release();
+        if (o.qrb && o.done) o.qrb->Unmap(0, nullptr);
+        if (o.qrb) o.qrb->Release();
+        if (o.qh) o.qh->Release();
         if (o.ring && o.map) o.ring->Unmap(0, nullptr);
         if (o.ring) o.ring->Release();
         return true;
@@ -483,12 +493,34 @@ uint64_t D3dDevice::bind(ID3D12GraphicsCommandList* cl, uint32_t slot) {
         ring_off_ = uint64_t(slot_) << 16, ring_end_ = ring_off_ + (1u << 16);
     } else {
         using_overflow_ = true;
-        desc_slot_ = kSlots + (overflow_cursor_++ % kOverflowDescSlots);
+        uint32_t picked_desc = UINT32_MAX;
+        for (uint32_t i = 0; i < kOverflowDescSlots; ++i) {
+            const uint32_t cand = kSlots + ((overflow_cursor_ + i) % kOverflowDescSlots);
+            const bool busy = std::any_of(overflow_.begin(), overflow_.end(), [&](const OverflowUpload& x) { return x.desc_slot == cand; });
+            if (!busy) {
+                picked_desc = cand;
+                overflow_cursor_ = (overflow_cursor_ + i + 1) % kOverflowDescSlots;
+                break;
+            }
+        }
+        if (picked_desc == UINT32_MAX)
+            throw std::runtime_error("D3dDevice: all recording descriptor slots are in flight");
+        desc_slot_ = picked_desc;
         OverflowUpload o;
         o.serial = current_serial_;
+        o.desc_slot = desc_slot_;
         o.invalidated = false;
         o.ring = buffer(dev_, 1u << 16, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ, false);
         check(o.ring->Map(0, nullptr, reinterpret_cast<void**>(&o.map)), "Map");
+        D3D12_QUERY_HEAP_DESC oqhd{D3D12_QUERY_HEAP_TYPE_TIMESTAMP, 1};
+        if (SUCCEEDED(dev_->CreateQueryHeap(&oqhd, IID_PPV_ARGS(&o.qh)))) {
+            o.qrb = buffer(dev_, 8, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST, false);
+            void* dm = nullptr;
+            if (SUCCEEDED(o.qrb->Map(0, nullptr, &dm)) && dm) {
+                *static_cast<uint64_t*>(dm) = 0;
+                o.done = static_cast<volatile uint64_t*>(dm);
+            }
+        }
         cur_ring_ = o.ring;
         cur_ring_map_ = o.map;
         ring_off_ = 0, ring_end_ = (1u << 16) - 256;
@@ -514,6 +546,12 @@ void D3dDevice::unbind() {
         slots_[slot_].query_count = nquery_;
         if (nquery_)
             cl_->ResolveQueryData(qh_, D3D12_QUERY_TYPE_TIMESTAMP, slot_ * kSlotQueries, nquery_, qrb_, uint64_t(slot_) * kSlotQueries * 8);
+    } else if (cl_ && using_overflow_ && !overflow_.empty()) {
+        auto& o = overflow_.back();
+        if (o.serial == current_serial_ && o.qh && o.qrb) {
+            cl_->EndQuery(o.qh, D3D12_QUERY_TYPE_TIMESTAMP, 0);
+            cl_->ResolveQueryData(o.qh, D3D12_QUERY_TYPE_TIMESTAMP, 0, 1, o.qrb, 0);
+        }
     }
     current_serial_ = 0;
     using_overflow_ = false;
@@ -817,7 +855,7 @@ bool D3dDevice::init_sampler(std::string& why) {
     if (!VirtualQuery(reinterpret_cast<void*>(heap_cpu_), &mi, sizeof mi) || mi.State != MEM_COMMIT ||
         !(mi.Protect & (PAGE_READWRITE | PAGE_WRITECOMBINE | PAGE_NOCACHE)))
         return why = "the descriptor heap is not CPU-writable memory", false;
-    Device* desc_dev = compiler_;
+    Device* desc_dev = (compiler_ && compiler_->has_descriptors()) ? compiler_ : nullptr;
     if (!desc_dev) {
         srd_ = std::make_unique<Device>();
         LUID luid = dev_->GetAdapterLuid();
@@ -825,7 +863,8 @@ bool D3dDevice::init_sampler(std::string& why) {
         o.luid = reinterpret_cast<const uint8_t*>(&luid);
         o.descriptors = true;
         std::string err;
-        if (!srd_->init(err, o)) return srd_.reset(), why = "Vulkan descriptor device: " + err, false;
+        if (!srd_->init(err, o) || !srd_->has_descriptors())
+            return srd_.reset(), why = "Vulkan descriptor device: " + (err.empty() ? "lacks VK_EXT_descriptor_buffer" : err), false;
         desc_dev = srd_.get();
     }
     // two images at two addresses: only the base address may differ, at the bits it is expected at
@@ -850,7 +889,7 @@ Image D3dDevice::alias_image(const Buffer& b, uint32_t w, uint32_t h, VkFormat f
     if (!srd_ok_) return {};
     std::array<uint8_t, 48> t;
     uint64_t a = 0;
-    Device* desc_dev = compiler_ ? compiler_ : srd_.get();
+    Device* desc_dev = (compiler_ && compiler_->has_descriptors()) ? compiler_ : srd_.get();
     if (!desc_dev || !linear_descriptor(*desc_dev, w, h, fmt, bpp, t.data(), a)) return {};
     put_address(t.data(), b.addr);
     Image im;

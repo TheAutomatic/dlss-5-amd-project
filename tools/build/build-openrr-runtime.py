@@ -36,10 +36,27 @@ def compile_shader(glslang: Path, shader_inc: Path, src: Path, out_spv: Path, de
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
 
 
+def parse_fastmode_defs(cmake_path: Path) -> dict[str, list[str]]:
+    defs: dict[str, list[str]] = {}
+    if not cmake_path.is_file():
+        return defs
+    for line in cmake_path.read_text(encoding='utf-8').splitlines():
+        m = re.match(r'^\s*set\(\s*LT_DEFS_(\w+)\s+([^)]+)\)', line)
+        if m:
+            defs[m.group(1)] = m.group(2).split()
+    return defs
+
+
 def build_shaders(glslang: Path, shaders_dir: Path, spv_out_dir: Path) -> list[Path]:
     spv_out_dir.mkdir(parents=True, exist_ok=True)
     shader_inc = shaders_dir / 'include'
+    lt_defs_map = parse_fastmode_defs(shaders_dir.parent / 'fastmode.cmake')
     built: list[Path] = []
+
+    def lite_spv(out_name: str, src: Path, defines: list[str]) -> None:
+        dst = spv_out_dir / f'{out_name}_lt.spv'
+        compile_shader(glslang, shader_inc, src, dst, defines)
+        built.append(dst)
 
     for name in BASE_SPVS:
         src = shaders_dir / f'{name}.comp'
@@ -49,6 +66,27 @@ def build_shaders(glslang: Path, shaders_dir: Path, spv_out_dir: Path) -> list[P
 
     for src in sorted(shaders_dir.glob('*.comp')):
         name = src.stem
+        if name in lt_defs_map:
+            ltd = lt_defs_map[name]
+            if name == 'enc0_attr':
+                lite_spv('enc0_attr_f', src, ['ENC_F32=1', *ltd])
+                lite_spv('enc0_attr_f_w', src, ['ENC_F32=1', 'ATTR_WIDE=1', *ltd])
+                lite_spv('d3d_enc0_attr_f', src, ['D3D_GUIDES=1', 'ENC_F32=1', *ltd])
+                lite_spv('d3d_enc0_attr_f_w', src, ['D3D_GUIDES=1', 'ENC_F32=1', 'ATTR_WIDE=1', *ltd])
+            elif name in ('dfn_export', 'dfn_import', 'pooled_history2'):
+                lite_spv(name, src, ltd)
+            elif name in ('downsample', 'downsample_tl'):
+                lite_spv(name, src, ltd)
+                lite_spv(f'd3d_{name}', src, ['D3D_TEX=1', 'D3D_UAV=1', *ltd])
+            else:
+                lite_spv(f'{name}_f', src, ['ENC_F32=1', *ltd])
+                if name == 'enc0_stage_32_64':
+                    lite_spv(f'{name}_f_w', src, ['ENC_F32=1', 'ATTR_WIDE=1', *ltd])
+                if name in FLOW_KERNELS:
+                    slot = FLOW_KERNELS.index(name)
+                    fw = 1 if slot > 0 else 0
+                    lite_spv(f'{name}_fl', src, ['ENC_F32=1', 'FLOW=1', f'FLOW_SLOT={slot}', f'FLOW_WAIT={fw}', *ltd])
+
         if re.match(r'^(enc_stage_|enc0_stage_|dec_)', name):
             dst_f = spv_out_dir / f'{name}_f.spv'
             compile_shader(glslang, shader_inc, src, dst_f, ['ENC_F32=1'])

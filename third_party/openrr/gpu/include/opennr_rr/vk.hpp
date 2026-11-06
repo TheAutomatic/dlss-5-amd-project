@@ -149,6 +149,7 @@ public:
     void destroy(Kernel& k) override;
     std::string stats(const Kernel& k);   // compiler statistics (registers, spills), if the driver exposes them
     // the 48 bytes of a combined image sampler descriptor (DeviceOptions::descriptors); false without the extension
+    bool has_descriptors() const { return get_descriptor_ != nullptr; }
     bool combined_descriptor(const Image& im, VkSampler s, uint8_t out[48]);
     // the pipeline ELF the driver builds for this SPIR-V (its "ELF" internal representation); empty when not exposed
     std::vector<uint8_t> pipeline_elf(const std::string& spv_path, uint32_t subgroup);

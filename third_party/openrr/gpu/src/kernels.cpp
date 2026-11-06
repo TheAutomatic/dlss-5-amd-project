@@ -26,6 +26,19 @@ void Kernels::load(Gpu& dev, const std::string& dir, const std::vector<std::stri
         if (!k_.count(n)) k_[n] = dev.load((std::filesystem::path(dir) / (n + ".spv")).string(), subgroup_of(n));
 }
 
+void Kernels::load_lite(Gpu& dev, const std::string& dir, const std::vector<std::string>& names) {
+    for (auto& n : names) {
+        auto p = std::filesystem::path(dir) / (n + "_lt.spv");
+        if (!k_.count(n) && std::filesystem::exists(p)) k_[n] = dev.load(p.string(), subgroup_of(n));
+    }
+}
+
+std::vector<std::string> Kernels::names() const {
+    std::vector<std::string> v;
+    for (auto& [n, k] : k_) v.push_back(n);
+    return v;
+}
+
 void Kernels::run(Gpu& d, const std::string& n, const void* pc, uint32_t size, uint32_t groups) const {
     d.dispatch(k_.at(n), pc, size, groups);
 }

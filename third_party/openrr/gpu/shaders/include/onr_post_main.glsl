@@ -176,6 +176,31 @@ vec3 dh_catrom(float px, float py) {
         }
     return r / total;
 }
+#ifdef LT_DLT_PAIR
+// The same Catmull-Rom for both pixels of a vertical pair at once: the same fractions, the lower one a row down, so 16 taps
+// instead of 24. Rows r0 .. r4; the upper pixel takes r0 .. r3 and the lower r1 .. r4, each without its own corners.
+vec3 g_d[2];
+void dh_catrom_pair(float px, float py) {
+    float bx = px - 0.5, by = py - 0.5;
+    float ix = floor(bx), iy = floor(by), fx = bx - ix, fy = by - iy;
+    vec4 wx = 0.5 * vec4(fx * (fx * (2.0 - fx) - 1.0), fx * fx * (3.0 * fx - 5.0) + 2.0, fx * (fx * (4.0 - 3.0 * fx) + 1.0), fx * fx * (fx - 1.0));
+    vec4 wy = 0.5 * vec4(fy * (fy * (2.0 - fy) - 1.0), fy * fy * (3.0 * fy - 5.0) + 2.0, fy * (fy * (4.0 - 3.0 * fy) + 1.0), fy * fy * (fy - 1.0));
+    ivec4 cx = clamp(int(ix) + ivec4(-1, 0, 1, 2), ivec4(0), ivec4(pc.size.x - 1));
+    int y0 = int(iy) - 1;
+    vec3 in_[5], out_[3];
+    [[unroll]] for (int j = 0; j < 5; ++j) {
+        int y = clamp(y0 + j, 0, pc.size.y - 1);
+        in_[j] = wx[1] * dh_texel(cx[1], y) + wx[2] * dh_texel(cx[2], y);
+        if (j >= 1 && j <= 3) out_[j - 1] = wx[0] * dh_texel(cx[0], y) + wx[3] * dh_texel(cx[3], y);
+    }
+    float wi = wx[1] + wx[2], wo = wx[0] + wx[3];
+    vec3 u = wy[0] * in_[0] + wy[1] * (in_[1] + out_[0]) + wy[2] * (in_[2] + out_[1]) + wy[3] * in_[3];
+    vec3 l = wy[0] * in_[1] + wy[1] * (in_[2] + out_[1]) + wy[2] * (in_[3] + out_[2]) + wy[3] * in_[4];
+    float t = (wy[0] + wy[3]) * wi + (wy[1] + wy[2]) * (wi + wo);
+    float it = 1.0 / t;
+    g_d[0] = u * it, g_d[1] = l * it;
+}
+#endif
 #endif
 
 struct Cand { float f, mx, my; };
@@ -193,6 +218,15 @@ struct Splat {
     f16vec3 e;
 #endif
 };
+
+#ifdef LT_POST_EXP
+// 2^e of the splat weights, both pixels at once: e clamped to [-16, 0], (1 + e ln2 / 32)^32 as five squarings
+f16vec2 lt_exp2(f16vec2 e) {
+    f16vec2 b = max(1.0hf + e * float16_t(0.6931471805599453 / 32.0), f16vec2(0.0hf));
+    b *= b; b *= b; b *= b; b *= b; b *= b;
+    return b;
+}
+#endif
 
 void splat_pair(int X, float fx, float fy0, float fy1, out Splat s0, out Splat s1) {
     int r8 = int(floor(fx - 0.5));
@@ -215,6 +249,9 @@ void splat_pair(int X, float fx, float fy0, float fy1, out Splat s0, out Splat s
         precise float16_t dx2 = dxk * dxk;
         int cx = clamp(r8 + k, 0, pc.lr_size.x - 1);
         for (int j = -1; j <= 2; ++j) {
+#ifdef LT_POST_NOCORNER
+            if ((k == -1 || k == 2) && (j == -1 || j == 2)) continue;
+#endif
             int cy = clamp(base + j, 0, pc.lr_size.y - 1);
             F16x4Buf tb = AT32(F16x4Buf, pc.tile, cy * pc.lr_size.x + cx, 24u);
             f16vec4 c = tb.v[0], a = tb.v[1];
@@ -232,16 +269,24 @@ void splat_pair(int X, float fx, float fy0, float fy1, out Splat s0, out Splat s
             precise f16vec2 e = fma(dy2, f16vec2(n.x), f16vec2(e0));
             precise f16vec2 dxy = dxk * dyj;
             e = fma(dxy, f16vec2(n.y), e);
+#ifdef LT_POST_EXP
+            f16vec2 wv = lt_exp2(e);
+            float16_t w = wv.x, v = wv.y;
+            float w32 = float(w), v32 = float(v);
+#else
             float w32 = exp2(float(e.x));
             float16_t w = float16_t(w32);
+#endif
             c0 = fma(f16vec4(w), c, c0);
 #ifdef POST_DELTA
             x0 = fma(f16vec3(w), ed, x0);
 #endif
             a0 = fma(f16vec2(w), a.xy, a0);
             w0 = w0 + w32;
+#ifndef LT_POST_EXP
             float v32 = exp2(float(e.y));
             float16_t v = float16_t(v32);
+#endif
             c1 = fma(f16vec4(v), c, c1);
 #ifdef POST_DELTA
             x1 = fma(f16vec3(v), ed, x1);
@@ -258,6 +303,79 @@ void splat_pair(int X, float fx, float fy0, float fy1, out Splat s0, out Splat s
     s1 = Splat(c1.xyz, f16vec3(c1.w, a1), w1);
 #endif
 }
+
+#ifdef LT_POST_PAIR
+// Candidates, their slots and weights once per vertical pair: the motion and factors at the pair's middle, the slots from
+// the upper pixel, the lower pixel's taps a row down
+Cand cs[4];
+float sat[4], rs;
+int g_nl, g_ns, g_sl[4];
+vec2 g_q[4];
+float g_wc[4], g_cum;
+void pair_cands(int X, int Y0, float fx, float fy) {
+    precise float lu = fx * pc.lr_inv_size.x;
+    precise float lv = fy * pc.lr_inv_size.y;
+    int lx = int(floor(fx)), ly = int(floor(fy));
+    // ---- four motion-vector candidates with their factors
+    Bilerp bl = bilerp_setup(lu, lv, pc.lr_size);
+    ivec4 bw = bilerp_weights(bl);
+    uint m0 = uint(bl.i0.y * pc.lr_size.x + bl.i0.x), m1 = uint(bl.i0.y * pc.lr_size.x + bl.i1.x);
+    uint m2 = uint(bl.i1.y * pc.lr_size.x + bl.i0.x), m3 = uint(bl.i1.y * pc.lr_size.x + bl.i1.x);
+    uvec4 f0 = uvec4(AT32(U8x4Buf, pc.mvf, m0, 4u).v[0]), f1 = uvec4(AT32(U8x4Buf, pc.mvf, m1, 4u).v[0]);
+    uvec4 f2 = uvec4(AT32(U8x4Buf, pc.mvf, m2, 4u).v[0]), f3 = uvec4(AT32(U8x4Buf, pc.mvf, m3, 4u).v[0]);
+    vec4 mvf;
+    for (int c = 0; c < 4; ++c) mvf[c] = blend_unorm8(bw, f0[c], f1[c], f2[c], f3[c]);
+    vec2 n0 = vec2(AT32(F16x2Buf, pc.mv_nondil, m0, 4u).v[0]), n1 = vec2(AT32(F16x2Buf, pc.mv_nondil, m1, 4u).v[0]);
+    vec2 n2 = vec2(AT32(F16x2Buf, pc.mv_nondil, m2, 4u).v[0]), n3 = vec2(AT32(F16x2Buf, pc.mv_nondil, m3, 4u).v[0]);
+    vec2 mvn;
+    for (int c = 0; c < 2; ++c) mvn[c] = HBLEND(bw, n0[c], n1[c], n2[c], n3[c]);
+    vec4 mv = vec4(0.0);
+    vec2 mve = vec2(0.0);
+    if (lx >= 0 && lx < pc.lr_size.x && ly >= 0 && ly < pc.lr_size.y) {
+        uint i = uint(ly * pc.lr_size.x + lx);
+        mv = vec4(AT32(F16x4Buf, pc.mv, i, 8u).v[0]);
+        mve = vec2(AT32(F16x2Buf, pc.mv_eroded, i, 4u).v[0]);
+    }
+    Cand s1 = Cand(mvf.x, mv.x, mv.y), s2 = Cand(mvf.y, mvn.x, mvn.y);
+    Cand s3 = Cand(mvf.z, mve.x, mve.y), s4 = Cand(mvf.w, mv.z, mv.w);
+    sw(s1, s2); sw(s3, s4); sw(s1, s3); sw(s2, s4); sw(s2, s3);
+    cs = Cand[4](s1, s2, s3, s4);
+    [[unroll]] for (int i = 0; i < 4; ++i) sat[i] = clamp(cs[i].f, 0.0, 1.0);
+    precise float tot = ((sat[0] + sat[1]) + sat[2]) + sat[3];
+    rs = rcp_rn(max(tot, EPS10));
+
+    precise float fx7 = float(X) + 0.5, fy10 = float(Y0) + 0.5;
+    precise float cum = 0.0;
+    bool live = true;
+    g_nl = 0, g_ns = 0;
+    g_q = vec2[4](vec2(0.0), vec2(0.0), vec2(0.0), vec2(0.0));
+    [[unroll]] for (int i = 0; i < 4; ++i) {
+        g_sl[i] = -1;
+        g_wc[i] = 0.0;
+        if (!live) continue;
+        g_nl = i + 1;
+        precise float w = sat[i] * rs;
+        g_wc[i] = w;
+        precise float px = fx7 + cs[i].mx;
+        precise float py = cs[i].my + fy10;
+        bool ok = !(px < 0.0) && !(px > float(pc.size.x)) && !(py < 0.0) && !(py > float(pc.size.y)) && (pc.reset & 1u) == 0u;
+        bool same = false;
+        [[unroll]] for (int k = 0; k < i; ++k)
+            if (!same && cs[k].mx == cs[i].mx && cs[k].my == cs[i].my) { g_sl[i] = g_sl[k]; same = true; }
+        if (!same && ok) {
+            [[unroll]] for (int k = 0; k <= i; ++k) if (g_ns == k) g_q[k] = vec2(px, py);
+            g_sl[i] = g_ns;
+            g_ns = g_ns + 1;
+        }
+        if (i == 0) cum = w; else cum = cum + w;
+        live = !(cum >= uintBitsToFloat(0x3f666666u)) && !isnan(cum);
+    }
+    g_cum = cum;
+#if defined(POST_DELTA) && defined(LT_DLT_PAIR)
+    dh_catrom_pair(g_q[0].x, g_q[0].y);
+#endif
+}
+#endif
 
 // Everything after the splat for one internal pixel. out1 (linear) feeds InternalHistory and
 // DownsampledHistory, out2 the OutputHistRes.
@@ -279,13 +397,19 @@ void pixel(int X, int Y, float fx, float fy, Splat sp, out vec3 out1, out vec3 o
     precise vec3 nra = inv_w * vec3(acca);
     vec3 net = post_decode(nrm);
     precise vec3 net_e = e1 * (e2 * net);
+#ifdef LT_POST_NETH
+    // only where no history candidate is valid; the exposure's change over one frame left out
+    vec3 net_h = (pc.reset & 1u) != 0u ? post_encode(net_e) : nrm;
+#else
     vec3 net_h = post_encode(net_e);
+#endif
 #ifdef POST_DELTA
     const bool edited = (pc.reset & 8u) == 0u;
     vec3 dcur = edited ? inv_w * vec3(sp.e) : vec3(0.0);
     vec3 dacc = vec3(0.0);
 #endif
 
+#ifndef LT_POST_PAIR
     // ---- four motion-vector candidates with their factors
     Bilerp bl = bilerp_setup(lu, lv, pc.lr_size);
     ivec4 bw = bilerp_weights(bl);
@@ -315,10 +439,36 @@ void pixel(int X, int Y, float fx, float fy, Splat sp, out vec3 out1, out vec3 o
     precise float tot = ((sat[0] + sat[1]) + sat[2]) + sat[3];
     float rs = rcp_rn(max(tot, EPS10));
 
+#endif
     // ---- history: candidates in order until their factors reach 0.9
     // the cut depends on the factors only, so first the live candidates and their distinct in-history motions, packed
     // per lane into slots 0 .. ns - 1; then one bicubic per slot (the wave runs max ns of them, not one per candidate
     // index any lane needs), then the sum in candidate order
+#ifdef LT_POST_PAIR
+    float pl = float(Y & 1);
+    vec3 sm0 = vec3(0.0), sm1 = vec3(0.0), sm2 = vec3(0.0), sm3 = vec3(0.0);
+    if (g_ns > 0) sm0 = bicubic_hist(g_q[0].x, g_q[0].y + pl);
+    if (g_ns > 1) sm1 = bicubic_hist(g_q[1].x, g_q[1].y + pl);
+    if (g_ns > 2) sm2 = bicubic_hist(g_q[2].x, g_q[2].y + pl);
+    if (g_ns > 3) sm3 = bicubic_hist(g_q[3].x, g_q[3].y + pl);
+#ifdef POST_DELTA
+#ifdef LT_DLT_PAIR
+    dacc = g_sl[0] == 0 ? g_d[Y & 1] : dcur;
+#else
+    dacc = g_sl[0] == 0 ? dh_catrom(g_q[0].x, g_q[0].y + pl) : dcur;
+#endif
+#endif
+    precise vec3 accu = vec3(0.0);
+    [[unroll]] for (int i = 0; i < 4; ++i) {
+        if (i >= g_nl) break;
+        int k = g_sl[i];
+        vec3 smp = k < 0 ? net_h : k == 0 ? sm0 : k == 1 ? sm1 : k == 2 ? sm2 : sm3;
+        precise float w = g_wc[i];
+        if (i == 0) accu = w * smp;
+        else accu = fma(vec3(w), smp, accu);
+    }
+    float cum = g_cum;
+#else
     precise float fx7 = float(X) + 0.5, fy10 = float(Y) + 0.5;
     precise float cum = 0.0;
     bool live = true;
@@ -352,7 +502,11 @@ void pixel(int X, int Y, float fx, float fy, Splat sp, out vec3 out1, out vec3 o
         } else {
             cum = cum + w;
         }
+#ifdef LT_POST_CUM
+        live = !(cum >= float(LT_POST_CUM)) && !isnan(cum);
+#else
         live = !(cum >= uintBitsToFloat(0x3f666666u)) && !isnan(cum);
+#endif
     }
     vec3 sm0 = vec3(0.0), sm1 = vec3(0.0), sm2 = vec3(0.0), sm3 = vec3(0.0);
     if (ns > 0) sm0 = bicubic_hist(q[0].x, q[0].y);
@@ -368,6 +522,7 @@ void pixel(int X, int Y, float fx, float fy, Splat sp, out vec3 out1, out vec3 o
         if (i == 0) accu = w * smp;
         else accu = fma(vec3(w), smp, accu);
     }
+#endif
     precise vec3 h_log = accu * rcp_rn(cum);
     precise vec3 h_lin = e0 * (post_decode(h_log) * rcp_rn(e1));
 
@@ -417,6 +572,9 @@ void main() {
     precise float fy1 = fma(pc.scale.y, float(Y0 + 1) + 0.5, pc.offset.y);
     Splat s0, s1;
     if (v0) splat_pair(X, fx, fy0, fy1, s0, s1);
+#ifdef LT_POST_PAIR
+    if (v0) pair_cands(X, Y0, fx, 0.5 * (fy0 + fy1));
+#endif
     vec3 o1t = vec3(0.0), o1b = vec3(0.0);
     [[dont_unroll]] for (int p = 0; p < 2; ++p) {
         if (!(p == 0 ? v0 : v1)) continue;

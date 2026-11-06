@@ -18,8 +18,55 @@ foreach(n ingest pack selftest selftest_tex pooled_history2 ae downsample downsa
 endforeach()
 set(FLOW_KERNELS enc_stage_96_128_128 enc_stage_128_128_160 enc_stage_160_256_160 enc_stage_160_256_0 dec_up_160_256_160
     dec_dfn_160_256 dec_up_128_128_160 dec_dfn_128_128 dec_up_96_128_128 dec_dfn_96_128)
+# the user's "Fast mode" (docs/FASE24-FASTMODE.md): each listed kernel again with these defines, suffix _lt beside the file
+# it replaces. Engine::set_lite loads whichever exist, so removing a file from the stage stops the ladder at that cut.
+include(${CMAKE_CURRENT_SOURCE_DIR}/fastmode.cmake)
+function(lite_spv out_name src)
+    set(spvl ${SPV_DIR}/${out_name}_lt.spv)
+    add_custom_command(OUTPUT ${spvl}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${SPV_DIR}
+        COMMAND ${GLSLANG} -V --target-env vulkan1.3 ${ARGN} -I${CMAKE_CURRENT_SOURCE_DIR}/shaders/include -o ${spvl} ${src}
+        DEPENDS ${src} ${SHADER_INCLUDES} VERBATIM)
+    set(LITE_SPVS ${LITE_SPVS} ${spvl} PARENT_SCOPE)
+endfunction()
 foreach(src ${SHADERS})
     get_filename_component(name ${src} NAME_WE)
+    if(DEFINED LT_DEFS_${name})
+        set(ltd)
+        foreach(x ${LT_DEFS_${name}})
+            list(APPEND ltd -D${x})
+        endforeach()
+        if(name STREQUAL "enc0_attr")
+            lite_spv(enc0_attr_f ${src} -DENC_F32=1 ${ltd})
+            lite_spv(enc0_attr_f_w ${src} -DENC_F32=1 -DATTR_WIDE=1 ${ltd})
+            lite_spv(d3d_enc0_attr_f ${src} -DD3D_GUIDES=1 -DENC_F32=1 ${ltd})
+            lite_spv(d3d_enc0_attr_f_w ${src} -DD3D_GUIDES=1 -DENC_F32=1 -DATTR_WIDE=1 ${ltd})
+        elseif(name STREQUAL "dfn_export" OR name STREQUAL "dfn_import")
+            lite_spv(${name} ${src} ${ltd})
+        elseif(name STREQUAL "pooled_history2")
+            lite_spv(pooled_history2 ${src} ${ltd})
+        elseif(name STREQUAL "downsample")
+            lite_spv(downsample ${src} ${ltd})
+            lite_spv(d3d_downsample ${src} -DD3D_TEX=1 -DD3D_UAV=1 ${ltd})
+        elseif(name STREQUAL "downsample_tl")
+            lite_spv(downsample_tl ${src} ${ltd})
+            lite_spv(d3d_downsample_tl ${src} -DD3D_TEX=1 -DD3D_UAV=1 ${ltd})
+        else()
+            lite_spv(${name}_f ${src} -DENC_F32=1 ${ltd})
+            if(name STREQUAL "enc0_stage_32_64")
+                lite_spv(${name}_f_w ${src} -DENC_F32=1 -DATTR_WIDE=1 ${ltd})
+            endif()
+            list(FIND FLOW_KERNELS ${name} slot)
+            if(slot GREATER_EQUAL 0)
+                if(slot GREATER 0)
+                    set(fw 1)
+                else()
+                    set(fw 0)
+                endif()
+                lite_spv(${name}_fl ${src} -DENC_F32=1 -DFLOW=1 -DFLOW_SLOT=${slot} -DFLOW_WAIT=${fw} ${ltd})
+            endif()
+        endif()
+    endif()
     set(spv ${SPV_DIR}/${name}.spv)
     add_custom_command(OUTPUT ${spv}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${SPV_DIR}
@@ -125,7 +172,7 @@ foreach(src ${SHADERS})
         endif()
     endif()
 endforeach()
-add_custom_target(shaders ALL DEPENDS ${SPVS})
+add_custom_target(shaders ALL DEPENDS ${SPVS} ${LITE_SPVS})
 
 add_library(opennr_rr STATIC src/vk.cpp src/d3d12.cpp src/kernels.cpp src/weights.cpp src/engine.cpp)
 target_include_directories(opennr_rr PUBLIC include)
@@ -179,5 +226,5 @@ add_custom_target(runtime_stage
     COMMAND ${CMAKE_COMMAND} -E rm -rf ${STAGE_DIR}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${STAGE_DIR}/opennr-rr/shaders
     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:OpenNrRrRuntime> ${STAGE_DIR}
-    COMMAND ${CMAKE_COMMAND} -E copy ${RUNTIME_SPVS} ${STAGE_DIR}/opennr-rr/shaders
+    COMMAND ${CMAKE_COMMAND} -E copy ${RUNTIME_SPVS} ${LITE_SPVS} ${STAGE_DIR}/opennr-rr/shaders
     DEPENDS OpenNrRrRuntime shaders VERBATIM)

@@ -354,7 +354,8 @@ struct BenchResult
 
 BenchResult RunRuntimeBench(const std::string& label, const fs::path& dllPath, const fs::path& dataDir, const fs::path& dlssdPath,
                             const fs::path& outDir, uint32_t maxRenderW, uint32_t maxRenderH, uint32_t outW, uint32_t outH,
-                            uint32_t warmupFrames, uint32_t steadyFrames, uint32_t drsFrames, const std::wstring& backendStr = L"d3d12")
+                            uint32_t warmupFrames, uint32_t steadyFrames, uint32_t drsFrames, const std::wstring& backendStr = L"d3d12",
+                            int32_t fastMode = 0, bool optionalGuides = false)
 {
     Require(!IsGameRunning(), "Game process detected; aborting benchmark.");
     HMODULE mod = LoadLibraryExW(dllPath.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
@@ -364,6 +365,8 @@ BenchResult RunRuntimeBench(const std::string& label, const fs::path& dllPath, c
     Require(getApi != nullptr, "Missing OnrRrGetApi export");
     OnrRrApi4 api4 {};
     Require(getApi(ONR_RR_ABI_VERSION_4, &api4.v3.v2.v1) == ONR_RR_OK, "OnrRrGetApi(v4) failed");
+    auto setFastMode = reinterpret_cast<decltype(&OnrRrSetFastMode)>(GetProcAddress(mod, "OnrRrSetFastMode"));
+    auto getFastMode = reinterpret_cast<decltype(&OnrRrGetFastMode)>(GetProcAddress(mod, "OnrRrGetFastMode"));
 
     ComPtr<IDXGIFactory6> fac;
     Check(CreateDXGIFactory2(0, IID_PPV_ARGS(&fac)), "CreateDXGIFactory2");
@@ -441,6 +444,10 @@ BenchResult RunRuntimeBench(const std::string& label, const fs::path& dllPath, c
 
     void* ctx = nullptr;
     Require(api4.v3.v2.v1.Create(&ci, &ctx) == ONR_RR_OK && ctx != nullptr, "OpenRR Create failed");
+    if (setFastMode)
+        Require(setFastMode(ctx, fastMode) == ONR_RR_OK, "OnrRrSetFastMode failed");
+    else if (fastMode != 0)
+        throw std::runtime_error("Runtime DLL does not export OnrRrSetFastMode");
 
     ComPtr<ID3D12CommandAllocator> ca2;
     Check(dev->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&ca2)), "CreateCommandAllocator2");
@@ -471,6 +478,18 @@ BenchResult RunRuntimeBench(const std::string& label, const fs::path& dllPath, c
         f.motion = { mv.res.Get(), kReadState, 0, 0 };
         f.specular_hit_distance = { hit.res.Get(), kReadState, 0, 0 };
         f.output = { output.res.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, 0, 0 };
+        if (optionalGuides)
+        {
+            f.transparency_layer = { color.res.Get(), kReadState, 0, 0 };
+            f.transparency_opacity = { color.res.Get(), kReadState, 0, 0 };
+            f.transparency_motion = { mv.res.Get(), kReadState, 0, 0 };
+            f.disocclusion_mask = { hit.res.Get(), kReadState, 0, 0 };
+            f.sss_guide = { hit.res.Get(), kReadState, 0, 0 };
+            f.responsivity_mask = { hit.res.Get(), kReadState, 0, 0 };
+            f.color_before_transparency = { color.res.Get(), kReadState, 0, 0 };
+            f.depth_of_field_guide = { hit.res.Get(), kReadState, 0, 0 };
+            f.specular_motion = { mv.res.Get(), kReadState, 0, 0 };
+        }
 
         Check(ca->Reset(), "Reset allocator");
         Check(cl->Reset(ca.Get(), nullptr), "Reset list");
@@ -522,7 +541,9 @@ BenchResult RunRuntimeBench(const std::string& label, const fs::path& dllPath, c
         Require(api4.v3.v2.v1.GetInfo(ctx, &info) == ONR_RR_OK, "GetInfo failed");
         Require(info.state != ONR_RR_STATE_FAILED, std::string("OpenRR failed during build: ") + info.message);
         runOneFrame(maxRenderW, maxRenderH, waitIter == 0);
-        if (info.state == ONR_RR_STATE_READY && info.frames >= 1)
+        const bool fastReady = !fastMode || (getFastMode && getFastMode(ctx) == 1);
+        Require(!fastMode || !getFastMode || getFastMode(ctx) != 3, "OpenRR fast mode build failed (state 3)");
+        if (info.state == ONR_RR_STATE_READY && info.frames >= 1 && fastReady)
             break;
         Sleep(25);
     }
@@ -601,6 +622,8 @@ try
     uint32_t rw = 1706, rh = 960, ow = 2560, oh = 1440;
     uint32_t warmup = 32, steady = 120, drs = 64;
     std::wstring backendStr = L"d3d12";
+    int32_t fastMode = 0;
+    bool optionalGuides = false;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -611,10 +634,16 @@ try
         else if (arg == L"--data-dir") dataDir = argv[++i];
         else if (arg == L"--dlssd") dlssdPath = argv[++i];
         else if (arg == L"--out") outDir = argv[++i];
+        else if (arg == L"--rw") rw = std::stoul(argv[++i]);
+        else if (arg == L"--rh") rh = std::stoul(argv[++i]);
+        else if (arg == L"--ow") ow = std::stoul(argv[++i]);
+        else if (arg == L"--oh") oh = std::stoul(argv[++i]);
         else if (arg == L"--warmup") warmup = std::stoul(argv[++i]);
         else if (arg == L"--frames") steady = std::stoul(argv[++i]);
         else if (arg == L"--drs-frames") drs = std::stoul(argv[++i]);
         else if (arg == L"--backend") backendStr = argv[++i];
+        else if (arg == L"--fast-mode") fastMode = std::stol(argv[++i]);
+        else if (arg == L"--optional-guides") optionalGuides = std::stol(argv[++i]) != 0;
         else throw std::runtime_error("Unknown option");
     }
 
@@ -622,22 +651,22 @@ try
     Require(fs::exists(runtimePath), "Candidate runtime DLL not found: " + runtimePath.string());
     fs::create_directories(outDir);
 
-    std::printf("=== OpenRR Offline Benchmark (%ux%u -> %ux%u, warmup=%u, steady=%u, drs=%u) ===\n",
-                rw, rh, ow, oh, warmup, steady, drs);
+    std::printf("=== OpenRR Offline Benchmark (%ux%u -> %ux%u, warmup=%u, steady=%u, drs=%u, fast_mode=%d, opt_guides=%d) ===\n",
+                rw, rh, ow, oh, warmup, steady, drs, fastMode, optionalGuides ? 1 : 0);
 
     BenchResult baseRes {};
     bool hasBase = !baselinePath.empty();
     if (hasBase)
     {
         Require(fs::exists(baselinePath), "Baseline runtime DLL not found: " + baselinePath.string());
-        baseRes = RunRuntimeBench("baseline", baselinePath, dataDir, dlssdPath, outDir, rw, rh, ow, oh, warmup, steady, drs, backendStr);
+        baseRes = RunRuntimeBench("baseline", baselinePath, dataDir, dlssdPath, outDir, rw, rh, ow, oh, warmup, steady, drs, backendStr, fastMode, optionalGuides);
         std::printf("[baseline] steady: mean=%.3f ms, median=%.3f ms, p95=%.3f ms | DRS: mean=%.3f ms, median=%.3f ms, p95=%.3f ms, max=%.3f ms | VRAM: feature=%.1f MB (DRS %.1f MB), proc_delta=%.1f MB\n",
                     baseRes.steadyGpuMs.mean, baseRes.steadyGpuMs.median, baseRes.steadyGpuMs.p95,
                     baseRes.drsGpuMs.mean, baseRes.drsGpuMs.median, baseRes.drsGpuMs.p95, baseRes.drsGpuMs.max,
                     baseRes.featureSelfMbSteady, baseRes.featureSelfMbDrs, baseRes.processVramDeltaMbSteady);
     }
 
-    BenchResult candRes = RunRuntimeBench("candidate", runtimePath, dataDir, dlssdPath, outDir, rw, rh, ow, oh, warmup, steady, drs, backendStr);
+    BenchResult candRes = RunRuntimeBench("candidate", runtimePath, dataDir, dlssdPath, outDir, rw, rh, ow, oh, warmup, steady, drs, backendStr, fastMode, optionalGuides);
     std::printf("[candidate] steady: mean=%.3f ms, median=%.3f ms, p95=%.3f ms | DRS: mean=%.3f ms, median=%.3f ms, p95=%.3f ms, max=%.3f ms | VRAM: feature=%.1f MB (DRS %.1f MB), proc_delta=%.1f MB\n",
                 candRes.steadyGpuMs.mean, candRes.steadyGpuMs.median, candRes.steadyGpuMs.p95,
                 candRes.drsGpuMs.mean, candRes.drsGpuMs.median, candRes.drsGpuMs.p95, candRes.drsGpuMs.max,

@@ -117,6 +117,9 @@ public:
     void load(Gpu& dev, const std::string& spv_dir);
     // only the named kernels (<dir>/<name>.spv); throws when one is missing
     void load(Gpu& dev, const std::string& spv_dir, const std::vector<std::string>& names);
+    // the named kernels that have a <name>_lt.spv, each under its plain name (Engine::set_lite)
+    void load_lite(Gpu& dev, const std::string& spv_dir, const std::vector<std::string>& names);
+    std::vector<std::string> names() const;
     void unload(Gpu& dev);
     const Kernel& operator[](const std::string& n) const { return k_.at(n); }
 

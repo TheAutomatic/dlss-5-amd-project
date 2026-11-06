@@ -36,6 +36,8 @@ decltype(OnrRrApi3::GetHopTiming) s_getHopTiming = nullptr;
 decltype(OnrRrApi4::GetBackend) s_getBackend = nullptr;
 decltype(OnrRrApi4::Record) s_record = nullptr;
 decltype(&OnrRrSetDeltaRate) s_setDeltaRate = nullptr;
+decltype(&OnrRrSetFastMode) s_setFastMode = nullptr;
+decltype(&OnrRrGetFastMode) s_getFastMode = nullptr;
 decltype(OnrRrApi4::RecordPost) s_recordPost = nullptr;
 // ABI 5: the Vulkan host backend (PrepareVkDevice / FinishVkDevice / RecordVk); null with an older runtime
 OnrRrApi5 s_api5 {};
@@ -156,6 +158,8 @@ bool Load()
     s_getBackend = api4.GetBackend;
     s_record = api4.Record;
     s_setDeltaRate = reinterpret_cast<decltype(&OnrRrSetDeltaRate)>(GetProcAddress(module, "OnrRrSetDeltaRate"));
+    s_setFastMode = reinterpret_cast<decltype(&OnrRrSetFastMode)>(GetProcAddress(module, "OnrRrSetFastMode"));
+    s_getFastMode = reinterpret_cast<decltype(&OnrRrGetFastMode)>(GetProcAddress(module, "OnrRrGetFastMode"));
     s_recordPost = api4.RecordPost;
     if (has5)
         s_api5 = api5;
@@ -504,6 +508,23 @@ void ClearInfoContext(void* context)
     if (s_infoContext == context)
         s_infoContext = nullptr;
 }
+
+void SyncFastMode(void* context)
+{
+    if (context == nullptr || s_setFastMode == nullptr)
+        return;
+    const auto mode = Config::Instance()->OpenNrRrMode.value_or_default();
+    const bool fast = _stricmp(mode.c_str(), "legacy") != 0;
+    s_setFastMode(context, fast ? 1 : 0);
+}
+
+int32_t FastModeState()
+{
+    std::lock_guard lock(s_mutex);
+    if (s_infoContext == nullptr || s_getFastMode == nullptr)
+        return -1;
+    return s_getFastMode(s_infoContext);
+}
 } // namespace OpenNrRr
 
 OpenNrRrFeatureDx12::OpenNrRrFeatureDx12(unsigned int InHandleId, NVSDK_NGX_Parameter* InParameters)
@@ -664,6 +685,7 @@ bool OpenNrRrFeatureDx12::InitInternal(ID3D12GraphicsCommandList* InCommandList,
         std::lock_guard lock(s_mutex);
         s_infoContext = _context;
     }
+    OpenNrRr::SyncFastMode(_context);
 
     uint32_t running = ONR_RR_BACKEND_VULKAN;
     if (s_getBackend != nullptr)
@@ -734,6 +756,8 @@ bool OpenNrRrFeatureDx12::FillFrame(const NVSDK_NGX_Parameter& params, OnrRrFram
 {
     const auto& cfg = *Config::Instance();
     auto& state = State::Instance();
+
+    OpenNrRr::SyncFastMode(_context);
 
     frame = {};
     frame.size = sizeof(frame);

@@ -1263,6 +1263,7 @@ class Config
     // OpenRR: Ray Reconstruction on the DLSS-RR network (OpenNrRrRuntime.dll), D3D12 & Vulkan, RDNA4.
     CustomOptional<bool> OpenNrRrEnabled { true };
     CustomOptional<std::string> OpenNrRrBackend { "auto" };
+    CustomOptional<std::string> OpenNrRrMode { "new" };
     CustomOptional<std::string> OpenNrRrVkInputLayout { "read_only" };
     CustomOptional<bool> OpenNrRrUseDisocclusionMask { true };
     CustomOptional<bool> OpenNrRrUseSssGuide { false };

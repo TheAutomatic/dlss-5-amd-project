@@ -186,7 +186,7 @@ void main() {
     // both subgroups have read U before head 0 overwrites it (a barrier inside the head loop costs the weight prefetch)
     WG_SYNC();
 #endif
-    for (uint hd = 0u; hd < NH; ++hd) {
+    for (uint hd = 0u; hd < LT_HEADS; ++hd) {
         uint wq = hd * 32u * ENC_C;
 #if FP8QV
         // Q^T, V^T [dim tile][token tile] = in_a x^T, in_b x^T on e4m3 x e4m3 -> fp32, one rounding to fp16
@@ -245,18 +245,18 @@ void main() {
             coopMatLoad(bh, pc.bias.v, hd * 4096u + (r0_) * 64u + 32u, 64u, COL); ACC s2 = ACC(bh); \
             coopMatLoad(bh, pc.bias.v, hd * 4096u + (r0_) * 64u + 48u, 64u, COL); ACC s3 = ACC(bh); \
             { MB b_; MA a_; CPB(b_, qo0) \
-              coopMatLoad(a_, lds, W2Q, QST, ROW); MMA(s0, a_, b_) coopMatLoad(a_, lds, W2Q + 16u * QST, QST, ROW); MMA(s1, a_, b_) \
-              coopMatLoad(a_, lds, W2Q + 32u * QST, QST, ROW); MMA(s2, a_, b_) coopMatLoad(a_, lds, W2Q + 48u * QST, QST, ROW); MMA(s3, a_, b_) \
+              IFK((r0_) >> 4, 0u) { coopMatLoad(a_, lds, W2Q, QST, ROW); MMA(s0, a_, b_) } IFK((r0_) >> 4, 1u) { coopMatLoad(a_, lds, W2Q + 16u * QST, QST, ROW); MMA(s1, a_, b_) } \
+              IFK((r0_) >> 4, 2u) { coopMatLoad(a_, lds, W2Q + 32u * QST, QST, ROW); MMA(s2, a_, b_) } IFK((r0_) >> 4, 3u) { coopMatLoad(a_, lds, W2Q + 48u * QST, QST, ROW); MMA(s3, a_, b_) } \
               CPB(b_, qo1) \
-              coopMatLoad(a_, lds, W2Q + 16u, QST, ROW); MMA(s0, a_, b_) coopMatLoad(a_, lds, W2Q + 16u * QST + 16u, QST, ROW); MMA(s1, a_, b_) \
-              coopMatLoad(a_, lds, W2Q + 32u * QST + 16u, QST, ROW); MMA(s2, a_, b_) coopMatLoad(a_, lds, W2Q + 48u * QST + 16u, QST, ROW); MMA(s3, a_, b_) } \
+              IFK((r0_) >> 4, 0u) { coopMatLoad(a_, lds, W2Q + 16u, QST, ROW); MMA(s0, a_, b_) } IFK((r0_) >> 4, 1u) { coopMatLoad(a_, lds, W2Q + 16u * QST + 16u, QST, ROW); MMA(s1, a_, b_) } \
+              IFK((r0_) >> 4, 2u) { coopMatLoad(a_, lds, W2Q + 32u * QST + 16u, QST, ROW); MMA(s2, a_, b_) } IFK((r0_) >> 4, 3u) { coopMatLoad(a_, lds, W2Q + 48u * QST + 16u, QST, ROW); MMA(s3, a_, b_) } } \
             MH p0 = MH(s0), p1 = MH(s1), p2 = MH(s2), p3 = MH(s3); \
             f16vec2 e2[4]; \
             [[unroll]] for (int e = 0; e < 8; e += 2) { \
-                f16vec2 t0 = unpackFloat2x16(exp_bits2(f16vec2(p0[e], p0[e + 1]))); \
-                f16vec2 t1 = unpackFloat2x16(exp_bits2(f16vec2(p1[e], p1[e + 1]))); \
-                f16vec2 t2 = unpackFloat2x16(exp_bits2(f16vec2(p2[e], p2[e + 1]))); \
-                f16vec2 t3 = unpackFloat2x16(exp_bits2(f16vec2(p3[e], p3[e + 1]))); \
+                f16vec2 t0 = TK((r0_) >> 4, 0u, unpackFloat2x16(exp_bits2(f16vec2(p0[e], p0[e + 1])))); \
+                f16vec2 t1 = TK((r0_) >> 4, 1u, unpackFloat2x16(exp_bits2(f16vec2(p1[e], p1[e + 1])))); \
+                f16vec2 t2 = TK((r0_) >> 4, 2u, unpackFloat2x16(exp_bits2(f16vec2(p2[e], p2[e + 1])))); \
+                f16vec2 t3 = TK((r0_) >> 4, 3u, unpackFloat2x16(exp_bits2(f16vec2(p3[e], p3[e + 1])))); \
                 p0[e] = t0.x, p0[e + 1] = t0.y, p1[e] = t1.x, p1[e + 1] = t1.y; \
                 p2[e] = t2.x, p2[e + 1] = t2.y, p3[e] = t3.x, p3[e + 1] = t3.y; \
                 precise f16vec2 sm = (t0 + t1) + (t2 + t3); \
@@ -270,7 +270,7 @@ void main() {
             } \
             precise f16vec2 b2_ = (pc2[0] + pc2[1]) + (pc2[2] + pc2[3]); \
             precise float16_t sum = b2_.x + b2_.y; \
-            float16_t r = float16_t(rcp_rn(float(sum))); \
+            float16_t r = RCP_SUM(sum); \
             [[unroll]] for (int e = 0; e < 8; e += 2) { \
                 precise f16vec2 u0 = f16vec2(p0[e], p0[e + 1]) * r, u1 = f16vec2(p1[e], p1[e + 1]) * r; \
                 precise f16vec2 u2 = f16vec2(p2[e], p2[e + 1]) * r, u3 = f16vec2(p3[e], p3[e + 1]) * r; \
@@ -278,10 +278,10 @@ void main() {
                 p2[e] = u2.x, p2[e + 1] = u2.y, p3[e] = u3.x, p3[e + 1] = u3.y; \
             } \
             { MB b_; MA a_; \
-              CPB(b_, p0) coopMatLoad(a_, lds, W2V, VST, ROW); MMA(o0, a_, b_) coopMatLoad(a_, lds, W2V + 16u * VST, VST, ROW); MMA(o1, a_, b_) \
-              CPB(b_, p1) coopMatLoad(a_, lds, W2V + 16u, VST, ROW); MMA(o0, a_, b_) coopMatLoad(a_, lds, W2V + 16u * VST + 16u, VST, ROW); MMA(o1, a_, b_) \
-              CPB(b_, p2) coopMatLoad(a_, lds, W2V + 32u, VST, ROW); MMA(o0, a_, b_) coopMatLoad(a_, lds, W2V + 16u * VST + 32u, VST, ROW); MMA(o1, a_, b_) \
-              CPB(b_, p3) coopMatLoad(a_, lds, W2V + 48u, VST, ROW); MMA(o0, a_, b_) coopMatLoad(a_, lds, W2V + 16u * VST + 48u, VST, ROW); MMA(o1, a_, b_) } }
+              IFK((r0_) >> 4, 0u) { CPB(b_, p0) coopMatLoad(a_, lds, W2V, VST, ROW); MMA(o0, a_, b_) coopMatLoad(a_, lds, W2V + 16u * VST, VST, ROW); MMA(o1, a_, b_) } \
+              IFK((r0_) >> 4, 1u) { CPB(b_, p1) coopMatLoad(a_, lds, W2V + 16u, VST, ROW); MMA(o0, a_, b_) coopMatLoad(a_, lds, W2V + 16u * VST + 16u, VST, ROW); MMA(o1, a_, b_) } \
+              IFK((r0_) >> 4, 2u) { CPB(b_, p2) coopMatLoad(a_, lds, W2V + 32u, VST, ROW); MMA(o0, a_, b_) coopMatLoad(a_, lds, W2V + 16u * VST + 32u, VST, ROW); MMA(o1, a_, b_) } \
+              IFK((r0_) >> 4, 3u) { CPB(b_, p3) coopMatLoad(a_, lds, W2V + 48u, VST, ROW); MMA(o0, a_, b_) coopMatLoad(a_, lds, W2V + 16u * VST + 48u, VST, ROW); MMA(o1, a_, b_) } } }
 #if W2_DEFER
         // both token tiles first, then the out projection with each fragment serving both
         ACC oa0 = ACC(0.0), oa1 = ACC(0.0), ob0 = ACC(0.0), ob1 = ACC(0.0);
@@ -338,7 +338,7 @@ void main() {
 #define FC2_N(m, ha, hb) { MB ba_, bb_; CPB(ba_, ha) CPB(bb_, hb) \
             FC2_1(0, m, ba_, bb_) FC2_1(1, m, ba_, bb_) FC2_1(2, m, ba_, bb_) FC2_1(3, m, ba_, bb_) FC2_45(m, ba_, bb_) }
 #if W2_SL == 64
-    for (uint j = 0u; j < HID; j += 64u) {
+    for (uint j = 0u; j < LT_HID; j += 64u) {
         ACC hb0 = bias_acc_t(pc.fc1_b, j), hb1 = bias_acc_t(pc.fc1_b, j + 16u), hb2 = bias_acc_t(pc.fc1_b, j + 32u), hb3 = bias_acc_t(pc.fc1_b, j + 48u);
         ACC h00 = hb0, h01 = hb1, h02 = hb2, h03 = hb3, h10 = hb0, h11 = hb1, h12 = hb2, h13 = hb3;
 #define FC1_K(n, xa, xb) { MA f0, f1, f2, f3; MB b_; \
@@ -353,7 +353,7 @@ void main() {
     }
 #else
     // 32-neuron slices: hidden tiles h0t (token tile a), h1t (b)
-    for (uint j = 0u; j < HID; j += 32u) {
+    for (uint j = 0u; j < LT_HID; j += 32u) {
         ACC hb0 = bias_acc_t(pc.fc1_b, j), hb1 = bias_acc_t(pc.fc1_b, j + 16u);
         ACC h00 = hb0, h01 = hb1, h10 = hb0, h11 = hb1;
 #define FC1_K2(n) { MA f0, f1; MB b_; \
@@ -396,7 +396,7 @@ void main() {
             f16vec4 im = F16x4Buf(uint64_t(pc.dfn_in)).v[pi];
             for (int c = 0; c < 3; ++c) {
                 precise float e = exp2(float(dv[c]) * uintBitsToFloat(0xbfb8aa3bu));
-                float16_t g = float16_t(rcp_rn(e + 1.0));
+                float16_t g = float16_t(SIG_RCP(e + 1.0));
                 precise float16_t gs = g * sd;
                 precise float16_t v = im[c] * gs;
                 o[c] = min(v, 65504.0hf);

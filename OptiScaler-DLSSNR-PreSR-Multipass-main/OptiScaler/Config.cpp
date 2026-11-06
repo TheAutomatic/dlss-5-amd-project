@@ -461,6 +461,7 @@ bool Config::Reload(std::filesystem::path iniPath)
         {
             OpenNrRrEnabled.set_from_config(readBool(CfgKey::kOpenNrRrSection, CfgKey::OnrRrEnabled));
             OpenNrRrBackend.set_from_config(readString(CfgKey::kOpenNrRrSection, CfgKey::OnrRrBackend, true));
+            OpenNrRrMode.set_from_config(readString(CfgKey::kOpenNrRrSection, CfgKey::OnrRrMode, true));
             OpenNrRrVkInputLayout.set_from_config(readString(CfgKey::kOpenNrRrSection, CfgKey::OnrRrVkInputLayout, true));
             OpenNrRrUseDisocclusionMask.set_from_config(readBool(CfgKey::kOpenNrRrSection, CfgKey::OnrRrUseDisocclusionMask));
             OpenNrRrUseSssGuide.set_from_config(readBool(CfgKey::kOpenNrRrSection, CfgKey::OnrRrUseSssGuide));
@@ -2083,6 +2084,8 @@ bool Config::SaveIni()
                      GetBoolValue(Instance()->OpenNrRrEnabled.value_for_config()).c_str());
         ini.SetValue(CfgKey::kOpenNrRrSection, CfgKey::OnrRrBackend,
                      Instance()->OpenNrRrBackend.value_for_config_or("auto").c_str());
+        ini.SetValue(CfgKey::kOpenNrRrSection, CfgKey::OnrRrMode,
+                     Instance()->OpenNrRrMode.value_for_config_or("new").c_str());
         ini.SetValue(CfgKey::kOpenNrRrSection, CfgKey::OnrRrVkInputLayout,
                      Instance()->OpenNrRrVkInputLayout.value_for_config_or("auto").c_str());
         ini.SetValue(CfgKey::kOpenNrRrSection, CfgKey::OnrRrUseDisocclusionMask,

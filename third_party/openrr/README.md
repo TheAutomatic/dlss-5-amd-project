@@ -5,7 +5,7 @@ cards (RDNA4), with kernels written from scratch. It is the Ray Reconstruction r
 inside the [OpenNR OptiScaler fork](https://github.com/MatheusFerreiraS/OpenNR-OptiScaler): when a game asks for DLSS
 Ray Reconstruction, OptiScaler hands the frame to OpenRR.
 
-Version 0.1.0. MIT licence.
+Version 0.1.1. MIT licence.
 
 Discord: <https://discord.gg/wYhvS3JSHM>
 
@@ -35,8 +35,15 @@ In game, OpenRR settings are in OptiScaler's `[OpenNR-RR]` section and in the up
   own and added to the displayed image, so the network's own history stays clean. In Vulkan games NR on OpenRR doesn't
   run yet.
 
-Measured on an RX 9070 XT at 1080p output: about 3.5 ms per frame at Quality and about 7 ms at DLAA. The output
-matches NVIDIA's own (captured on an RTX card) at about 60 to 65 dB PSNR.
+Two modes, picked in the menu or with `Mode` in `[OpenNR-RR]`, which flip live:
+
+| | Quality 1080p | DLAA 1080p | Against NVIDIA's own (RTX card) |
+|---|---|---|---|
+| **New** (default): cheaper kernels | about 3.05 ms | about 6.2 ms | about 60.5 dB on the display |
+| **Legacy**: the kernels closest to NVIDIA's | about 3.33 ms | about 6.8 ms | about 63 dB on the display |
+
+Measured on an RX 9070 XT, outside a game. The first start builds New's kernels in the background, with the image on
+Legacy until they're ready.
 
 Tested in Cyberpunk 2077, Resident Evil Requiem, Hogwarts Legacy and Neverness to Everness (D3D12), and Indiana Jones
 and the Great Circle (Vulkan). DOOM: The Dark Ages is not supported: its menu hides DLSS on AMD GPUs.

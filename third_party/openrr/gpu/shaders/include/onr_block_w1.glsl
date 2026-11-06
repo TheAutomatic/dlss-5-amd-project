@@ -46,14 +46,14 @@ void head_px(ivec2 p, bool own, float16_t dv[18]) {
     for (int c = 0; c < 4; ++c) {
         precise float16_t d = m[c] - mx;
         precise float16_t z = d * 1.4423828125hf;
-        e[c] = half_rz(exp2(float(z)));
+        e[c] = HEAD_RZ(exp2(float(z)));
     }
     precise float16_t s02 = e[0] + e[2], s13 = e[1] + e[3], se = s02 + s13;
-    float16_t r = float16_t(rcp_rn(float(se)));
+    float16_t r = float16_t(SIG_RCP(float(se)));
     u8vec4 mv, hh;
     for (int c = 0; c < 4; ++c) { precise float16_t v = e[c] * r; mv[c] = uint8_t(unorm8_code(v)); }
     U8x4Buf(uint64_t(pc.mvf)).v[pi >> 2] = mv;
-    for (int c = 0; c < 4; ++c) hh[c] = uint8_t(snorm8_code(half_rz(tanh_f32(float(dv[14 + c])))));
+    for (int c = 0; c < 4; ++c) hh[c] = uint8_t(snorm8_code(HEAD_RZ(tanh_f32(float(dv[14 + c])))));
     U8x4Buf(uint64_t(pc.hidden)).v[pi >> 2] = hh;
     precise float a = float(sigmoid16(clamp(dv[7], -20.0hf, 20.0hf))) * pc.k_scale;
     precise float b = float(sigmoid16(clamp(dv[8], -20.0hf, 20.0hf))) * pc.k_scale;
@@ -62,6 +62,9 @@ void head_px(ivec2 p, bool own, float16_t dv[18]) {
     precise float aa = a * a, bb = b * b, ab = a * b, abt = ab * th;
     // kept with the tile too: without this store the compiler schedules the head's math differently and a few
     // outputs move by an ulp
+#ifdef LT_HM
+    if (!tl)
+#endif
     F16x4Buf(uint64_t(pc.aniso)).v[pi >> 2] = f16vec4(float16_t(aa), float16_t(bb), float16_t(abt), 0.0hf);
     if (tl) {
         vec3 en = post_encode(vec3(o.xyz));
@@ -196,15 +199,15 @@ void main() {
     // x^T tile names: x<token tile><channel tile>; out accumulators c<token tile><channel tile>
     ACC c00 = bias_acc_t(pc.out_b, 0u), c01 = bias_acc_t(pc.out_b, 16u);
     ACC c10 = c00, c11 = c01, c20 = c00, c21 = c01, c30 = c00, c31 = c01;
-    for (uint hd = 0u; hd < NH; ++hd) {
+    for (uint hd = 0u; hd < LT_HEADS; ++hd) {
         uint wq = hd * 32u * ENC_C;
         // Q^T [dim tile][token tile] = in_a x^T, V [token tile][dim tile] = x in_b^T; K = channel tiles in order
         ACC q00 = ACC(0.0), q01 = ACC(0.0), q10 = ACC(0.0), q11 = ACC(0.0), q20 = ACC(0.0), q21 = ACC(0.0), q30 = ACC(0.0), q31 = ACC(0.0);
         ACC v00 = ACC(0.0), v01 = ACC(0.0), v10 = ACC(0.0), v11 = ACC(0.0), v20 = ACC(0.0), v21 = ACC(0.0), v30 = ACC(0.0), v31 = ACC(0.0);
-#define QV_TOK(xt, qa, qb, va, vb) { MB b_; CPB(b_, xt) MMA(qa, wa0, b_) MMA(qb, wa1, b_) \
+#define QV_TOK(xt, qa, qb, va, vb) { MB b_; CPB(b_, xt) MMA(qa, wa0, b_) Q2_IF { MMA(qb, wa1, b_) } \
             MA a_; CPA(a_, xt) MMA(va, a_, wb0) MMA(vb, a_, wb1) }
 #define QV_K(n, xa, xb, xc, xd) { MA wa0, wa1; MB wb0, wb1; \
-            coopMatLoad(wa0, pc.in_a.v, wq + (n) * 16u, ENC_C, ROW); coopMatLoad(wa1, pc.in_a.v, wq + 16u * ENC_C + (n) * 16u, ENC_C, ROW); \
+            coopMatLoad(wa0, pc.in_a.v, QA_LR(wq + (n) * 16u), ENC_C, ROW); Q2_IF { coopMatLoad(wa1, pc.in_a.v, wq + 16u * ENC_C + (n) * 16u, ENC_C, ROW); } \
             coopMatLoad(wb0, pc.in_b.v, wq + (n) * 16u, ENC_C, COL); coopMatLoad(wb1, pc.in_b.v, wq + 16u * ENC_C + (n) * 16u, ENC_C, COL); \
             QV_TOK(xa, q00, q01, v00, v01) QV_TOK(xb, q10, q11, v10, v11) QV_TOK(xc, q20, q21, v20, v21) QV_TOK(xd, q30, q31, v30, v31) }
         QV_K(0u, x00, x10, x20, x30)
@@ -224,16 +227,18 @@ void main() {
             coopMatLoad(bh, pc.bias.v, hd * 4096u + (r0_) * 64u + 32u, 64u, COL); ACC s2 = ACC(bh); \
             coopMatLoad(bh, pc.bias.v, hd * 4096u + (r0_) * 64u + 48u, 64u, COL); ACC s3 = ACC(bh); \
             { MB b_; MA a_; CPB(b_, qo0) \
-              CPA(a_, q00) MMA(s0, a_, b_) CPA(a_, q10) MMA(s1, a_, b_) CPA(a_, q20) MMA(s2, a_, b_) CPA(a_, q30) MMA(s3, a_, b_) \
-              CPB(b_, qo1) \
-              CPA(a_, q01) MMA(s0, a_, b_) CPA(a_, q11) MMA(s1, a_, b_) CPA(a_, q21) MMA(s2, a_, b_) CPA(a_, q31) MMA(s3, a_, b_) } \
+              IFK((r0_) >> 4, 0u) { CPA(a_, q00) MMA(s0, a_, b_) } IFK((r0_) >> 4, 1u) { CPA(a_, q10) MMA(s1, a_, b_) } \
+              IFK((r0_) >> 4, 2u) { CPA(a_, q20) MMA(s2, a_, b_) } IFK((r0_) >> 4, 3u) { CPA(a_, q30) MMA(s3, a_, b_) } \
+              Q2_IF { CPB(b_, qo1) \
+              IFK((r0_) >> 4, 0u) { CPA(a_, q01) MMA(s0, a_, b_) } IFK((r0_) >> 4, 1u) { CPA(a_, q11) MMA(s1, a_, b_) } \
+              IFK((r0_) >> 4, 2u) { CPA(a_, q21) MMA(s2, a_, b_) } IFK((r0_) >> 4, 3u) { CPA(a_, q31) MMA(s3, a_, b_) } } } \
             MH p0 = MH(s0), p1 = MH(s1), p2 = MH(s2), p3 = MH(s3); \
             f16vec2 e2[4]; \
             [[unroll]] for (int e = 0; e < 8; e += 2) { \
-                f16vec2 t0 = unpackFloat2x16(exp_bits2(f16vec2(p0[e], p0[e + 1]))); \
-                f16vec2 t1 = unpackFloat2x16(exp_bits2(f16vec2(p1[e], p1[e + 1]))); \
-                f16vec2 t2 = unpackFloat2x16(exp_bits2(f16vec2(p2[e], p2[e + 1]))); \
-                f16vec2 t3 = unpackFloat2x16(exp_bits2(f16vec2(p3[e], p3[e + 1]))); \
+                f16vec2 t0 = TK((r0_) >> 4, 0u, unpackFloat2x16(exp_bits2(f16vec2(p0[e], p0[e + 1])))); \
+                f16vec2 t1 = TK((r0_) >> 4, 1u, unpackFloat2x16(exp_bits2(f16vec2(p1[e], p1[e + 1])))); \
+                f16vec2 t2 = TK((r0_) >> 4, 2u, unpackFloat2x16(exp_bits2(f16vec2(p2[e], p2[e + 1])))); \
+                f16vec2 t3 = TK((r0_) >> 4, 3u, unpackFloat2x16(exp_bits2(f16vec2(p3[e], p3[e + 1])))); \
                 p0[e] = t0.x, p0[e + 1] = t0.y, p1[e] = t1.x, p1[e + 1] = t1.y; \
                 p2[e] = t2.x, p2[e + 1] = t2.y, p3[e] = t3.x, p3[e + 1] = t3.y; \
                 precise f16vec2 sm = (t0 + t1) + (t2 + t3); \
@@ -247,7 +252,7 @@ void main() {
             } \
             precise f16vec2 b2_ = (pc2[0] + pc2[1]) + (pc2[2] + pc2[3]); \
             precise float16_t sum = b2_.x + b2_.y; \
-            float16_t r = float16_t(rcp_rn(float(sum))); \
+            float16_t r = RCP_SUM(sum); \
             [[unroll]] for (int e = 0; e < 8; e += 2) { \
                 precise f16vec2 u0 = f16vec2(p0[e], p0[e + 1]) * r, u1 = f16vec2(p1[e], p1[e + 1]) * r; \
                 precise f16vec2 u2 = f16vec2(p2[e], p2[e + 1]) * r, u3 = f16vec2(p3[e], p3[e + 1]) * r; \
@@ -256,10 +261,10 @@ void main() {
             } \
             ACC o0 = ACC(0.0), o1 = ACC(0.0); \
             { MB b_; MA a_; \
-              CPB(b_, p0) CPA(a_, v00) MMA(o0, a_, b_) CPA(a_, v01) MMA(o1, a_, b_) \
-              CPB(b_, p1) CPA(a_, v10) MMA(o0, a_, b_) CPA(a_, v11) MMA(o1, a_, b_) \
-              CPB(b_, p2) CPA(a_, v20) MMA(o0, a_, b_) CPA(a_, v21) MMA(o1, a_, b_) \
-              CPB(b_, p3) CPA(a_, v30) MMA(o0, a_, b_) CPA(a_, v31) MMA(o1, a_, b_) \
+              IFK((r0_) >> 4, 0u) { CPB(b_, p0) CPA(a_, v00) MMA(o0, a_, b_) CPA(a_, v01) MMA(o1, a_, b_) } \
+              IFK((r0_) >> 4, 1u) { CPB(b_, p1) CPA(a_, v10) MMA(o0, a_, b_) CPA(a_, v11) MMA(o1, a_, b_) } \
+              IFK((r0_) >> 4, 2u) { CPB(b_, p2) CPA(a_, v20) MMA(o0, a_, b_) CPA(a_, v21) MMA(o1, a_, b_) } \
+              IFK((r0_) >> 4, 3u) { CPB(b_, p3) CPA(a_, v30) MMA(o0, a_, b_) CPA(a_, v31) MMA(o1, a_, b_) } \
               MH oh = MH(o0); CPB(b_, oh) MMA(ca0, wo00, b_) MMA(ca1, wo10, b_) \
               oh = MH(o1); CPB(b_, oh) MMA(ca0, wo01, b_) MMA(ca1, wo11, b_) } }
         if (lv0) ATT(0u, q00, q01, c00, c01)
@@ -275,7 +280,7 @@ void main() {
     c00 = bias_acc_t(pc.fc2_b, 0u), c01 = bias_acc_t(pc.fc2_b, 16u);
     c10 = c00, c11 = c01, c20 = c00, c21 = c01, c30 = c00, c31 = c01;
     // MLP in 64-neuron slices: h^T = gelu(fc1 x1^T + b), m^T += fc2 h^T (K order of the fc2 chain unchanged)
-    for (uint j = 0u; j < HID; j += 64u) {
+    for (uint j = 0u; j < LT_HID; j += 64u) {
         MA f00, f01, f10, f11, f20, f21, f30, f31;   // fc1 [neuron tile][channel tile]
         coopMatLoad(f00, pc.fc1.v, WT_FC1(j * ENC_C), WS_FC1, ROW); coopMatLoad(f01, pc.fc1.v, WT_FC1(j * ENC_C + 16u), WS_FC1, ROW);
         coopMatLoad(f10, pc.fc1.v, WT_FC1((j + 16u) * ENC_C), WS_FC1, ROW); coopMatLoad(f11, pc.fc1.v, WT_FC1((j + 16u) * ENC_C + 16u), WS_FC1, ROW);
@@ -324,7 +329,7 @@ void main() {
                 f16vec4 im = F16x4Buf(uint64_t(pc.dfn_in)).v[pi]; \
                 for (int c = 0; c < 3; ++c) { \
                     precise float e = exp2(float(dv[c]) * uintBitsToFloat(0xbfb8aa3bu)); \
-                    float16_t g = float16_t(rcp_rn(e + 1.0)); \
+                    float16_t g = float16_t(SIG_RCP(e + 1.0)); \
                     precise float16_t gs = g * sd; \
                     precise float16_t v = im[c] * gs; \
                     o[c] = min(v, 65504.0hf); \

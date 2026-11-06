@@ -30,7 +30,11 @@ const uint W_ODD[5] = uint[5](0xa8e7u, 0x35f4u, 0x38f6u, 0x2d96u, 0xa94bu);
 f16vec3 texel(int x, int y, int lo, int hi) {
     if (x < lo || x >= hi) return f16vec3(0.0hf);
     uint i = uint(y * pc.slice.x + (x - lo));
+#ifdef LT_DS_LOAD
+    return f16vec3(AT32(F16x2Buf, pc.rg, i, 4u).v[0], pc.b.v[i]);   // the same bits, one load for the two halves
+#else
     return f16vec3(pc.rg.v[2u * i], pc.rg.v[2u * i + 1u], pc.b.v[i]);
+#endif
 }
 
 float16_t wt(int k, int parity) { return hbits(W_ODD[parity == 1 ? k : 4 - k]); }

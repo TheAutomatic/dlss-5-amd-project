@@ -21,7 +21,11 @@ void main() {
     ivec2 p = ivec2(gl_GlobalInvocationID.xy);
     if (p.x >= pc.size.x || p.y >= pc.size.y) return;
     uint di = uint(p.y * pc.dfn_stride + p.x) * 4u;
+#ifdef LT_DFN_LOAD
+    vec3 c = vec3(AT32(F16x4Buf, pc.dfn, di / 4u, 8u).v[0].xyz);   // the same bits, one load
+#else
     vec3 c = vec3(pc.dfn.v[di], pc.dfn.v[di + 1u], pc.dfn.v[di + 2u]);
+#endif
     float e = pc.exposure.v[0];
     vec3 v = e > 0.0 ? c / e : c;
     if (pc.half_out != 0u) tf_write(pc.dst, pc.pitch, TF_RGBA16F, p, vec4(clamp(v, -65504.0, 65504.0), 1.0));

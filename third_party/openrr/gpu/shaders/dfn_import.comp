@@ -36,11 +36,19 @@ void main() {
         return;
     }
     uint di = uint(p.y * pc.dfn_stride + p.x) * 4u;
+#ifdef LT_DFN_LOAD
+    vec3 n = vec3(AT32(F16x4Buf, pc.dfn, di / 4u, 8u).v[0].xyz);   // the same bits, one load
+#else
     vec3 n = vec3(pc.dfn.v[di], pc.dfn.v[di + 1u], pc.dfn.v[di + 2u]);
+#endif
     const float lo = uintBitsToFloat(0x38d1b717u);
     vec3 d = clamp(post_encode(vec3(h)), lo, 3.0) - clamp(post_encode(n), lo, 3.0);
     uint ti = uint(p.y * pc.size.x + p.x) * 12u;
     pc.tile.v[ti + 6u] = float16_t(d.x);
+#ifdef LT_DFN_LOAD
+    AT32(F16x2Buf, pc.tile, ti + 10u, 2u).v[0] = f16vec2(d.yz);
+#else
     pc.tile.v[ti + 10u] = float16_t(d.y);
     pc.tile.v[ti + 11u] = float16_t(d.z);
+#endif
 }

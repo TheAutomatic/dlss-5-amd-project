@@ -41,6 +41,21 @@ vec3 encode(vec3 y) {
 void main() {
     ivec2 o = ivec2(gl_GlobalInvocationID.xy);
     if (o.x >= pc.out_size.x || o.y >= pc.out_size.y) return;
+#ifdef LT_PH2_LOG
+    // the mean of the log codes, not of the linear values
+    uvec3 acc = uvec3(0u);
+    uint n = 0u;
+    for (int dy = 0; dy < 2; ++dy)
+        for (int dx = 0; dx < 2; ++dx) {
+            ivec2 s = 2 * o + ivec2(dx, dy);
+            if (s.x >= pc.in_size.x || s.y >= pc.in_size.y) continue;
+            uint w = pc.src.v[s.y * pc.in_size.x + s.x];
+            acc += uvec3(w & 1023u, (w >> 10) & 1023u, (w >> 20) & 1023u);
+            n += 1u;
+        }
+    uvec3 r = (acc + n / 2u) / max(n, 1u);
+    pc.dst.v[o.y * pc.out_size.x + o.x] = r.x | r.y << 10 | r.z << 20 | 3u << 30;
+#else
     precise vec3 acc = vec3(0.0);
     float n = 0.0;
     for (int dy = 0; dy < 2; ++dy)
@@ -53,4 +68,5 @@ void main() {
         }
     precise vec3 m = acc * rcp_rn(n);
     pc.dst.v[o.y * pc.out_size.x + o.x] = pack1010102(encode(m));
+#endif
 }

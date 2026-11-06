@@ -350,6 +350,15 @@ uint exp_bits2(f16vec2 s) {
 #ifdef PROF_NOEXP
     return packFloat2x16(s * SCORE_SCALE);   // timing only
 #endif
+#ifdef LT_EXP
+    // the clamp by the fma's clamp bit, z back by a second fma: one operation less (7% of the yv move by 1 ulp, FASE22)
+    const float16_t ws = 2.0hf * SCORE_SCALE / (4.0hf * CAP);
+    precise f16vec2 w = min(max(fma(s, f16vec2(ws), f16vec2(0.5hf)), f16vec2(0.0hf)), f16vec2(1.0hf));
+    precise f16vec2 zl = fma(w, f16vec2(4.0hf * CAP), f16vec2(-2.0hf * CAP));
+    precise f16vec2 tl = fma(zl, -zl, f16vec2(4.0hf * POLY_A));
+    precise f16vec2 yl = fma(zl, tl, f16vec2(8.0hf * POLY_B));
+    return pack32(unpack16(packFloat2x16(yl)) << 5us);
+#endif
     precise f16vec2 z = clamp(s * (2.0hf * SCORE_SCALE), -2.0hf * CAP, 2.0hf * CAP);
     precise f16vec2 t = fma(z, -z, f16vec2(4.0hf * POLY_A));
     precise f16vec2 yv = fma(z, t, f16vec2(8.0hf * POLY_B));
@@ -649,7 +658,7 @@ void main() {
 #define DECL_OUT_T(cn, xn, n) ACC cn = bias_acc_t(pc.out_b, (n) * 16u);
     FOR_NX(DECL_OUT_T)
 #endif
-    HD_UNROLL for (uint hd = 0u; hd < NH; ++hd) {
+    HD_UNROLL for (uint hd = 0u; hd < LT_HEADS; ++hd) {
         // (the enc0 prologue scratch aliases QV). QV_BUFS 2: head h writes buffer h & 1, whose last readers (head
         // h - 2) all passed the barrier of head h - 1
         if ((QV_BUFS == 1 && hd > 0u) || (hd == 0u && (ENC_EMBED != 0 || (DEC_UP != 0 && XREG_IN)))) WG_SYNC();
@@ -737,11 +746,11 @@ void main() {
         {
             MBP blo, bhi;
             BPREP(blo, bhi, qh0)
-            WSTEP(s0, lds, qb, QST, blo, bhi) WSTEP(s1, lds, qb + 16u * QST, QST, blo, bhi)
-            WSTEP(s2, lds, qb + 32u * QST, QST, blo, bhi) WSTEP(s3, lds, qb + 48u * QST, QST, blo, bhi)
+            IFK(rt, 0u) { WSTEP(s0, lds, qb, QST, blo, bhi) } IFK(rt, 1u) { WSTEP(s1, lds, qb + 16u * QST, QST, blo, bhi) }
+            IFK(rt, 2u) { WSTEP(s2, lds, qb + 32u * QST, QST, blo, bhi) } IFK(rt, 3u) { WSTEP(s3, lds, qb + 48u * QST, QST, blo, bhi) }
             BPREP(blo, bhi, qh1)
-            WSTEP(s0, lds, qb + 16u, QST, blo, bhi) WSTEP(s1, lds, qb + 16u * QST + 16u, QST, blo, bhi)
-            WSTEP(s2, lds, qb + 32u * QST + 16u, QST, blo, bhi) WSTEP(s3, lds, qb + 48u * QST + 16u, QST, blo, bhi)
+            IFK(rt, 0u) { WSTEP(s0, lds, qb + 16u, QST, blo, bhi) } IFK(rt, 1u) { WSTEP(s1, lds, qb + 16u * QST + 16u, QST, blo, bhi) }
+            IFK(rt, 2u) { WSTEP(s2, lds, qb + 32u * QST + 16u, QST, blo, bhi) } IFK(rt, 3u) { WSTEP(s3, lds, qb + 48u * QST + 16u, QST, blo, bhi) }
         }
         // softmax in registers. Lane (h, row) holds keys 16 kt + 8 h + e of tile kt, element e: column class e,
         // group a = 2 kt + h. Per class: ((a0 + a2) + (a4 + a6)) + ((a1 + a3) + (a5 + a7)), the even groups in
@@ -750,10 +759,10 @@ void main() {
 #ifndef PROF_NOSM
         f16vec2 e2[4];
         [[unroll]] for (int e = 0; e < 8; e += 2) {
-            f16vec2 t0 = unpackFloat2x16(exp_bits2(f16vec2(p0[e], p0[e + 1])));
-            f16vec2 t1 = unpackFloat2x16(exp_bits2(f16vec2(p1[e], p1[e + 1])));
-            f16vec2 t2 = unpackFloat2x16(exp_bits2(f16vec2(p2[e], p2[e + 1])));
-            f16vec2 t3 = unpackFloat2x16(exp_bits2(f16vec2(p3[e], p3[e + 1])));
+            f16vec2 t0 = TK(rt, 0u, unpackFloat2x16(exp_bits2(f16vec2(p0[e], p0[e + 1]))));
+            f16vec2 t1 = TK(rt, 1u, unpackFloat2x16(exp_bits2(f16vec2(p1[e], p1[e + 1]))));
+            f16vec2 t2 = TK(rt, 2u, unpackFloat2x16(exp_bits2(f16vec2(p2[e], p2[e + 1]))));
+            f16vec2 t3 = TK(rt, 3u, unpackFloat2x16(exp_bits2(f16vec2(p3[e], p3[e + 1]))));
             p0[e] = t0.x, p0[e + 1] = t0.y, p1[e] = t1.x, p1[e + 1] = t1.y;
             p2[e] = t2.x, p2[e + 1] = t2.y, p3[e] = t3.x, p3[e + 1] = t3.y;
             precise f16vec2 sm = (t0 + t1) + (t2 + t3);
@@ -767,7 +776,7 @@ void main() {
         }
         precise f16vec2 b2_ = (pc2[0] + pc2[1]) + (pc2[2] + pc2[3]);
         precise float16_t sum = b2_.x + b2_.y;
-        float16_t r = float16_t(rcp_rn(float(sum)));
+        float16_t r = RCP_SUM(sum);
         [[unroll]] for (int e = 0; e < 8; e += 2) {
             precise f16vec2 u0 = f16vec2(p0[e], p0[e + 1]) * r, u1 = f16vec2(p1[e], p1[e + 1]) * r;
             precise f16vec2 u2 = f16vec2(p2[e], p2[e + 1]) * r, u3 = f16vec2(p3[e], p3[e + 1]) * r;
@@ -780,7 +789,7 @@ void main() {
 #define PV_T(p, kt) { MBP blo, bhi; BPREP(blo, bhi, p) MA a_; \
             coopMatLoad(a_, lds, vb + (kt) * 16u, VST, ROW); TSTEP(o0, a_, blo, bhi) \
             coopMatLoad(a_, lds, vb + 16u * VST + (kt) * 16u, VST, ROW); TSTEP(o1, a_, blo, bhi) }
-        PV_T(p0, 0u) PV_T(p1, 1u) PV_T(p2, 2u) PV_T(p3, 3u)
+        IFK(rt, 0u) PV_T(p0, 0u) IFK(rt, 1u) PV_T(p1, 1u) IFK(rt, 2u) PV_T(p2, 2u) IFK(rt, 3u) PV_T(p3, 3u)
         // out projection, K = 32 hd + dims
         {
             MBP blo, bhi;
@@ -819,7 +828,7 @@ void main() {
     FOR_NO(FC2B_T)
     // 32-neuron slices: half hf computes hidden tile j + 16 hf, the two GELU tiles meet in a double buffer over
     // the keys (all key reads are behind the exchange barrier); fc2 of the own output tiles over both
-    for (uint j = 0u; j < HID; j += 32u) {
+    for (uint j = 0u; j < LT_HID; j += 32u) {
         uint jt = j + 16u * hf;
         ACC h0 = bias_acc_t(pc.fc1_b, jt);
 #define FC1_T2(cn, xn, n) { MBP blo, bhi; BPREP(blo, bhi, xn) WSTEP(h0, pc.fc1.v, WT_FC1(jt * ENC_C + (n) * 16u), WS_FC1, blo, bhi) }
@@ -854,7 +863,7 @@ void main() {
 #else
 #define SLICE 32u
 #endif
-    J_UNROLL for (uint j = 0u; j < HID; j += SLICE) {
+    J_UNROLL for (uint j = 0u; j < LT_HID; j += SLICE) {
         // hidden slice h^T [SLICE neurons][16 rows] = fc1 x1^T + b, GELU in registers
         ACC h0 = bias_acc_t(pc.fc1_b, j), h1 = bias_acc_t(pc.fc1_b, j + 16u);
 #if MLP64
@@ -928,7 +937,7 @@ void main() {
 #define DECL_OUT(cn, n) ACC cn = bias_acc(pc.out_b, (n) * 16u);
 #define STEP_OUT(cn, n) GSTEP(cn, alo, ahi, pc.wout.v, (n) * 16u * ENC_X + hd * 32u + k, ENC_X)
     FOR_NT(DECL_OUT)
-    HD_UNROLL for (uint hd = 0u; hd < NH; ++hd) {
+    HD_UNROLL for (uint hd = 0u; hd < LT_HEADS; ++hd) {
 #if QV_BUFS == 1
         if (hd > 0u) WG_SYNC();
         uint qb = QV, vb = qb + 2048u;
@@ -1165,7 +1174,7 @@ void main() {
         SG_SYNC();
     }
 #else
-    J_UNROLL for (uint j = 0u; j < HID; j += 32u) {
+    J_UNROLL for (uint j = 0u; j < LT_HID; j += 32u) {
         {
             ACC h0 = bias_acc(pc.fc1_b, j), h1 = bias_acc(pc.fc1_b, j + 16u);
             for (uint k = 0u; k < ENC_C; k += 16u) {

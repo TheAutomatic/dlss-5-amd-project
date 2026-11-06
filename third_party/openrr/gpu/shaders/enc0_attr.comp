@@ -78,6 +78,12 @@ float signed_log(float v) {
 float min_nan(float x, float c) { return isnan(x) ? x : min(x, c); }
 float clamp_nan(float x, float c) { float m = min_nan(x, c); return (x > -c || isnan(x)) ? m : -c; }
 float no_nan(float x) { return isnan(x) ? 0.0 : x; }
+#ifdef LT_ATTR_RCP
+// the lighter kernel of the optional mode (docs/FASE24-FASTMODE.md): the hardware's own reciprocal and square root (an
+// attribute keeps 3 mantissa bits after the dither)
+#define rcp_c(x) (1.0 / (x))
+#define sqrt_c(x) sqrt(x)
+#else
 float rcp_c(float x) { float r = 1.0 / x; return (isinf(r) || r == 0.0 || isnan(r)) ? r : rcp_rn(x); }
 // correctly rounded sqrt: hardware estimate, then one integer test against the two rounding midpoints
 // (x vs ((2 m_y +- 1) 2^(e_y - 24))^2, exact in u64); subnormal x keeps the fp64 path
@@ -97,6 +103,7 @@ float sqrt_c(float x) {
     }
     return y;
 }
+#endif
 
 ivec2 clampi(ivec2 p, ivec2 sz) { return clamp(p, ivec2(0), sz - 1); }
 uint pix(ivec2 p) { return uint(p.y * pc.size.x + p.x); }
@@ -110,6 +117,16 @@ float depth_at(ivec2 p) { return g_depth(pc.gt, clampi(p, pc.size), pc.size.x); 
 uvec3 alb_at(ivec2 p) { uint w = g_rgba8(pc.gt, GS_ALBEDO, p, pc.size.x); return uvec3(w & 255u, (w >> 8) & 255u, (w >> 16) & 255u); }
 uvec3 spec_at(ivec2 p) { uint w = g_rgba8(pc.gt, GS_SPEC, p, pc.size.x); return uvec3(w & 255u, (w >> 8) & 255u, (w >> 16) & 255u); }
 vec2 mv_raw(ivec2 p) { return vec2(g_rg16f(pc.gt, GS_MV, p, pc.size.x)); }
+#ifdef LT_ATTR_DEPTH
+float depth_key(ivec2 p) {
+    p = clampi(p, pc.size);
+    GuideTab t = pc.gt;
+    if (!gdirect(t, GS_DEPTH) || (gflags(t, GS_DEPTH) & 2u) == 0u) return abs(g_depth(t, p, pc.size.x));
+    // z(d) = (z - d w) / (d y - x) s: rising in d when (w x - y z) s > 0
+    float d = gtex(t, GS_DEPTH, p).x;
+    return (t.proj.w * t.proj.x - t.proj.y * t.proj.z) * t.depth_sign >= 0.0 ? d : -d;
+}
+#endif
 #else
 float f16at(F16Buf b, ivec2 p, uint ch, uint i) { p = clampi(p, pc.size); return float(AT32(F16Buf, b, pix(p) * ch + i, 2u).v[0]); }
 vec3 col_at(ivec2 p) { return vec3(f16at(pc.color, p, 4u, 0u), f16at(pc.color, p, 4u, 1u), f16at(pc.color, p, 4u, 2u)); }
@@ -133,11 +150,17 @@ vec4 tex_pm1(ivec2 p) { p = clampi(p, pc.size); F16Buf b = AT32(F16Buf, pc.pm1, 
 vec4 tex_hid(ivec2 p) {
     p = clampi(p, pc.size);
     uint i = pix(p) * 4u;
+#ifdef LT_ATTR_TAB
+    return max(vec4(i8vec4(unpack8(AT32(U32Buf, pc.hidden, pix(p), 4u).v[0]))) * (1.0 / 127.0), vec4(-1.0));
+#endif
     return vec4(AT32(F32Buf, pc.tab, 1024u + pc.hidden.v[i], 4u).v[0], AT32(F32Buf, pc.tab, 1024u + pc.hidden.v[i + 1u], 4u).v[0], AT32(F32Buf, pc.tab, 1024u + pc.hidden.v[i + 2u], 4u).v[0], AT32(F32Buf, pc.tab, 1024u + pc.hidden.v[i + 3u], 4u).v[0]);
 }
 vec4 tex_10(U32Buf b, ivec2 sz, ivec2 p) {
     p = clampi(p, sz);
     uint w = AT32(U32Buf, b, uint(p.y * sz.x + p.x), 4u).v[0];
+#ifdef LT_ATTR_TAB
+    return vec4(float(w & 1023u), float((w >> 10) & 1023u), float((w >> 20) & 1023u), 0.0) * (1.0 / 1023.0);
+#endif
     return vec4(AT32(F32Buf, pc.tab, w & 1023u, 4u).v[0], AT32(F32Buf, pc.tab, (w >> 10) & 1023u, 4u).v[0], AT32(F32Buf, pc.tab, (w >> 20) & 1023u, 4u).v[0], 0.0);
 }
 
@@ -223,6 +246,17 @@ float decode_hist(float v, float rexp) {
     precise float r = ((e - 1.0) * 0.0099999997764825820923) * rexp;
     return r;
 }
+
+#ifdef LT_ATTR_CL
+// enc_log(expo * decode_hist(v, rexp)) with rho = expo * rexp: 0.36 log10(1 + (e - 1) rho), e = 10^(t / 0.36), t the clamped
+// 2.45 v. At rho = 1 that is t; to first order in rho - 1 (the exposure's change over one frame) it adds
+// 0.1563 (rho - 1) (1 - 1 / e). hist_rho: whether the first order holds, per frame; otherwise the exact path
+float hist_closed(float v, float rho1) {
+    float t = clamp(v * 2.45, 1e-4, 3.0);
+    float u = t * 6.3969;
+    return t + 0.15635 * rho1 * (u / (1.0 + u));
+}
+#endif
 
 float enc_log(float x) {
     precise float a = max(fma(x, 100.0, 1.0), 9.9999997473787516356e-05);
@@ -324,13 +358,22 @@ void main() {
     precise float rexp = rcp_c(pc.expo.v[1]);
     float explog = pc.expo.v[3];
     // 3x3 depth extremes: centre first, then row by row, strict comparisons
+#if defined(LT_ATTR_DEPTH) && defined(D3D_GUIDES)
+    float a0 = depth_key(X), mx = a0, mn = a0;
+#else
     float a0 = abs(depth_at(X)), mx = a0, mn = a0;
+#endif
     ivec2 pmx = X, pmn = X;
     for (int dy = -1; dy <= 1; ++dy)
         for (int dx = -1; dx <= 1; ++dx) {
             if (dx == 0 && dy == 0) continue;
             ivec2 q = clampi(X + ivec2(dx, dy), pc.size);
+#if defined(LT_ATTR_DEPTH) && defined(D3D_GUIDES)
+            // hardware depth: the same order as its view z, without a division per texel
+            float s = depth_key(q);
+#else
             float s = abs(depth_at(q));
+#endif
             bool lo = !(s >= mn);
             bool hi = !lo && s > mx;
             if (lo) { mn = s; pmn = q; }
@@ -392,25 +435,55 @@ void main() {
     vec2 mvs[4] = vec2[4](mv_near, mv_c, mv_far, refl);
     uint dst[4] = uint[4](3u, 6u, 12u, 35u);
     float hxd = 0.0, hyd = 0.0, hxr = 0.0, hyr = 0.0;
+#ifdef LT_ATTR_SAME
+    vec4 hk[4];
+#endif
+#ifdef LT_ATTR_CL
+    precise float rho1 = expo * rexp - 1.0;
+    const bool near1 = abs(rho1) < 0.05;
+#endif
     bool vd = false, vr = false;
     [[unroll]] for (int k = 0; k < 4; ++k) {
         precise float hxp = fma(ox, hs0, mvs[k].x), hyp = fma(oy, hs1, mvs[k].y);
         bool valid = inside(hxp, hyp) && !hist_disabled();
         precise float u = hxp * C(0x358), v = hyp * C(0x35c);
+#ifdef LT_ATTR_SAME
+        // the same motion as an earlier candidate: the same texels
+        bool same = false;
+        [[unroll]] for (int q = 0; q < k; ++q)
+            if (!same && mvs[q] == mvs[k]) { hk[k] = hk[q]; same = true; }
+        if (!same) hk[k] = bl_10(pc.ds, pc.ds_size, u, v);
+        vec4 h = hk[k];
+#else
         vec4 h = bl_10(pc.ds, pc.ds_size, u, v);
+#endif
+#ifdef LT_ATTR_CL
+        [[unroll]] for (uint c = 0u; c < 3u; ++c) {
+            precise float e = (valid ? (near1 ? hist_closed(h[c], rho1) : enc_log(expo * decode_hist(h[c], rexp))) : enc_log(expo * col[c])) * C(0x3a4);
+            put(base, dst[k] + c, min(no_nan(e), 1024.0));
+        }
+#else
         [[unroll]] for (uint c = 0u; c < 3u; ++c) {
             float y = valid ? decode_hist(h[c], rexp) : col[c];
             precise float e = enc_log(expo * y) * C(0x3a4);
             put(base, dst[k] + c, min(no_nan(e), 1024.0));
         }
+#endif
         if (k == 1) {
             precise float u2 = (u * float(CI(0x350))) * C(0x360), v2 = (v * float(CI(0x354))) * C(0x364);
             vec4 h2 = bl_10(pc.ds2, pc.ds2_size, u2, v2);
+#ifdef LT_ATTR_CL
+            [[unroll]] for (uint c = 0u; c < 3u; ++c) {
+                precise float e = (valid ? (near1 ? hist_closed(h2[c], rho1) : enc_log(expo * decode_hist(h2[c], rexp))) : enc_log(expo * col[c])) * C(0x3a4);
+                put(base, 9u + c, min(no_nan(e), 1024.0));
+            }
+#else
             [[unroll]] for (uint c = 0u; c < 3u; ++c) {
                 float y = valid ? decode_hist(h2[c], rexp) : col[c];
                 precise float e = enc_log(expo * y) * C(0x3a4);
                 put(base, 9u + c, min(no_nan(e), 1024.0));
             }
+#endif
         }
         if (k == 0) { hxd = hxp; hyd = hyp; vd = valid; }
         if (k == 3) { hxr = hxp; hyr = hyp; vr = valid; }
@@ -428,8 +501,12 @@ void main() {
     }
     // albedo, normals, roughness (zeroed where both albedos are 0), motion logs, exposure, unused guides
     uvec3 ab = alb_at(X), sb = spec_at(X);
+#ifdef LT_ATTR_TAB
+    vec3 ad = vec3(ab) * (1.0 / 255.0), as = vec3(sb) * (1.0 / 255.0);
+#else
     vec3 ad = vec3(AT32(F32Buf, pc.tab, 1280u + ab.x, 4u).v[0], AT32(F32Buf, pc.tab, 1280u + ab.y, 4u).v[0], AT32(F32Buf, pc.tab, 1280u + ab.z, 4u).v[0]);
     vec3 as = vec3(AT32(F32Buf, pc.tab, 1280u + sb.x, 4u).v[0], AT32(F32Buf, pc.tab, 1280u + sb.y, 4u).v[0], AT32(F32Buf, pc.tab, 1280u + sb.z, 4u).v[0]);
+#endif
     precise float zs = ((ad.y + as.y) + (ad.x + as.x)) + (ad.z + as.z);
     bool zero = zs == 0.0;
     [[unroll]] for (uint c = 0u; c < 3u; ++c) { put(base, 15u + c, min(ad[c], 2.0)); put(base, 18u + c, min(as[c], 2.0)); }

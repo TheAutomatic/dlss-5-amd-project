@@ -141,19 +141,30 @@ public:
     // off: the small levels keep their barriers even with the flow kernels loaded (their row flags spin-wait)
     void set_flow(bool on) { flow_on_ = on; }
     uint64_t frames() const { return frame_; }
+    // the optional cheaper kernels (docs/FASE24-FASTMODE.md; "fast" alone means the _f kernels here): same buffers and
+    // layouts as the _f ones, so the switch takes effect on the next record_net with every history kept. k: built
+    // beforehand, kernels under their _f names, those missing there stay on the _f ones
+    void set_lite(const Kernels* k) { lk_ = k; }
+    void set_lite_on(bool on) { lite_on_ = on; }
+    bool lite_active() const { return frame_lite_; }
 
 private:
     struct StageBufs { Buffer in_a, in_b, out, out_b, fc1, fc1_b, fc2, fc2_b, bias, dfn_w, dfn_b, mrg_w, mrg_b, up_w, up_b; };
     Buffer make(size_t bytes);
     bool out_image_ = false;
     Buffer upload(const H16& v);
-    Buffer upload_qv(const H16& v);
+    Buffer upload_qv(const H16& v, const H16& lr);
     void upload_stage(const StageWeights& s, StageBufs& b);
     EncBlockPC block_pc(const StageWeights& s, const StageBufs& b, uint64_t x, uint64_t y, I2 size, I2 shift) const;
     std::string sfx() const { return fast_ ? "_f" : ""; }
+    void run(Gpu& d, const std::string& n, const void* pc, uint32_t size, uint32_t groups) const {
+        (frame_lite_ && lk_->has(n) ? *lk_ : *k_).run(d, n, pc, size, groups);
+    }
 
     Gpu* dev_ = nullptr;
     const Kernels* k_ = nullptr;
+    const Kernels* lk_ = nullptr;
+    bool lite_on_ = false, frame_lite_ = false;   // frame_lite_: this frame's, taken in record_net
     const Weights* w_ = nullptr;
     bool fast_ = true, sized_fast_ = true, flow_on_ = true;
     std::vector<Buffer> fixed_, sized_;

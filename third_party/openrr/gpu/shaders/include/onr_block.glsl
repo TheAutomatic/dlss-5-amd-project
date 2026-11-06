@@ -111,6 +111,38 @@ layout(local_size_x = 128 * SPLIT) in;
 #endif
 #define NH (ENC_X / 32)
 #define HID (4 * ENC_C)
+// the lighter kernels of the optional mode (docs/FASE24-FASTMODE.md): attention heads and MLP neurons kept
+#ifndef LT_HEADS
+#define LT_HEADS NH
+#endif
+#ifndef LT_HID
+#define LT_HID HID
+#endif
+// LT_FAR: the key tiles (two window rows each) LT_FAR or more tiles from the own one are left out of the softmax. Their P
+// mass is small: attention is local inside the window. tile = own tile, kt = key tile
+#ifdef LT_FAR
+#define KEPT(tile, kt) ((tile) + uint(LT_FAR) > (kt) && (kt) + uint(LT_FAR) > (tile))
+#define IFK(tile, kt) if (KEPT(tile, kt))
+#define TK(tile, kt, x) (KEPT(tile, kt) ? (x) : f16vec2(0.0hf))
+#else
+#define IFK(tile, kt)
+#define TK(tile, kt, x) (x)
+#endif
+// LT_Q16 (W1): keys on the 16 strongest directions of each head, from the rotated in_a after the regular one and its e4m3
+// codes (Engine::upload_qv): half the Q and S products for almost none of S
+#ifdef LT_Q16
+#define Q2_IF if (false)
+#define QA_LR(x) (3u * ENC_X * ENC_C / 2u + (x))
+#else
+#define Q2_IF
+#define QA_LR(x) (x)
+#endif
+// LT_RCP: the softmax's reciprocal by the hardware's fp16 one
+#ifdef LT_RCP
+#define RCP_SUM(x) (1.0hf / (x))
+#else
+#define RCP_SUM(x) float16_t(rcp_rn(float(x)))
+#endif
 #define NT (ENC_C / 16)
 // wout [C][X], fc1 [4C][C], fc2 [C][4C] are each followed by a copy in 16x16 tiles (tile (r, k) = 16 contiguous rows
 // of 16 at n + r 16 K + 256 k): the transposed and W2 bodies load a fragment from its tile (512 contiguous bytes;
@@ -420,9 +452,17 @@ uint plane_index_sz(ivec2 p, int c, ivec2 sz) {
 uint plane_index(ivec2 p, int c) { return plane_index_sz(p, c, pc.size); }
 
 // fp16(1 / (1 + 2^(-log2(e) d))), f32 in between (MUFU EX2/RCP of the reference)
+// LT_HM: the heads' math without the reference's roundings (reciprocal, toward-zero and 12-bit surface rules, tanh branch)
+#ifdef LT_HM
+#define SIG_RCP(x) (1.0 / (x))
+#define HEAD_RZ(x) float16_t(x)
+#else
+#define SIG_RCP(x) rcp_rn(x)
+#define HEAD_RZ(x) half_rz(x)
+#endif
 float16_t sigmoid16(float16_t d) {
     precise float e = exp2(float(d) * uintBitsToFloat(0xbfb8aa3bu));
-    return float16_t(rcp_rn(e + 1.0));
+    return float16_t(SIG_RCP(e + 1.0));
 }
 
 #if ENC_PVX || ENC_EXACT
@@ -499,17 +539,26 @@ f16vec3 upsample_below(ivec2 p) {
 
 // surface stores of the reference: value cut to 12 (unorm8) / 11 (snorm8) fraction bits, then nearest code
 uint unorm8_code(float16_t v) {
+#ifdef LT_HM
+    return uint(clamp(float(v), 0.0, 1.0) * 255.0 + 0.5);
+#endif
     uint t = uint(floor(clamp(float(v), 0.0, 1.0) * 4096.0));
     return (t * 255u + 2048u) >> 12;
 }
 
 uint snorm8_code(float16_t v) {
+#ifdef LT_HM
+    return uint(int(clamp(float(v), -1.0, 1.0) * 127.0 + (v < 0.0hf ? -0.5 : 0.5))) & 0xffu;
+#endif
     uint t = uint(floor(min(abs(float(v)), 1.0) * 2048.0));
     int a = int((t * 127u + 1024u) >> 11);
     return uint(v < 0.0hf ? -a : a) & 0xffu;
 }
 
 float tanh_f32(float x) {
+#ifdef LT_HM
+    return 1.0 - 2.0 / (exp2(x * 2.8853900817779268) + 1.0);
+#endif
     float a = abs(x), r;
     if (a < 0.0625) {
         float a2 = a * a;

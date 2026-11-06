@@ -3640,6 +3640,28 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                            "Changing it recreates OpenRR.");
         }
 
+        {
+            const char* modes[] = { "New (Faster)", "Legacy (Faithful)" };
+            const auto modeName = config->OpenNrRrMode.value_or_default();
+            int modeIdx = _stricmp(modeName.c_str(), "legacy") == 0 ? 1 : 0;
+
+            ImGui::PushItemWidth(150.0f * menuResScale);
+            if (MenuUi::Combo("Mode", &modeIdx, modes, 2))
+            {
+                config->OpenNrRrMode = modeIdx == 1 ? "legacy" : "new";
+            }
+            ImGui::PopItemWidth();
+            ShowHelpMarker("New (default): OpenRR 0.1.1 fast kernels (Jacobi-rotated 16-dim keys at C=32,\n"
+                           "local window tile pruning, and fused pairs), ~8% faster on GPU.\n"
+                           "Legacy: faithful unpruned kernels.\n"
+                           "Applies on the next frame; the first switch to New builds the fast kernels in the background.");
+            const int32_t fmState = OpenNrRr::FastModeState();
+            if (fmState == 2)
+                ImGui::TextDisabled("Fast kernels: building in the background...");
+            else if (fmState == 3)
+                ImGui::TextDisabled("Fast kernels: unavailable on this runtime");
+        }
+
         if (MenuUi::TreeNode("Guides"))
         {
             if (bool useMask = config->OpenNrRrUseDisocclusionMask.value_or_default();

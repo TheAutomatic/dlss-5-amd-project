@@ -359,6 +359,7 @@ bool OpenNrRrFeatureVk::InitInternal(VkCommandBuffer InCmdBuffer, NVSDK_NGX_Para
     }
 
     OpenNrRr::SetInfoContext(_context);
+    OpenNrRr::SyncFastMode(_context);
 
     uint32_t running = 0;
     _api->v4.GetBackend(_context, &running);
@@ -373,6 +374,8 @@ bool OpenNrRrFeatureVk::InitInternal(VkCommandBuffer InCmdBuffer, NVSDK_NGX_Para
 bool OpenNrRrFeatureVk::FillFrame(const NVSDK_NGX_Parameter& params, OnrRrFrame& frame)
 {
     const auto& cfg = *Config::Instance();
+
+    OpenNrRr::SyncFastMode(_context);
 
     frame = {};
     frame.size = sizeof(frame);

@@ -48,6 +48,7 @@ thread_local std::string t_error;
 // keeps its barrier, and on a Vulkan game's device always (its features come and go with others in flight).
 // ONR_RR_FLOW=0: never, =1: always (measurements).
 std::atomic<int> g_live{0};
+std::atomic<bool> g_abi6_host{false};
 const char* const g_flow = getenv("ONR_RR_FLOW");
 
 int32_t fail(int32_t code, const std::string& what) {
@@ -345,6 +346,7 @@ struct Job {
     OnrRrFrame f{};
     Copy in[G_COUNT];
     std::shared_ptr<SharedBuffer> input, output, image;
+    UINT64 out_bytes = 0;
     UINT out_pitch = 0;
     Tf out_tf = TF_NONE;
     bool enqueued = false, output_recorded = false;
@@ -378,6 +380,11 @@ struct Ctx {
     VkFns fn;
     Kernels kern;                    // ingest, pack
     Kernels net;                      // the fast network (*_f); published by `built`
+    // the user's "Fast mode": the cheaper kernels (*_lt, Engine::set_lite), built once it is asked for
+    Kernels net_lite;
+    std::atomic<bool> lite_want{false}, lite_started{false}, lite_built{false}, lite_failed{false};
+    std::thread lite_builder;
+    bool lite_logged = false;
     std::atomic<bool> built{false};
     std::atomic<bool> building{false};
     std::thread builder;
@@ -426,6 +433,7 @@ struct Ctx {
     bool logged_ray = false;
     GuideStats stats[2];               // disocclusion mask, SSS guide
     std::shared_ptr<std::atomic<bool>> stats_busy = std::make_shared<std::atomic<bool>>(false);   // a summing thread runs
+    std::thread stats_thread;
     uint64_t stats_seq = 0;            // the frame their copies were recorded on
     ULONGLONG stats_tick = 0;
     // D3D12 backend (ABI 4): the game's device, its own kernels and buffers; d3d says it runs the frames
@@ -476,6 +484,8 @@ void load_flow(Kernels& k, Gpu& d, const std::wstring& dir) {
     }
 }
 
+void build_lite(Ctx* c);
+
 std::mutex g_cached_weights_m;
 std::wstring g_cached_dlssd_path;
 Weights g_cached_weights;
@@ -495,7 +505,7 @@ void build_network(Ctx* c) {
             }
             if (!reused && !build_weights(c->dlssd_path, c->w, err)) throw std::runtime_error("nvngx_dlssd.dll: " + err);
             c->weights_ok = true;
-            g_log("weights rebuilt from %s (version %s) in %.0f ms", c->weights_source.c_str(), c->w.version.c_str(),
+            g_log("weights %s from %s (version %s) in %.0f ms", reused ? "reused" : "rebuilt", c->weights_source.c_str(), c->w.version.c_str(),
                   std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
         }
         auto t0 = std::chrono::steady_clock::now();
@@ -517,11 +527,11 @@ void build_network(Ctx* c) {
                 }
                 load_wide(k, *c->dx, c->shader_dir);
                 load_flow(k, *c->dx, c->shader_dir);
-                g_log("fast kernels ready on D3D12 (%zu pipelines: %u ELFs from the cache, %u built) in %.1f s", names.size(), c->dx->cache_hits() - h0, c->dx->cache_misses() - m0,
+                g_log("network kernels ready on D3D12 (%zu pipelines: %u ELFs from the cache, %u built) in %.1f s", names.size(), c->dx->cache_hits() - h0, c->dx->cache_misses() - m0,
                       std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
             } catch (const std::exception& e) {
-                k.unload(*c->dx);
                 std::lock_guard l(c->m);
+                k.unload(*c->dx);
                 // the network never ran on D3D12 here: the frames simply go to Vulkan from now on
                 if (c->engine_ready) throw;
                 c->use_d3d = false;
@@ -546,7 +556,7 @@ void build_network(Ctx* c) {
             }
             load_wide(k, c->dev, c->shader_dir);
             load_flow(k, c->dev, c->shader_dir);
-            g_log("fast kernels ready (%zu pipelines) in %.1f s", names.size(),
+            g_log("network kernels ready (%zu pipelines) in %.1f s", names.size(),
                   std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
         }
         c->built = true;
@@ -556,6 +566,25 @@ void build_network(Ctx* c) {
         c->set_message(std::string("network not built: ") + e.what());
     }
     c->building = false;
+}
+
+// the cheaper kernels, beside the running ones; until they are ready the frames stay on the others
+void build_lite(Ctx* c) {
+    Gpu& d = c->use_d3d ? static_cast<Gpu&>(*c->dx) : static_cast<Gpu&>(c->dev);
+    auto t0 = std::chrono::steady_clock::now();
+    try {
+        const uint32_t h0 = c->use_d3d ? c->dx->cache_hits() : 0, m0 = c->use_d3d ? c->dx->cache_misses() : 0;
+        c->net_lite.load_lite(d, utf8(c->shader_dir), c->net.names());
+        if (c->net_lite.names().empty()) throw std::runtime_error("no *_lt kernels in the shader folder");
+        g_log("fast mode kernels ready (%zu pipelines: %u ELFs from the cache, %u built) in %.2f s", c->net_lite.names().size(),
+              c->use_d3d ? c->dx->cache_hits() - h0 : 0, c->use_d3d ? c->dx->cache_misses() - m0 : 0,
+              std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
+        c->lite_built = true;
+    } catch (const std::exception& e) {
+        { std::lock_guard l(c->m); c->net_lite.unload(d); }
+        c->lite_failed = true;
+        g_log("fast mode not available: %s", e.what());
+    }
 }
 
 void start_build(Ctx* c) {
@@ -570,17 +599,19 @@ Buffer make_buffer(Gpu& d, size_t n) {
     return b;
 }
 
-// the guides in the kernels' formats, on the device that runs the frames
+// the guides in the kernels' formats, on the device that runs the frames (preallocated up to max_render for DRS)
 void ensure_guides(Ctx* c, Gpu& d, I2 render) {
-    if (c->guides_dev == &d && c->guide_size.x == render.x && c->guide_size.y == render.y) return;
+    I2 cap{std::max({render.x, c->max_render.x, c->guide_size.x}),
+           std::max({render.y, c->max_render.y, c->guide_size.y})};
+    if (c->guides_dev == &d && cap.x <= c->guide_size.x && cap.y <= c->guide_size.y) return;
     if (c->guides_dev)
         for (auto& b : c->guides)
             if (b.addr) c->guides_dev->destroy(b);
-    size_t px = size_t(render.x) * render.y;
+    size_t px = size_t(cap.x) * cap.y;
     const size_t bpp[G_COUNT] = {8, 4, 4, 8, 2, 4, 4, 2, 0, 8, 4, 4};   // the rest: on their first frame (record_frame)
     for (int i = 0; i < G_COUNT; ++i)
         if (bpp[i] && !(c->use_d3d && c->direct_ok)) c->guides[i] = make_buffer(d, px * bpp[i]);
-    c->guide_size = render;
+    c->guide_size = cap;
     c->guides_dev = &d;
 }
 
@@ -727,24 +758,22 @@ void record_frame(Ctx* c, Rec& r, Job& j, bool network, bool split = false) {
         memcpy(gt.proj, ip.proj, sizeof gt.proj);
         gt.depth_sign = ip.depth_sign;
         ingest = false;
+        const size_t bpp8[8] = {8, 4, 4, 8, 2, 4, 4, 2};
         for (int s = 0; s < 8; ++s) {
             gt.buf[s] = ip.dst[s];
             if (((ip.g[s][2] >> 16) & 12u) != 0) {
                 ip.dst[s] = 0;
-                if (c->use_d3d && c->guides[s].addr && c->guides_dev) c->guides_dev->destroy(c->guides[s]);
             } else {
-                const size_t bpp8[8] = {8, 4, 4, 8, 2, 4, 4, 2};
                 if (!c->guides[s].addr) c->guides[s] = d.create(size_t(c->guide_size.x) * c->guide_size.y * bpp8[s] + 64);
                 ip.dst[s] = gt.buf[s] = c->guides[s].addr;
                 ingest = true;
             }
-            // handled above
         }
     }
     if (ingest) {
         const size_t bpp8[8] = {8, 4, 4, 8, 2, 4, 4, 2};
         for (int s = 0; s < 8; ++s) {
-            if (!direct && (s == G_COLOR || !network ? s == G_COLOR : true) && !c->guides[s].addr)
+            if (!direct && (network || s == G_COLOR) && !c->guides[s].addr)
                 c->guides[s] = d.create(size_t(c->guide_size.x) * c->guide_size.y * bpp8[s] + 64), ip.dst[s] = c->guides[s].addr;
         }
         d.dispatch(r.k[r.ingest], &ip, sizeof ip, div_up(render.x, 16), div_up(render.y, 16));
@@ -960,6 +989,15 @@ bool prepare_network(Ctx* c, Gpu& d, I2 render, F&& idle) {
         start_build(c);
     }
     const bool network = c->engine_ready && c->state == ONR_RR_STATE_READY && c->engine.kernels() != nullptr;
+    if (network && c->lite_want && !c->lite_started.exchange(true)) c->lite_builder = std::thread(build_lite, c);
+    if (network && c->lite_built) {
+        c->engine.set_lite(&c->net_lite);
+        c->engine.set_lite_on(c->lite_want);
+        if (c->lite_logged != c->lite_want) {
+            c->lite_logged = c->lite_want;
+            g_log("fast mode %s at frame %llu", c->lite_logged ? "on" : "off", (unsigned long long)c->frames);
+        }
+    }
     if (network && (c->engine.render().x != render.x || c->engine.render().y != render.y || c->engine.output().x != c->out_size.x ||
                     c->engine.output().y != c->out_size.y)) {
         idle();
@@ -995,7 +1033,7 @@ void log_frame(Ctx* c, I2 render) {
     avg = c->gpu_hist.empty() ? 0 : avg / float(c->gpu_hist.size());
     g_log("frame %llu: render %dx%d -> %dx%d, %s, %s, GPU %.2f ms (average of %zu: %.2f ms; mean since the last line: ingest %.3f, network %.2f, "
           "pack %.3f)",
-          (unsigned long long)c->frames, render.x, render.y, c->out_size.x, c->out_size.y, "fast",
+          (unsigned long long)c->frames, render.x, render.y, c->out_size.x, c->out_size.y, c->engine.lite_active() ? "fast mode on" : "fast mode off",
           c->vk_host ? "Vulkan (the game's device)" : c->use_d3d ? "D3D12" : "Vulkan", c->gpu_last, c->gpu_hist.size(), avg, c->split[0] / std::max(c->split_n, 1u),
           c->split[1] / std::max(c->split_n, 1u), c->split[2] / std::max(c->split_n, 1u));
     c->split[0] = c->split[1] = c->split[2] = 0, c->split_n = 0;
@@ -1053,10 +1091,13 @@ int32_t enqueue(Ctx* c, Job& j, ID3D12CommandQueue* q, uint32_t* exported = null
 
 void teardown_ctx_resources(Ctx* c) {
     if (c->builder.joinable()) c->builder.join();
+    if (c->lite_builder.joinable()) c->lite_builder.join();
+    if (c->stats_thread.joinable()) c->stats_thread.join();
     if (c->dev.vk() && !c->vk_host) vkDeviceWaitIdle(c->dev.vk());
     c->engine.destroy();
     if (c->dx || c->dev.vk()) {
         Gpu& net = c->use_d3d ? static_cast<Gpu&>(*c->dx) : c->dev;
+        c->net_lite.unload(net);
         c->net.unload(net);
         if (c->out16.addr) net.destroy(c->out16);
     }
@@ -1121,17 +1162,23 @@ bool ctx_retired(Ctx* c) {
     return true;
 }
 
+struct RetiredCtx {
+    Ctx* c = nullptr;
+    ULONGLONG tick = 0;
+    uint32_t sweeps = 0;
+};
 std::mutex g_retired_m;
-std::vector<Ctx*> g_retired;
+std::vector<RetiredCtx> g_retired;
 
 void sweep_retired(VkDevice = VK_NULL_HANDLE) {
     std::vector<Ctx*> go;
+    const ULONGLONG now = GetTickCount64();
     {
         std::lock_guard l(g_retired_m);
         size_t keep = 0;
-        for (Ctx* c : g_retired)
-            if (ctx_retired(c)) go.push_back(c);
-            else g_retired[keep++] = c;
+        for (auto& r : g_retired)
+            if (ctx_retired(r.c) || ++r.sweeps >= 64 || now - r.tick >= 2000) go.push_back(r.c);
+            else g_retired[keep++] = r;
         g_retired.resize(keep);
     }
     for (Ctx* c : go) free_ctx(c);
@@ -1143,7 +1190,7 @@ void destroy_ctx(Ctx* c) {
     sweep_retired();
     if (!ctx_retired(c)) {
         std::lock_guard l(g_retired_m);
-        g_retired.push_back(c);
+        g_retired.push_back({c, GetTickCount64(), 0});
         return;
     }
     free_ctx(c);
@@ -1232,9 +1279,12 @@ void create_vk_host(Ctx* c, const OnrRrVkDevice& v) {
     // network beside the main one on another queue is where the GPU timeouts came from, so it shows the scaled colour.
     // ONR_RR_SMALL_VIEWS=1 runs the network there too.
     if (c->out_size.x < 960 && !getenv("ONR_RR_SMALL_VIEWS")) {
-        g_log("output %dx%d: a small secondary view, not running the network (ONR_RR_SMALL_VIEWS=1 runs it)", c->out_size.x,
+        c->small_view = true;
+        c->state = ONR_RR_STATE_READY;
+        c->message = "small secondary view: colour scaled without the network";
+        g_log("output %dx%d: a small secondary view, the colour is scaled without the network (ONR_RR_SMALL_VIEWS=1 runs it)", c->out_size.x,
               c->out_size.y);
-        throw std::runtime_error("output width < 960 is a small secondary view (set ONR_RR_SMALL_VIEWS=1 to force)");
+        return;
     }
     c->message = "building the network";
     start_build(c);
@@ -1259,9 +1309,9 @@ int32_t Create(const OnrRrCreateInfo* in, void** out) {
         c->weights_source = utf8(c->dlssd_path);
         c->out_size = {int32_t(in->output_width), int32_t(in->output_height)};
         c->max_render = {int32_t(in->max_render_width), int32_t(in->max_render_height)};
-        g_log("OpenRR " ONR_RR_RUNTIME_VERSION " runtime: create, output %dx%d, render up to %dx%d, mode fast, shaders %s, weights from %s", c->out_size.x,
+        g_log("OpenRR " ONR_RR_RUNTIME_VERSION " runtime: create, output %dx%d, render up to %dx%d, shaders %s, weights from %s", c->out_size.x,
               c->out_size.y, c->max_render.x, c->max_render.y, utf8(c->shader_dir).c_str(), c->weights_source.c_str());
-        if (in->mode == ONR_RR_MODE_FAITHFUL) g_log("faithful mode asked for: this runtime has only the fast mode, fast it is");
+        if (in->mode == ONR_RR_MODE_FAITHFUL) g_log("faithful mode asked for: this runtime has only the _f kernels, those it is");
         if (g_guide_stats) g_log("guide statistics on (ONR_RR_GUIDE_STATS): the disocclusion mask and the SSS guide are read back every 3 s");
         if (vkd) {
             create_vk_host(c, *vkd);
@@ -1352,7 +1402,7 @@ int32_t SetMode(void* ctx, uint32_t mode) {
     // only the fast mode is built; a host that still asks for faithful keeps fast
     static std::atomic<bool> logged{false};
     if (mode == ONR_RR_MODE_FAITHFUL && !logged.exchange(true))
-        g_log("faithful mode asked for: this runtime has only the fast mode, fast it is");
+        g_log("faithful mode asked for: this runtime has only the _f kernels, those it is");
     return ONR_RR_OK;
 }
 
@@ -1441,13 +1491,14 @@ void stats_read(Ctx* c, uint64_t seq) {
     for (int k = 0; k < 2; ++k)
         if (g[k].pending) g[k].rb->AddRef();
     c->stats[0].pending = c->stats[1].pending = false;
+    if (c->stats_thread.joinable()) c->stats_thread.join();
     c->stats_busy->store(true);
-    std::thread([g0 = g[0], g1 = g[1], seq = c->stats_seq, busy = c->stats_busy] {
+    c->stats_thread = std::thread([g0 = g[0], g1 = g[1], seq = c->stats_seq, busy = c->stats_busy] {
         const GuideStats g[2] = {g0, g1};
         for (int k = 0; k < 2; ++k)
             if (g[k].pending) stats_sum(g[k], k, seq), g[k].rb->Release();
         busy->store(false);
-    }).detach();
+    });
 }
 
 void stats_record(Ctx* c, const Job& j, ID3D12GraphicsCommandList* cl) {
@@ -1600,7 +1651,7 @@ int32_t plan_job(Ctx* c, const OnrRrFrame* f, std::unique_ptr<Job>& j, D3D12_PLA
         if (oi->width < uint32_t(c->out_size.x) || oi->height < uint32_t(c->out_size.y))
             return fail(ONR_RR_INVALID_ARGUMENT, "the output image is smaller than the output size given at Create");
         j->out_pitch = (uint32_t(c->out_size.x) * tf_bytes(j->out_tf) + 255) & ~255u;
-        obytes = UINT64(j->out_pitch) * uint32_t(c->out_size.y);
+        j->out_bytes = obytes = UINT64(j->out_pitch) * uint32_t(c->out_size.y);
         return ONR_RR_OK;
     }
     auto* outr = static_cast<ID3D12Resource*>(f->output.resource);
@@ -1613,6 +1664,7 @@ int32_t plan_job(Ctx* c, const OnrRrFrame* f, std::unique_ptr<Job>& j, D3D12_PLA
     box.Width = UINT64(c->out_size.x), box.Height = UINT(c->out_size.y);
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT ofp{};
     c->d3d->GetCopyableFootprints(&box, 0, 1, 0, &ofp, nullptr, nullptr, &obytes);
+    j->out_bytes = obytes;
     j->out_pitch = ofp.Footprint.RowPitch;
     return ONR_RR_OK;
 }
@@ -2056,8 +2108,8 @@ void d3d_setup(Ctx* c) {
         }
     }
     if (!why.empty()) dx->sampler_off();
-    if (dx->sampler_ready()) g_log("D3D12 backend: the fast post samples its history through the sampler, as on Vulkan (check passed)");
-    else g_log("D3D12 backend: the fast post blends its history by hand (%s)", why.c_str());
+    if (dx->sampler_ready()) g_log("D3D12 backend: the post samples its history through the sampler, as on Vulkan (check passed)");
+    else g_log("D3D12 backend: the post blends its history by hand (%s)", why.c_str());
     unload.d = nullptr;
     c->dx = std::move(dx);
 }
@@ -2165,20 +2217,20 @@ void d3d_plan_direct(Ctx* c, Job& j, std::vector<D3D12_RESOURCE_BARRIER>& back) 
 }
 
 // the job's guides that are not read directly, copied into dinput (one barrier each way), on the bound list
-void d3d_copy_inputs(Ctx* c, const Job& j) {
+void d3d_copy_inputs(Ctx* c, Job& j) {
     const OnrRrTexture* tex[G_COUNT];
     frame_textures(j.f, tex);
     D3dDevice::TexCopy cp[G_COUNT];
     uint32_t n = 0;
-    for (int i = 0; i < G_COUNT; ++i)
-        if (j.in[i].present && !j.in[i].direct)
-            cp[n++] = {static_cast<ID3D12Resource*>(tex[i]->resource), tex[i]->state, j.in[i].offset, j.in[i].pitch, 0, 0};
+    uint64_t compact_off = 0;
+    for (int i = 0; i < G_COUNT; ++i) {
+        if (!j.in[i].present || j.in[i].direct) continue;
+        j.in[i].offset = compact_off;
+        cp[n++] = {static_cast<ID3D12Resource*>(tex[i]->resource), tex[i]->state, compact_off, j.in[i].pitch, 0, 0};
+        compact_off = (compact_off + uint64_t(j.in[i].pitch) * j.in[i].th + 511) & ~uint64_t(511);
+    }
     if (n) {
-        uint64_t end = 0;
-        for (int i = 0; i < G_COUNT; ++i)
-            if (j.in[i].present && !j.in[i].direct)
-                end = std::max<uint64_t>(end, j.in[i].offset + uint64_t(j.in[i].pitch) * j.in[i].th);
-        d3d_ensure(c, c->dinput, (end + 511) & ~uint64_t(511));
+        d3d_ensure(c, c->dinput, compact_off);
         c->dx->copy_textures_to_buffer(cp, n, c->dinput);
     }
 }
@@ -2314,7 +2366,8 @@ int32_t Record(void* ctx, const OnrRrFrame* f, void* list, uint32_t edit, OnrRrD
         d.unbind();
         if (network) log_frame(c, render);
         if (!hop) {
-            *job = reinterpret_cast<void*>(uintptr_t(serial));
+            if (g_abi6_host.load(std::memory_order_relaxed) && edit == ONR_RR_EDIT_OFF && !image)
+                *job = reinterpret_cast<void*>(uintptr_t(serial));
             return ONR_RR_OK;
         }
         j->d3d = true;
@@ -2365,6 +2418,10 @@ int32_t RecordPost(void* ctx, void* job, void* list, uint32_t format) {
             d.stamp();
             if (c->direct_ok) r.pack = "d3d_pack";
             const bool direct_out = d3d_direct_output(c, j, r, back);
+            if (!direct_out) {
+                d3d_ensure(c, c->doutput, j.out_bytes);
+                r.output = c->doutput.addr;
+            }
             record_post(c, r, j, tf);
             if (direct_out) d.barrier();
             else d3d_copy_output(c, j);
@@ -2892,6 +2949,22 @@ int32_t GetLastErrorText(char* buf, uint32_t n) {
 
 }  // namespace
 
+// the user's "Fast mode" (docs/FASE24-FASTMODE.md), outside the ABI as OnrRrSetDeltaRate: a DLL without it has no such mode.
+// Safe every frame; the first frame asked starts the kernels' build, and the next recorded frame after it uses them.
+extern "C" int32_t OnrRrSetFastMode(void* context, int32_t on) {
+    if (!context) return ONR_RR_INVALID_ARGUMENT;
+    static_cast<Ctx*>(context)->lite_want = on != 0;
+    return ONR_RR_OK;
+}
+
+// 0 off, 1 on, 2 asked and its kernels still building, 3 asked and not available
+extern "C" int32_t OnrRrGetFastMode(void* context) {
+    if (!context) return 0;
+    auto* c = static_cast<Ctx*>(context);
+    if (!c->lite_want) return 0;
+    return c->lite_failed ? 3 : c->lite_built ? 1 : 2;
+}
+
 extern "C" int32_t OnrRrSetDeltaRate(void* context, float rate) {
     if (!context || !(rate > 0.0f)) return ONR_RR_INVALID_ARGUMENT;
     static_cast<Ctx*>(context)->engine.set_delta_alpha(std::min(rate, 1.0f));
@@ -2901,6 +2974,7 @@ extern "C" int32_t OnrRrSetDeltaRate(void* context, float rate) {
 extern "C" int32_t OnrRrGetApi(uint32_t abi, OnrRrApi* api) {
     if (abi < ONR_RR_ABI_VERSION || abi > ONR_RR_ABI_VERSION_6 || !api) return ONR_RR_INVALID_ARGUMENT;
     if (abi >= ONR_RR_ABI_VERSION_6) {
+        g_abi6_host.store(true, std::memory_order_relaxed);
         auto* a6 = reinterpret_cast<OnrRrApi6*>(api);
         a6->NoteD3d12Fence = NoteD3d12Fence;
         a6->NoteD3d12Invalidated = NoteD3d12Invalidated;

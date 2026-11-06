@@ -67,8 +67,8 @@ extern "C" {
 #define ONR_RR_ABI_VERSION_5 5
 #define ONR_RR_ABI_VERSION_6 6
 
-#define ONR_RR_RUNTIME_VERSION "0.1.0"
-#define ONR_RR_RUNTIME_VERSION_RC 0, 1, 0, 0
+#define ONR_RR_RUNTIME_VERSION "0.1.1"
+#define ONR_RR_RUNTIME_VERSION_RC 0, 1, 1, 0
 
 enum OnrRrResult {
     ONR_RR_OK = 0,
@@ -354,6 +354,17 @@ int32_t OnrRrGetApi(uint32_t abi_version, OnrRrApi* api);
 __declspec(dllexport)
 #endif
 int32_t OnrRrSetDeltaRate(void* context, float rate);
+// The user's "Fast mode": cheaper kernels with a small, measured loss (docs/FASE24-FASTMODE.md). Takes effect on the next
+// recorded frame, keeping every history; the kernels are built on the first frame that asks. Get: 0 off, 1 on, 2 building,
+// 3 not available. Before Record, on the render thread.
+#ifdef ONR_RR_BUILDING
+__declspec(dllexport)
+#endif
+int32_t OnrRrSetFastMode(void* context, int32_t on);
+#ifdef ONR_RR_BUILDING
+__declspec(dllexport)
+#endif
+int32_t OnrRrGetFastMode(void* context);
 
 #ifdef __cplusplus
 }

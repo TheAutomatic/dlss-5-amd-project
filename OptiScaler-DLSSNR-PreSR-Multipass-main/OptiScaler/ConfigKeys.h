@@ -343,6 +343,7 @@ inline constexpr const char *RrDebugMode = "DebugMode";
 inline constexpr const char *kOpenNrRrSection = "OpenNR-RR";
 inline constexpr const char *OnrRrEnabled = "Enabled";
 inline constexpr const char *OnrRrBackend = "Backend";
+inline constexpr const char *OnrRrMode = "Mode";
 inline constexpr const char *OnrRrVkInputLayout = "VkInputLayout";
 inline constexpr const char *OnrRrUseDisocclusionMask = "UseDisocclusionMask";
 inline constexpr const char *OnrRrUseSssGuide = "UseSssGuide";
@@ -360,7 +361,7 @@ inline constexpr const char *OnrRrUseLayerOpacityAndMotion = "UseLayerOpacityAnd
 inline constexpr const char *const kKnown[] = {
     RrEnabled, RrProfile, RrUseAmdDefaults, RrDisocclusionThreshold, RrCrossBilateralNormalStrength, RrTemporalStabilityBias, RrMaxRadiance, RrRadianceClipDeviation, RrGaussianKernelRelaxation, RrHardwareDepth, RrProviderIndex, RrDebugViewLinearDepthMax, RrDebugViewViewport, RrInternalDebugViews, RrDiagnostics, RrDiffuseHitDistance, RrFloorEnabled, RrFloorFastMode, RrFloorRecovery, RrSpecularAlbedoDemodulation, RrDiffuseAlbedoModulation, RrAdditiveLightSplit, RrAlbedoBleedFix, RrAlbedoBleedFixDiffuse, RrFloorFlatRecovery, RrFloorSpecularRecovery, RrFloorDiffuseRecovery, RrFloorFlatNoiseMethod, RrFloorSpecularNoiseMethod, RrFloorDiffuseNoiseMethod, RrFloorLumaRecovery, RrFloorChromaRecovery, RrFloorHandoverCorrelationMix, RrFloorHandoverAnchorClamp, RrDemodDivisorFloor, RrDenoiseDiffuse, RrDenoiseSpecular, RrEstimateHitDistances, RrGpuTimings, RrTaggedNormalRoughness, RrTaggedAmbientOcclusion, RrNormalsInViewSpace, RrUseTitleLinearDepth, RrResponsivityTrustThreshold, RrResponsivityInvert, RrBiasMaskStrength, RrDiffuseSignal, RrSpecularSignal, RrDebugMode,
     Fsr4GpuSupport,
-    OnrRrEnabled, OnrRrBackend, OnrRrVkInputLayout, OnrRrUseDisocclusionMask, OnrRrUseSssGuide, OnrRrInvertDisocclusionMask, OnrRrClampDisocclusionMask, OnrRrDisocclusionMaskScale, OnrRrUseResponsivityMask, OnrRrUseColorBeforeTransparency, OnrRrUseDepthOfFieldGuide, OnrRrUseReflectionMotionVectors, OnrRrUseLayerOpacityAndMotion,
+    OnrRrEnabled, OnrRrBackend, OnrRrMode, OnrRrVkInputLayout, OnrRrUseDisocclusionMask, OnrRrUseSssGuide, OnrRrInvertDisocclusionMask, OnrRrClampDisocclusionMask, OnrRrDisocclusionMaskScale, OnrRrUseResponsivityMask, OnrRrUseColorBeforeTransparency, OnrRrUseDepthOfFieldGuide, OnrRrUseReflectionMotionVectors, OnrRrUseLayerOpacityAndMotion,
     Fsr4Model,
     Fsr4DisableDriverHooks,
     DynamicResolution,
