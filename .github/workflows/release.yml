@@ -107,7 +107,7 @@ jobs:
 
           - **移除宿主内置后端，全面转向独立 `.asi` 插件架构**：
             - 本版本已正式移除原先硬编码集成在 OptiScaler 宿主内部的 **`Mochizuki`、`lmxxf`、`Daniel`** 神经渲染后端及 `person-model` 辅助组件，全面转为集成独立的 **`Mochizuki ASI`（`dlssnr-amd.asi 0.0.8.3`）** 插件；
-            - **后续规划**：我们后续计划与其他作者深入合作，共同推动相关神经渲染后端与扩展统一采用标准 **`.asi` 独立插件形式**开发与分发，实现宿主与各后端的解耦独立迭代，减少多端重复移植与维护的负担。
+            - **后续规划**：计划与其他作者继续合作，共同推动相关神经渲染后端与扩展统一采用标准 **`.asi` 独立插件形式**开发与分发，实现宿主与各后端的解耦独立迭代，减少多端重复移植与维护的负担。
           - **升级 Mochizuki `0.0.8.3` Direct ELF ASI 载荷**：新增完整的 D3D12 Direct ELF 零拷贝 Stage（涵盖 SDR 与 HDR `NR_LIN_IO` 预热及配套 D3D12 HLSL 着色器），直接在游戏的 D3D12 命令列表上运行 ACO 网络，省去跨 Vulkan 设备桥接拷贝与额外显存开销。
           - **升级 FSR 光线再生（FSR-RR）至 `1.2.1`（SDK v2.4.0）**：修复 `AdditiveLightSplit` 漫反射反照率分解与粗糙镜面命中距离（Glossy `hitDist`）丢失导致的反射模糊问题；新增 `CanRecordOwnedCompute()` 修复《红色沙漠》等 D3D12 Enhanced Barriers 游戏的崩溃回归。
 
@@ -149,7 +149,7 @@ jobs:
 
           - **Retired Built-in NR Backends in Favor of Standalone `.asi` Plugins**:
             - Removed the legacy host-integrated **`Mochizuki`**, **`lmxxf`**, and **`Daniel`** neural rendering backends (along with `person-model` helpers) from the OptiScaler host binary, transitioning fully to the standalone **`Mochizuki ASI` (`dlssnr-amd.asi 0.0.8.3`)** plugin;
-            - **Future Direction**: Going forward, we plan to collaborate with other authors to standardize related backends and extensions as modular **`.asi` plugins**, decoupling host and backend release cycles and eliminating duplicated integration and maintenance work across projects.
+            - **Future Direction**: We plan to continue collaborating with other authors to standardize related backends and extensions as modular **`.asi` plugins**, decoupling host and backend release cycles and eliminating duplicated integration and maintenance work across projects.
           - **Upgraded Mochizuki `0.0.8.3` Direct ELF ASI Payload**: Added zero-copy SDR/HDR (`NR_LIN_IO` prewarm) D3D12 Direct ELF stages and bundled D3D12 HLSL shaders so the ACO network executes directly on the game's D3D12 command list without D3D12↔Vulkan bridge copies.
           - **Upgraded FSR Ray Regeneration (FSR-RR) to `1.2.1` (SDK v2.4.0)**: Fixed `AdditiveLightSplit` diffuse albedo regression and preserved glossy `hitDist` to restore sharp specular reflections; added `CanRecordOwnedCompute()` to fix the `v1.14.1` FSR-RR crash regression on D3D12 Enhanced Barrier games (e.g. Crimson Desert).
 
