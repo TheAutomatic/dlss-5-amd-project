@@ -3,8 +3,6 @@
 #include "NrStatusDisplay.h"
 #include "DlssNr_PipelineUi.h"
 #include "NrEffectsSettings.h"
-#include "person/PersonSettings.h"
-#include "person/FaceModel.h"
 #include "amd/PresentExperimental.h"
 #include "amd/AmdBridge.h"
 #include "backend/Selector.h"
@@ -41,12 +39,6 @@ namespace DlssNr
 
 static void ResetSharedEffectsDefaults(Config* config)
 {
-    config->NrPersonPartition = std::optional<bool>{};
-    config->NrPersonModel = std::optional<int>{};
-    config->NrFaceInputSize = std::optional<int>{};
-    config->NrPersonDetailGain = std::optional<float>{};
-    config->NrPersonStrength = std::optional<float>{};
-    config->NrPersonDebugMask = std::optional<bool>{};
     config->NrOverallIntensity = std::optional<float>{};
     config->NrResidualLowGain = std::optional<float>{};
     config->NrResidualDetailGain = std::optional<float>{};
@@ -357,78 +349,6 @@ static void RenderSharedOutputEffects(Config* config)
     if (MenuUi::SliderFloat("Edge detail protection", &residual.edgeProtection, 0.f, 1.f, "%.2f")) config->NrResidualEdgeProtection = residual.edgeProtection;
     HelpMarker("Experimental: limits new fine-scale NR changes near strong original edges. 0 = off. Keeps original edges and alpha.\nCan weaken intended NR detail; this is spatial protection, not temporal anti-flicker.");
     ImGui::EndDisabled();
-    const auto personKind = Backend::ActiveKindFromConfig();
-    const auto personPasses = personKind == Backend::Kind::Lmxxf ? config->LmxxfMultiPass.value_or_default() :
-        personKind == Backend::Kind::Mochizuki ? config->MochizukiEffectivePasses() : 0;
-    const bool renoPerson = personKind == Backend::Kind::Mochizuki && config->MochizukiRenoDX.value_or_default();
-    const bool personSupported = !renoPerson && (personKind == Backend::Kind::Lmxxf || personKind == Backend::Kind::Mochizuki);
-    bool person = config->NrPersonPartition.value_or_default();
-    ImGui::BeginDisabled(!personSupported);
-    if (MenuUi::Checkbox("Person protection", &person)) {
-        config->NrPersonPartition = person;
-        AmdBridge::InvalidateHistory();
-    }
-    ImGui::EndDisabled();
-    HelpMarker("Experimental: single pass uses final NR; multi-pass keeps pass 1 for people. Scene uses final NR. Requires the person model and ONNX Runtime.\nThis does not change backend character/skin controls or reduce network passes. Missing or invalid masks preserve final NR.");
-    if (person) {
-        ImGui::BeginDisabled(!personSupported || overallIntensity == 0);
-        int model = config->NrPersonModel.value_or_default();
-        if (MenuUi::Combo("Person model", &model, "PP-HumanSeg (Fast ~8ms)\0YOLO11n-seg (Baseline ~64ms)\0YuNet (Face only)\0")) {
-            config->NrPersonModel = model;
-            AmdBridge::InvalidateHistory();
-        }
-        HelpMarker("Only the selected model runs. PP-HumanSeg and YOLO cover the body; YuNet protects detected faces with a soft oval.\nYuNet offers 320, 384, 416 and 448 inputs. Small, turned or occluded faces may be missed; hair and clothing are not protected.\nModel times vary by CPU. This does not repair flicker in the backend's own output.");
-        if(model==2) {
-            const auto size=Person::Face::BoundedSize(config->NrFaceInputSize.value_or_default());
-            int choice=size==384?1:size==416?2:size==448?3:0;
-            if(MenuUi::Combo("Face input size", &choice, "320\0" "384\0" "416\0" "448\0")) {
-                config->NrFaceInputSize=choice==1?384:choice==2?416:choice==3?448:320;
-                AmdBridge::InvalidateHistory();
-            }
-            HelpMarker("Full-frame YuNet input. Larger sizes can detect smaller faces but use more CPU time. Default 320. Changing size resets the face mask.");
-        }
-        const auto bounded = Person::Settings {
-            config->NrPersonStrength.value_or_default(), config->NrPersonDetailGain.value_or_default(),
-            config->NrPersonDebugMask.value_or_default() }.Bounded();
-        float strength = bounded.strength;
-        float detail = bounded.detail;
-        if (MenuUi::SliderFloat("Person NR strength", &strength, 0.f, 1.f, "%.2f")) config->NrPersonStrength = strength;
-        HelpMarker("1 keeps the selected NR pass. 0 keeps the NR input inside a reliable person mask, before shared output effects.\nBackend character controls and Overall Intensity still apply; combining protections can weaken the result.");
-        if (MenuUi::SliderFloat("Person detail", &detail, 0.f, 1.f, "%.2f")) config->NrPersonDetailGain = detail;
-        HelpMarker("Reduces fine NR changes on people while retaining broad lighting changes and original detail. 1 = unchanged.\nThis uses the full person mask, not precise face or skin detection. Shared residual gains still apply afterwards.");
-        bool debugMask = bounded.debugMask;
-        if (MenuUi::Checkbox("Show person mask overlay", &debugMask)) config->NrPersonDebugMask = debugMask;
-        HelpMarker("Displays a green overlay on detected person areas for alignment and stability diagnostics.");
-        ImGui::EndDisabled();
-        // Mirrors nr::Preprocess::active(): an active preprocess stops the Mochizuki runtime exporting pass 1,
-        // so multi-pass person protection is bypassed (MochizukiNrRuntime.cpp g.firstPass).
-        const uint32_t prepExposure = config->MochizukiPreprocessExposure.value_or_default();
-        const bool prepActive = config->MochizukiPreprocess.value_or_default() &&
-            (prepExposure > 2 || prepExposure == 1 || (prepExposure == 2 && config->MochizukiPreprocessBiasEv.value_or_default() != 0.f) ||
-             config->MochizukiPreprocessCurve.value_or_default() != 0u || config->MochizukiPreprocessContrast.value_or_default() != 1.f ||
-             config->MochizukiPreprocessSaturation.value_or_default() != 1.f);
-        if (personKind == Backend::Kind::Mochizuki && !renoPerson && personPasses > 1 && prepActive)
-            MenuUi::TextColored(ImVec4(0.95f, 0.70f, 0.20f, 1.0f),
-                               "Preprocessing is on: person protection does not work in multi-pass. Turn off preprocessing.");
-        if (personSupported && personPasses == 1 && strength == 1.f && detail == 1.f && !debugMask)
-            MenuUi::TextWrapped("Single pass: lower person strength or detail to apply protection.");
-    }
-    if (renoPerson) MenuUi::TextWrapped("Person protection is unavailable with RenoDX. Your settings are preserved for the original mode.");
-    else if (!personSupported) MenuUi::TextDisabled("Available with lmxxf and Mochizuki.");
-    else if (person) {
-        // Translate each fixed status independently; preserve diagnostic details
-        // and the numeric CPU timing instead of treating a joined line as a key.
-        const auto status = AmdBridge::PersonStatus();
-        std::string display;
-        for (size_t begin = 0; begin < status.size();) {
-            const auto end = status.find(" | ", begin);
-            if (!display.empty()) display += " | ";
-            display += MenuLocale::Translate(status.substr(begin, end - begin).c_str());
-            if (end == std::string::npos) break;
-            begin = end + 3;
-        }
-        MenuUi::TextWrapped("%s", display.c_str());
-    }
     bool stabilizer = config->NrStabilizerEnabled.value_or_default();
     if (MenuUi::Checkbox("Residual Stabilizer", &stabilizer)) {
         config->NrStabilizerEnabled = stabilizer;
@@ -444,7 +364,7 @@ static void RenderSharedOutputEffects(Config* config)
         HelpMarker("Limits history changes in the compressed colour domain (units of 1/255). Higher values can reduce flicker but increase trailing.");
     }
     if (MenuUi::Button("Reset shared effects##sharedNr")) ResetSharedEffectsDefaults(config);
-    HelpMarker("Resets Overall Intensity, residual gains and protections, Person protection, and Residual Stabilizer.");
+    HelpMarker("Resets Overall Intensity, residual gains and protections, and Residual Stabilizer.");
 
 }
 

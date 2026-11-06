@@ -71,9 +71,7 @@ Add-Type -TypeDefinition 'public static class PackageFixture { public static int
         shutil.copytree(REPO / 'assets/compatibility', self.root / 'assets/compatibility')
         shutil.copy2(REPO / 'tools/install/xess-compat.ps1', self.root / 'tools/install/xess-compat.ps1')
         for name in ('LICENSE', 'NOTICE', 'OptiScaler-DLSSNR-PreSR-Multipass-main/LICENSE',
-                     'third_party/lmxxf/LICENSE', 'third_party/openrr/LICENSE', 'third_party/fsr-rr-1.2.1/license.md', 'third_party/fsr-rr-1.2.1/3rdpartynotice.md', 'third_party/onnxruntime/LICENSE',
-                     'third_party/onnxruntime/YOLO11_AGPL-3.0.txt',
-                     'third_party/onnxruntime/PPHumanSeg_Apache-2.0.txt', 'third_party/onnxruntime/YuNet_MIT.txt',
+                     'third_party/lmxxf/LICENSE', 'third_party/openrr/LICENSE', 'third_party/fsr-rr-1.2.1/license.md', 'third_party/fsr-rr-1.2.1/3rdpartynotice.md',
                      'OptiScaler-DLSSNR-PreSR-Multipass-main/external/xess/LICENSE.txt',
                      'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK/docs/license.md',
                      'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK-v2/docs/license.md',
@@ -192,9 +190,7 @@ Add-Type -TypeDefinition 'public static class PackageFixture { public static int
             self.assertNotIn('mochizuki-python.ps1', launcher)
 
     def test_missing_license_rejected_before_staging(self):
-        for name in ('third_party/lmxxf/LICENSE', 'third_party/onnxruntime/LICENSE',
-                     'third_party/onnxruntime/YOLO11_AGPL-3.0.txt',
-                     'third_party/onnxruntime/PPHumanSeg_Apache-2.0.txt'):
+        for name in ('third_party/lmxxf/LICENSE', 'third_party/openrr/LICENSE'):
             with self.subTest(name=name):
                 path = self.root / name
                 contents = path.read_bytes()

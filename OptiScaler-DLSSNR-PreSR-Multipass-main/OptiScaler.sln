@@ -7,7 +7,6 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "OptiScaler", "OptiScaler\Op
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "dlssnr_forwarder", "OptiScaler\dlssnr\forwarder\dlssnr_forwarder.vcxproj", "{7C1F3B2E-5D44-4A9B-9C1E-2F6A8D0B4E71}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "person_worker", "OptiScaler\dlssnr\person\worker\person_worker.vcxproj", "{9E4D2B8A-3C1F-4F7E-8B02-6A1D5F9C3E4B}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -40,15 +39,6 @@ Global
 		{7C1F3B2E-5D44-4A9B-9C1E-2F6A8D0B4E71}.ReleaseDebug|x64.ActiveCfg = ReleaseDebug|x64
 		{7C1F3B2E-5D44-4A9B-9C1E-2F6A8D0B4E71}.ReleaseDebug|x64.Build.0 = ReleaseDebug|x64
 		{7C1F3B2E-5D44-4A9B-9C1E-2F6A8D0B4E71}.ReleaseDebug|x86.ActiveCfg = ReleaseDebug|Win32
-		{9E4D2B8A-3C1F-4F7E-8B02-6A1D5F9C3E4B}.Debug|x64.ActiveCfg = Debug|x64
-		{9E4D2B8A-3C1F-4F7E-8B02-6A1D5F9C3E4B}.Debug|x64.Build.0 = Debug|x64
-		{9E4D2B8A-3C1F-4F7E-8B02-6A1D5F9C3E4B}.Debug|x86.ActiveCfg = Debug|x64
-		{9E4D2B8A-3C1F-4F7E-8B02-6A1D5F9C3E4B}.Release|x64.ActiveCfg = Release|x64
-		{9E4D2B8A-3C1F-4F7E-8B02-6A1D5F9C3E4B}.Release|x64.Build.0 = Release|x64
-		{9E4D2B8A-3C1F-4F7E-8B02-6A1D5F9C3E4B}.Release|x86.ActiveCfg = Release|x64
-		{9E4D2B8A-3C1F-4F7E-8B02-6A1D5F9C3E4B}.ReleaseDebug|x64.ActiveCfg = Release|x64
-		{9E4D2B8A-3C1F-4F7E-8B02-6A1D5F9C3E4B}.ReleaseDebug|x64.Build.0 = Release|x64
-		{9E4D2B8A-3C1F-4F7E-8B02-6A1D5F9C3E4B}.ReleaseDebug|x86.ActiveCfg = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

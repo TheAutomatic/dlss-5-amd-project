@@ -18,13 +18,9 @@ set "SHADER_PROJECT=OptiScaler-DLSSNR-PreSR-Multipass-main\OptiScaler"
 set "SHADER_EXTERNAL=OptiScaler-DLSSNR-PreSR-Multipass-main\external"
 if /i "%~2"=="fsrd-variants" goto FsrdVariants
 if /i "%~2"=="rr-post-lifetime" goto RrPostLifetime
-if not exist "%SHADER_TEST_OUT%\person-capture-worker" mkdir "%SHADER_TEST_OUT%\person-capture-worker"
-cl /nologo /std:c++20 /EHsc /O2 /MT /utf-8 /DNOMINMAX tests\host\person_worker_fixture.cpp /Fo"%SHADER_TEST_OUT%\person-capture-worker\fixture.obj" /Fe"%SHADER_TEST_OUT%\person-capture-worker\person-worker.exe" || goto fail
 call :BuildAndRun shader_dx12_srv
 if not "%errorlevel%"=="0" goto fail
 call :BuildAndRun shader_dx11_ownership
-if not "%errorlevel%"=="0" goto fail
-call :BuildAndRun nr_person_partition
 if not "%errorlevel%"=="0" goto fail
 call :BuildAndRun nr_output_effects
 if not "%errorlevel%"=="0" goto fail

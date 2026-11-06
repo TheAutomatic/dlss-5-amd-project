@@ -618,12 +618,6 @@ bool Config::Reload(std::filesystem::path iniPath)
             NrFlickerDiag.set_from_config(readBool(CfgKey::kSection, CfgKey::NrFlickerDiag));
             NrFrameDiag.set_from_config(readBool(CfgKey::kSection, CfgKey::NrFrameDiag));
             NrGameWaitDiag.set_from_config(readBool(CfgKey::kSection, CfgKey::NrGameWaitDiag));
-            NrPersonPartition.set_from_config(readBool(CfgKey::kSection, CfgKey::NrPersonPartition));
-            NrPersonModel.set_from_config(readInt(CfgKey::kSection, CfgKey::NrPersonModel));
-            NrFaceInputSize.set_from_config(readInt(CfgKey::kSection, CfgKey::NrFaceInputSize));
-            NrPersonDetailGain.set_from_config(readFloat(CfgKey::kSection, CfgKey::NrPersonDetailGain));
-            NrPersonStrength.set_from_config(readFloat(CfgKey::kSection, CfgKey::NrPersonStrength));
-            NrPersonDebugMask.set_from_config(readBool(CfgKey::kSection, CfgKey::NrPersonDebugMask));
             NrStabilizerEnabled.set_from_config(readBool(CfgKey::kSection, CfgKey::NrStabilizerEnabled));
             NrStabilizerAlpha.set_from_config(readFloat(CfgKey::kSection, CfgKey::NrStabilizerAlpha));
             NrStabilizerThreshold.set_from_config(readFloat(CfgKey::kSection, CfgKey::NrStabilizerThreshold));
@@ -2217,12 +2211,6 @@ bool Config::SaveIni()
     ini.SetValue(CfgKey::kSection, CfgKey::NrFlickerDiag, GetBoolValue(Instance()->NrFlickerDiag.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::NrFrameDiag, GetBoolValue(Instance()->NrFrameDiag.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::NrGameWaitDiag, GetBoolValue(Instance()->NrGameWaitDiag.value_for_config()).c_str());
-    ini.SetValue(CfgKey::kSection, CfgKey::NrPersonPartition, GetBoolValue(Instance()->NrPersonPartition.value_for_config()).c_str());
-    ini.SetValue(CfgKey::kSection, CfgKey::NrPersonModel, GetIntValue(Instance()->NrPersonModel.value_for_config()).c_str());
-    ini.SetValue(CfgKey::kSection, CfgKey::NrFaceInputSize, GetIntValue(Instance()->NrFaceInputSize.value_for_config()).c_str());
-    ini.SetValue(CfgKey::kSection, CfgKey::NrPersonDetailGain, GetFloatValue(Instance()->NrPersonDetailGain.value_for_config()).c_str());
-    ini.SetValue(CfgKey::kSection, CfgKey::NrPersonStrength, GetFloatValue(Instance()->NrPersonStrength.value_for_config()).c_str());
-    ini.SetValue(CfgKey::kSection, CfgKey::NrPersonDebugMask, GetBoolValue(Instance()->NrPersonDebugMask.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::NrStabilizerEnabled, GetBoolValue(Instance()->NrStabilizerEnabled.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::NrStabilizerAlpha, GetFloatValue(Instance()->NrStabilizerAlpha.value_for_config()).c_str());
     ini.SetValue(CfgKey::kSection, CfgKey::NrStabilizerThreshold, GetFloatValue(Instance()->NrStabilizerThreshold.value_for_config()).c_str());

@@ -18,8 +18,6 @@ if ($Worker -eq 'host') {
         /p:OutDir="$out/" /p:IntDir="$out/obj/" /v:minimal /nologo
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     if (!(Test-Path -LiteralPath "$out/OptiScaler.dll")) { throw 'Host DLL was not produced' }
-    cmd /d /c tools\build\build-person-worker.cmd "$out/person-model"
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     cmd /d /c tools\build\build-openrr-runtime.cmd
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     exit 0

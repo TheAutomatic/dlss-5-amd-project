@@ -299,22 +299,6 @@ jobs:
           $cert = Get-PackageSigningCertificate -Ephemeral
           "PACKAGE_SIGNING_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Restore public person assets
-        uses: actions/cache@v5
-        with:
-          path: |
-            assets/person-model/onnxruntime.dll
-            assets/person-model/pphumanseg.onnx
-            assets/person-model/yolo11n-seg.onnx
-            assets/person-model/yunet.onnx
-          key: person-assets-${{ runner.os }}-py312-${{ hashFiles('tools/release/prepare-person-assets.ps1') }}
-
-      - name: Prepare person assets (CRT refreshed each run)
-        shell: pwsh
-        run: |
-          ./tools/release/prepare-person-assets.ps1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
       # Best-effort refresh of the bundled OptiPatcher.asi: fetch the latest rolling release,
       # validate the PE image, and only then replace the committed copy that feeds packaging.
       # On any failure the committed offline copy is kept. Local packaging never runs this step;
@@ -403,7 +387,7 @@ jobs:
             $bad | ForEach-Object { Write-Host "FORBIDDEN: $_" }
             throw 'Refusing to publish: proprietary/user-supplied binaries found in package zip.'
           }
-          $required = @('OptiScaler.dll', 'LmxxfNrRuntime.dll', 'OptiScaler.ini', 'Setup.ps1', 'Setup.bat', 'LICENSE', 'NOTICE', 'person-worker.exe', 'onnxruntime.dll', 'pphumanseg.onnx', 'yolo11n-seg.onnx', 'yunet.onnx')
+          $required = @('OptiScaler.dll', 'LmxxfNrRuntime.dll', 'OpenNrRrRuntime.dll', 'OptiScaler.ini', 'Setup.ps1', 'Setup.bat', 'LICENSE', 'NOTICE')
           foreach ($r in $required) {
             if ($entryNames -notcontains $r) {
               throw "REQUIRED COMPONENT MISSING IN ZIP: $r"
@@ -417,10 +401,7 @@ jobs:
             'OptiScaler/amd_fidelityfx_denoiser_dx12.dll',
             'OptiScaler/amd_fidelityfx_vk.dll',
             'OptiScaler/libxess.dll', 'OptiScaler/libxess_fg.dll', 'OptiScaler/libxell.dll',
-            'OptiScaler/D3D12_OptiScaler/D3D12Core.dll',
-            'person-model/person-worker.exe', 'person-model/onnxruntime.dll',
-            'person-model/pphumanseg.onnx', 'person-model/yolo11n-seg.onnx', 'person-model/yunet.onnx',
-            'person-model/msvcp140.dll', 'person-model/vcruntime140.dll', 'person-model/vcruntime140_1.dll'
+            'OptiScaler/D3D12_OptiScaler/D3D12Core.dll'
           )
           foreach ($path in $dependencyPaths) {
             if ($entryPaths -notcontains $path) { throw "REQUIRED DEPENDENCY MISSING IN ZIP: $path" }
@@ -432,7 +413,7 @@ jobs:
             if ($entryPaths -notcontains $path) { throw "REQUIRED MOCHIZUKI ASI COMPONENT MISSING: $path" }
           }
           if ($entryPaths -match '(?i)/(aco-cache|pipeline-binaries)/') { throw 'Driver cache included in package.' }
-          foreach ($license in @('OptiScaler_LICENSE.txt', 'Lmxxf_MIT.txt', 'Mochizuki_MIT.txt', 'RenoDX_MIT.txt', 'ONNXRuntime_MIT.txt', 'YOLO11_AGPL-3.0.txt', 'PPHumanSeg_Apache-2.0.txt', 'YuNet_MIT.txt', 'XeSS_LICENSE.txt', 'FidelityFX_v1_LICENSE.md', 'FidelityFX_v2_LICENSE.md', 'DirectX_LICENSE.txt')) {
+          foreach ($license in @('OptiScaler_LICENSE.txt', 'Lmxxf_MIT.txt', 'OpenRR_MIT.txt', 'Mochizuki_MIT.txt', 'RenoDX_MIT.txt', 'XeSS_LICENSE.txt', 'FidelityFX_v1_LICENSE.md', 'FidelityFX_v2_LICENSE.md', 'DirectX_LICENSE.txt')) {
             if ($entryPaths -notcontains "Licenses/$license") {
               throw "REQUIRED LICENSE MISSING IN ZIP: $license"
             }

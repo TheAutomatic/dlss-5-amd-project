@@ -172,8 +172,7 @@ int main(int argc, char** argv)
             }
             ImGui::EndDisabled(); assert(!adaptive);
             for (const char* label : {"Low-frequency gain", "Fine-detail gain",
-                                      "Skin detail protection", "Edge detail protection",
-                                      "Person NR strength", "Person detail"}) {
+                                      "Skin detail protection", "Edge detail protection"}) {
                 float value = 1.f;
                 ImGui::SetNextItemWidth(300 * scale);
                 MenuUi::SliderFloat(label, &value, 0.f, 2.f); within();

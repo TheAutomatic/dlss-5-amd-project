@@ -16,10 +16,6 @@ lmxxf: MIT, Copyright (c) 2026 Kien. See third_party/lmxxf/LICENSE
 and third_party/lmxxf/UPSTREAM.md. The HIP API header retains AMD's MIT notice.
 Mochizuki core: MIT; see third_party/mochizuki/LICENSE and UPSTREAM.md.
 RenoDX colour-compositing contributions: MIT; notices remain in the source.
-ONNX Runtime and YuNet: MIT; PP-HumanSeg: Apache-2.0;
-YOLO11 segmentation: AGPL-3.0. See third_party/onnxruntime notices.
-The optional YOLO model runs in the separate person worker. AGPL terms are
-retained; this notice does not replace those terms or grant model rights.
 Other bundled dependencies retain the notices under the product Licenses directory.
 
 Release archives carry these notices in Licenses/. NVIDIA DLLs, extracted

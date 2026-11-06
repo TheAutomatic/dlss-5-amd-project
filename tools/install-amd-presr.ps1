@@ -1565,7 +1565,7 @@ Run dlssnr_on_amd_setup.exe (with nvngx_dlssnr.dll available), then retry.
 if ($uninstallFirst) {
     try {
         $optiSource = Save-ReinstallSource (Join-Path $release 'OptiScaler.dll')
-        foreach ($name in @('OptiScaler.ini', 'OptiScaler', 'person-model')) {
+        foreach ($name in @('OptiScaler.ini', 'OptiScaler')) {
             $path = Join-Path $release $name
             if (Test-Path -LiteralPath $path) { $null = Save-ReinstallSource $path }
         }
@@ -1941,14 +1941,6 @@ if (Test-Path -LiteralPath $deps) {
     } | ForEach-Object {
         $rel = Join-Path 'OptiScaler' $_.FullName.Substring($deps.Length).TrimStart('\','/')
         Install-One $_.FullName $rel
-    }
-}
-
-$personModelSrc = Join-Path $release 'person-model'
-if (Test-Path -LiteralPath $personModelSrc -PathType Container) {
-    Write-Host 'Installing person partition model & ONNX Runtime (person-model)...' -ForegroundColor Cyan
-    Get-ChildItem -LiteralPath $personModelSrc -File | ForEach-Object {
-        Install-One $_.FullName (Join-Path 'person-model' $_.Name)
     }
 }
 

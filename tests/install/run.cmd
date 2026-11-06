@@ -13,7 +13,6 @@ if /i "%~1"=="artwork" goto artwork
 "%PS51%" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests\install\xess-compat.ps1 || goto fail
 "%AMD_TEST_PYTHON%" -m pip install --disable-pip-version-check -r tests\install\requirements.txt || goto fail
 "%PS51%" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests\install\package-signing.ps1 || goto fail
-"%PS51%" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests\install\person-worker-package.ps1 || goto fail
 "%PS51%" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests\install\plugin-paths.ps1 || goto fail
 "%PS51%" -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File tests\install\folder-picker-dpi.ps1 || goto fail
 "%PS51%" -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File tests\install\library-artwork.ps1 || goto fail

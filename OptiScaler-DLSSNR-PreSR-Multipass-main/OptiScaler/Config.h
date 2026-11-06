@@ -373,12 +373,6 @@ class Config
     CustomOptional<bool> NrFlickerDiag { false };
     // Default-off game-thread timing (Present -> submit, fence waits) in NrFrameDiag lines; timestamps only.
     CustomOptional<bool> NrGameWaitDiag { false };
-    CustomOptional<bool> NrPersonPartition { false };
-    CustomOptional<int> NrPersonModel { 0 };
-    CustomOptional<int> NrFaceInputSize { 320 };
-    CustomOptional<float> NrPersonDetailGain { 1.0f };
-    CustomOptional<float> NrPersonStrength { 1.0f };
-    CustomOptional<bool> NrPersonDebugMask { false };
     CustomOptional<bool> NrStabilizerEnabled { false };
     CustomOptional<float> NrStabilizerAlpha { .8f };
     CustomOptional<float> NrStabilizerThreshold { 4.f };

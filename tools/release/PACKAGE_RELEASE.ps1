@@ -51,10 +51,6 @@ foreach ($license in @(
     'third_party/fsr-rr-1.2.1/license.md',
     'third_party/fsr-rr-1.2.1/3rdpartynotice.md',
     'third_party/mochizuki/LICENSE',
-    'third_party/onnxruntime/LICENSE',
-    'third_party/onnxruntime/YOLO11_AGPL-3.0.txt',
-    'third_party/onnxruntime/PPHumanSeg_Apache-2.0.txt',
-    'third_party/onnxruntime/YuNet_MIT.txt',
     'OptiScaler-DLSSNR-PreSR-Multipass-main/external/xess/LICENSE.txt',
     'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK/docs/license.md',
     'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK-v2/docs/license.md',
@@ -340,26 +336,6 @@ NrOverallIntensity=1.0
 ; Skin is a colour heuristic, NOT person detection; warm scenery may also be affected.
 ; These are not temporal anti-flicker. Test HDR/fast motion before enabling by default.
 ; Neutral 1/1/0/0 keeps the old output path. Pure-backend sessions may need a restart.
-; Experimental person protection: scene uses final NR; multi-pass people use pass 1.
-; lmxxf/Mochizuki single/multi-pass. Single pass needs a control below 1; Daniel is not supported.
-; Requires matching person-model/person-worker.exe, ONNX Runtime CPU x64 API 23+
-; and the selected ONNX model. The worker uses private CRT DLLs; game-root CRT is untouched.
-; (COCO FP32, input 1x3x640x640). Model availability depends on the installed package.
-; Missing/stale masks or unreliable motion/depth preserve final NR. Default off.
-NrPersonPartition=false
-; Person model: 0 = PP-HumanSeg (body, default), 1 = YOLO11n-seg (body), 2 = YuNet (face only).
-; Only one model runs. YuNet uses yunet.onnx and soft face ovals; small/turned/occluded faces may be missed.
-NrPersonModel=0
-
-; YuNet full-frame input: 320 (default), 384, 416 or 448. Larger inputs cost more CPU but can detect smaller faces.
-; Other models ignore this setting. Invalid sizes use 320.
-NrFaceInputSize=320
-; Person controls: 0..1, default 1. Single pass uses final NR; multi-pass uses pass 1.
-; Strength 0 retains the NR input inside the mask, before shared output effects.
-; Detail reduces only fine NR changes. Backend character/skin settings are not modified.
-NrPersonStrength=1.0
-NrPersonDetailGain=1.0
-NrPersonDebugMask=false
 NrResidualLowGain=1.0
 NrResidualDetailGain=1.0
 NrResidualSkinProtection=0.0
@@ -666,36 +642,6 @@ $pluginReadme = @(
 $pluginSrc = Join-Path $root 'assets/plugins'
 if (Test-Path -LiteralPath $pluginSrc -PathType Container) {
     Get-ChildItem -LiteralPath $pluginSrc -Filter '*.asi' -File | Copy-Item -Destination $pluginDst -Force
-}
-
-# Bundled person segmentation model & ONNX Runtime (optional feature)
-$personSrc = Join-Path $root 'assets/person-model'
-if (Test-Path -LiteralPath $personSrc -PathType Container) {
-    $personDst = Join-Path $stage 'person-model'
-    New-Item -ItemType Directory -Path $personDst -Force | Out-Null
-    foreach ($required in @('onnxruntime.dll','pphumanseg.onnx','yolo11n-seg.onnx','yunet.onnx','msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll')) {
-        if (!(Test-Path -LiteralPath (Join-Path $personSrc $required))) { throw "Incomplete person-model assets: $required" }
-    }
-    $ortVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $personSrc 'onnxruntime.dll'))
-    if ($ortVersion.FileMajorPart -lt 1 -or ($ortVersion.FileMajorPart -eq 1 -and $ortVersion.FileMinorPart -lt 23)) {
-        throw 'Person worker requires ONNX Runtime 1.23+ CPU x64. Update the complete person-model assets.'
-    }
-    # Build outputs accompany the selected host in both local and CI builds.
-    # Never silently ship assets/person-model/person-worker.exe from another build.
-    $freshWorker = Join-Path (Split-Path -Parent (Resolve-Path -LiteralPath $OptiDll).Path) 'person-model/person-worker.exe'
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'check-person-worker.ps1') -WorkerExe $freshWorker
-    if ($LASTEXITCODE -ne 0) { throw 'Person worker build validation failed.' }
-    Get-ChildItem -LiteralPath $personSrc -File | Where-Object {
-        $_.Name -eq 'pphumanseg.onnx' -or $_.Name -eq 'yolo11n-seg.onnx' -or $_.Name -eq 'yunet.onnx' -or $_.Name -eq 'onnxruntime.dll' -or
-        $_.Name -match '^(msvcp140(_1|_2|_atomic_wait|_codecvt_ids)?|vcruntime140(_1|_threads)?|concrt140|vccorlib140)\.dll$'
-    } | Copy-Item -Destination $personDst -Force
-    Copy-Item -LiteralPath $freshWorker -Destination (Join-Path $personDst 'person-worker.exe') -Force
-    Copy-Item -LiteralPath (Join-Path $root 'third_party/onnxruntime/LICENSE') -Destination (Join-Path $stage 'Licenses/ONNXRuntime_MIT.txt') -Force
-    $agplSrc = Join-Path $root 'third_party/onnxruntime/YOLO11_AGPL-3.0.txt'
-    Copy-Item -LiteralPath $agplSrc -Destination (Join-Path $stage 'Licenses/YOLO11_AGPL-3.0.txt') -Force
-    $ppLicense = Join-Path $root 'third_party/onnxruntime/PPHumanSeg_Apache-2.0.txt'
-    Copy-Item -LiteralPath $ppLicense -Destination (Join-Path $stage 'Licenses/PPHumanSeg_Apache-2.0.txt') -Force
-    Copy-Item -LiteralPath (Join-Path $root 'third_party/onnxruntime/YuNet_MIT.txt') -Destination (Join-Path $stage 'Licenses/YuNet_MIT.txt') -Force
 }
 
 # Neural Rendering: the vendor ASI runs NR itself. The plugin goes where the
