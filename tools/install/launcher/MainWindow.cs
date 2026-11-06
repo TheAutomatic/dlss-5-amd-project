@@ -841,8 +841,17 @@ namespace OptScalerNR.Launcher
             if (content != null) content.Content = L(zh, en);
         }
 
+        bool IsBackendVisible(string id)
+        {
+            if (id == "mochizuki") return true;
+            var check = id == "lmxxf" ? _lmxxfCheck : id == "daniel" ? _danielCheck : null;
+            if (check != null && check.IsVisible) return true;
+            return FindBackend(id) != null;
+        }
+
         bool IsBackendSelected(string id)
         {
+            if (!IsBackendVisible(id)) return false;
             var check = id == "lmxxf" ? _lmxxfCheck : id == "daniel" ? _danielCheck : id == "mochizuki" ? _mochiCheck : null;
             return check != null && check.IsChecked == true;
         }
@@ -2490,23 +2499,26 @@ namespace OptScalerNR.Launcher
                 ReleaseLock();
                 return;
             }
-            if (installing && !multiBackendMode && !keepModelChoice)
+            if (installing && !multiBackendMode)
             {
                 bool nrOn = checkedBackends.Contains("mochizuki");
                 bool rrOn = _openRrToggle != null && _openRrToggle.IsChecked == true;
                 if (!nrOn)
                 {
-                    string warnMsg = !rrOn
-                        ? L(
-                            "当前未启用神经渲染（Mochizuki）与 DLSS 光线重建（OpenRR），本次将仅安装基础版 OptiScaler（支持超分、帧生成与内置 FSR-RR），无法获得神经渲染光影重塑与原生 DLSS 光线重建效果。\n\n是否继续？",
-                            "Neither Mochizuki Neural Rendering nor OpenRR (DLSS Ray Reconstruction) is enabled. Only base OptiScaler will be installed (supporting upscaling, frame generation, and built-in FSR-RR, without Neural Rendering or native DLSS Ray Reconstruction).\n\nContinue anyway?")
-                        : L(
-                            "当前未启用神经渲染（Mochizuki），将无法获得神经渲染光影重塑效果。\n\n是否继续？",
-                            "Mochizuki Neural Rendering is not enabled; Neural Rendering lighting effects will not be available.\n\nContinue anyway?");
-                    if (DialogTheme.Show(_window, warnMsg, _window.Title, MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                    if (!keepModelChoice)
                     {
-                        ReleaseLock();
-                        return;
+                        string warnMsg = !rrOn
+                            ? L(
+                                "当前未启用神经渲染（Mochizuki）与 DLSS 光线重建（OpenRR），本次将仅安装基础版 OptiScaler（支持超分、帧生成与内置 FSR-RR），无法获得神经渲染光影重塑与原生 DLSS 光线重建效果。\n\n是否继续？",
+                                "Neither Mochizuki Neural Rendering nor OpenRR (DLSS Ray Reconstruction) is enabled. Only base OptiScaler will be installed (supporting upscaling, frame generation, and built-in FSR-RR, without Neural Rendering or native DLSS Ray Reconstruction).\n\nContinue anyway?")
+                            : L(
+                                "当前未启用神经渲染（Mochizuki），将无法获得神经渲染光影重塑效果。\n\n是否继续？",
+                                "Mochizuki Neural Rendering is not enabled; Neural Rendering lighting effects will not be available.\n\nContinue anyway?");
+                        if (DialogTheme.Show(_window, warnMsg, _window.Title, MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                        {
+                            ReleaseLock();
+                            return;
+                        }
                     }
                     checkedBackends.Add("none");
                 }
@@ -2725,7 +2737,10 @@ namespace OptScalerNR.Launcher
                         _danielCheck.IsEnabled = false;
                         if (preferredActiveBackend == "daniel") preferredActiveBackend = "mochizuki";
                     }
-                    if (!hasLmxxf && !hasDaniel && !hasUserChoice && _mochiCheck != null && _mochiCheck.IsChecked != true)
+                    var savedChoice = CurrentBackendChoice();
+                    bool onlyRetiredSaved = savedChoice != null && savedChoice.Backends != null &&
+                        savedChoice.Backends.Length > 0 && Array.IndexOf(savedChoice.Backends, "mochizuki") < 0;
+                    if (!hasLmxxf && !hasDaniel && (!hasUserChoice || onlyRetiredSaved) && _mochiCheck != null && _mochiCheck.IsChecked != true)
                         _mochiCheck.IsChecked = true;
                     foreach (var b in result.Backends)
                     {

@@ -302,5 +302,12 @@ function Get-OptScalerBackendCapabilities([string]$pkgRoot, [string]$gameDir, [s
         missingPackageFiles = $missingMochiPackage
     }
 
+    # When the package ships the standalone Mochizuki ASI (v1.15+) and neither retired
+    # runtime (LmxxfNrRuntime.dll / daniel) is present in the package, omit the retired
+    # backends from the capability list so single-backend UI never displays stale lmxxf/daniel hints.
+    if ($mochiAsi -and -not $lmxxfRuntime -and -not $danielRuntime -and -not $danielSetup) {
+        return @($backends | Where-Object { $_.id -eq 'mochizuki' })
+    }
+
     return @($backends)
 }

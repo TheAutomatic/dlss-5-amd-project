@@ -35,6 +35,7 @@ int32_t FastModeState();
 // The DLSS-D texture and scalar keys the inputs inventory in the log reads.
 std::vector<const char*> NgxTextureKeys();
 std::vector<const char*> NgxScalarKeys();
+void ResolveMatrices(const NVSDK_NGX_Parameter& params, bool depthInverted, float (&w2v)[16], float (&v2c)[16]);
 } // namespace OpenNrRr
 
 class OpenNrRrFeatureDx12 : public IFeature_Dx12

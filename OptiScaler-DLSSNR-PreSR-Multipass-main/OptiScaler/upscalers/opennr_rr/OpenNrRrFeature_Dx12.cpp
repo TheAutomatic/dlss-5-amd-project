@@ -274,24 +274,39 @@ bool ReadMatrix(const NVSDK_NGX_Parameter& params, const char* key, float (&out)
     return true;
 }
 
-void ResolveMatrices(const NVSDK_NGX_Parameter& params, bool depthInverted, float (&w2v)[16], float (&v2c)[16])
+void ResolveCameraMatricesImpl(const NVSDK_NGX_Parameter& params, bool depthInverted, float (&w2v)[16], float (&v2c)[16])
 {
     const bool hasW2V = ReadMatrix(params, NVSDK_NGX_Parameter_DLSS_WORLD_TO_VIEW_MATRIX, w2v);
     const bool hasV2C = ReadMatrix(params, NVSDK_NGX_Parameter_DLSS_VIEW_TO_CLIP_MATRIX, v2c);
-    if (hasW2V && hasV2C)
+
+    DirectX::XMMATRIX ngxView {};
+    DirectX::XMMATRIX ngxProj {};
+    DirectX::XMMATRIX inv {};
+    if (hasW2V)
+        ngxView = DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(reinterpret_cast<const DirectX::XMFLOAT4X4*>(w2v)));
+    if (hasV2C)
+        ngxProj = DirectX::XMMatrixTranspose(DirectX::XMLoadFloat4x4(reinterpret_cast<const DirectX::XMFLOAT4X4*>(v2c)));
+
+    const bool validW2V = hasW2V && FSRDCamera::TryInvert(ngxView, inv);
+    const bool validV2C = hasV2C && FSRDCamera::TryInvert(ngxProj, inv);
+    if (validW2V && validV2C)
         return;
 
     if (!StreamlineHooks::isSetConstantsHooked())
         return;
 
     const auto slSnap = StreamlineHooks::getSLConstantsSnapshot();
-    const auto cam = FSRDCamera::Resolve(nullptr, nullptr, &slSnap.constants, depthInverted);
-    if (!hasV2C && cam.projectionSource != FSRDCamera::Source::Missing)
+    const auto cam = FSRDCamera::Resolve(
+        validW2V ? &ngxView : nullptr,
+        validV2C ? &ngxProj : nullptr,
+        &slSnap.constants,
+        depthInverted);
+    if (!validV2C && cam.projectionSource != FSRDCamera::Source::Missing)
     {
         const DirectX::XMMATRIX rows = DirectX::XMMatrixTranspose(cam.projection);
         DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(v2c), rows);
     }
-    if (!hasW2V && cam.viewSource != FSRDCamera::Source::Missing)
+    if (!validW2V && cam.viewSource != FSRDCamera::Source::Missing)
     {
         const DirectX::XMMATRIX rows = DirectX::XMMatrixTranspose(cam.view);
         DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(w2v), rows);
@@ -539,6 +554,11 @@ int32_t FastModeState()
     if (s_infoContext == nullptr || s_getFastMode == nullptr)
         return -1;
     return s_getFastMode(s_infoContext);
+}
+
+void ResolveMatrices(const NVSDK_NGX_Parameter& params, bool depthInverted, float (&w2v)[16], float (&v2c)[16])
+{
+    ResolveCameraMatricesImpl(params, depthInverted, w2v, v2c);
 }
 } // namespace OpenNrRr
 
@@ -807,7 +827,7 @@ bool OpenNrRrFeatureDx12::FillFrame(const NVSDK_NGX_Parameter& params, OnrRrFram
         !std::isfinite(frame.mv_scale_y) || frame.mv_scale_y == 0.0f)
         frame.mv_scale_y = 1.0f;
 
-    ResolveMatrices(params, DepthInverted(), frame.world_to_view, frame.view_to_clip);
+    OpenNrRr::ResolveMatrices(params, DepthInverted(), frame.world_to_view, frame.view_to_clip);
 
     const bool unreal =
         state.NVNGX_Engine == NVSDK_NGX_ENGINE_TYPE_UNREAL || state.gameQuirks & GameQuirk::ForceUnrealEngine;

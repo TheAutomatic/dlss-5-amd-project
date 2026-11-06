@@ -44,22 +44,6 @@ bool Luid(VkPhysicalDevice physicalDevice, LUID& luid)
     return true;
 }
 
-void ReadMatrix(const NVSDK_NGX_Parameter& params, const char* key, float (&out)[16])
-{
-    float* matrix = nullptr;
-
-    if (params.Get(key, reinterpret_cast<void**>(&matrix)) != NVSDK_NGX_Result_Success || matrix == nullptr)
-        return;
-
-    for (int i = 0; i < 16; i++)
-    {
-        if (!std::isfinite(matrix[i]))
-            return;
-    }
-
-    memcpy(out, matrix, sizeof(out));
-}
-
 NVSDK_NGX_Resource_VK* VkResource(const NVSDK_NGX_Parameter& params, const char* key)
 {
     void* resource = nullptr;
@@ -411,8 +395,7 @@ bool OpenNrRrFeatureVk::FillFrame(const NVSDK_NGX_Parameter& params, OnrRrFrame&
         !std::isfinite(frame.mv_scale_y) || frame.mv_scale_y == 0.0f)
         frame.mv_scale_y = 1.0f;
 
-    ReadMatrix(params, NVSDK_NGX_Parameter_DLSS_WORLD_TO_VIEW_MATRIX, frame.world_to_view);
-    ReadMatrix(params, NVSDK_NGX_Parameter_DLSS_VIEW_TO_CLIP_MATRIX, frame.view_to_clip);
+    OpenNrRr::ResolveMatrices(params, DepthInverted(), frame.world_to_view, frame.view_to_clip);
 
     const auto inputLayout = cfg.OpenNrRrVkInputLayout.value_or_default();
     const uint32_t read = _stricmp(inputLayout.c_str(), "general") == 0 ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;

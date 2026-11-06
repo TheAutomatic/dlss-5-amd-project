@@ -2687,10 +2687,17 @@ if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
     $anyNrInstalled = $installLmxxf -or $installDaniel -or $installMochizuki
     if (-not $anyNrInstalled) {
         $dlssnrSettings['Enabled'] = 'false'
-        $staleAsi = Join-Path $game 'OptiScaler/plugins/dlssnr-amd.asi'
-        if (Test-Path -LiteralPath $staleAsi -PathType Leaf) {
-            Remove-Item -LiteralPath $staleAsi -Force -ErrorAction SilentlyContinue
-            Write-Host 'Removed dlssnr-amd.asi because Neural Rendering was unchecked.' -ForegroundColor DarkGray
+        $asiPluginDirs = @((Join-Path $game 'OptiScaler/plugins'))
+        try {
+            $customPlugDir = Get-PluginsTargetDirectory $game $gameIni
+            if ($customPlugDir -and $asiPluginDirs -notcontains $customPlugDir) { $asiPluginDirs += $customPlugDir }
+        } catch { }
+        foreach ($pDir in $asiPluginDirs) {
+            $staleAsi = Join-Path $pDir 'dlssnr-amd.asi'
+            if (Test-Path -LiteralPath $staleAsi -PathType Leaf) {
+                Remove-Item -LiteralPath $staleAsi -Force -ErrorAction SilentlyContinue
+                Write-Host 'Removed dlssnr-amd.asi because Neural Rendering was unchecked.' -ForegroundColor DarkGray
+            }
         }
     } elseif ($iniFromTemplate) {
         $dlssnrSettings['Enabled'] = 'true'
