@@ -471,12 +471,8 @@ bool OpenNrRrFeatureVk::FillFrame(const NVSDK_NGX_Parameter& params, OnrRrFrame&
                                           NVSDK_NGX_Parameter_DLSSD_SpecularHitDistance_Subrect_Base_X,
                                           NVSDK_NGX_Parameter_DLSSD_SpecularHitDistance_Subrect_Base_Y, read);
     frame.output = texture(NVSDK_NGX_Parameter_Output, nullptr, nullptr, outputLayout);
-    frame.transparency_layer =
-        texture(NVSDK_NGX_Parameter_DLSSD_ColorBeforeParticles, "DLSS.TransparencyLayer.Subrect.Base.X",
-                "DLSS.TransparencyLayer.Subrect.Base.Y", read);
-    if (frame.transparency_layer.resource == nullptr)
-        frame.transparency_layer = texture("DLSS.TransparencyLayer", "DLSS.TransparencyLayer.Subrect.Base.X",
-                                           "DLSS.TransparencyLayer.Subrect.Base.Y", read);
+    frame.transparency_layer = texture("DLSS.TransparencyLayer", "DLSS.TransparencyLayer.Subrect.Base.X",
+                                       "DLSS.TransparencyLayer.Subrect.Base.Y", read);
     frame.transparency_opacity = texture("DLSS.TransparencyLayerOpacity", "DLSS.TransparencyLayerOpacity.Subrect.Base.X",
                                          "DLSS.TransparencyLayerOpacity.Subrect.Base.Y", read);
     frame.disocclusion_mask = texture("DLSS.DisocclusionMask", "DLSS.DisocclusionMask.Subrect.Base.X",

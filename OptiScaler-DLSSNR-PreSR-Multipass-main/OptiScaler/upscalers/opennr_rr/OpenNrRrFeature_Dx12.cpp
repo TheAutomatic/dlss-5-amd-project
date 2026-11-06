@@ -1,6 +1,8 @@
 #include "pch.h"
 #include "OpenNrRrFeature_Dx12.h"
 #include <upscalers/fsr31/FSRDFeature_Dx12.h>
+#include <upscalers/fsr31/FSRDCameraMatrices.h>
+#include <hooks/Streamline_Hooks.h>
 
 #include <Config.h>
 #include <Util.h>
@@ -250,21 +252,50 @@ DepthKind ClassifyDepth(ID3D12Resource* depth)
     return DepthKind::Unknown;
 }
 
-// The matrix exactly as the game passed it; all zero when absent or not finite.
-void ReadMatrix(const NVSDK_NGX_Parameter& params, const char* key, float (&out)[16])
+// The matrix as a row-vector 4x4 (v' = v M); falls back to Streamline camera constants when NGX leaves it unset.
+bool ReadMatrix(const NVSDK_NGX_Parameter& params, const char* key, float (&out)[16])
 {
     float* matrix = nullptr;
 
     if (params.Get(key, reinterpret_cast<void**>(&matrix)) != NVSDK_NGX_Result_Success || matrix == nullptr)
-        return;
+        return false;
 
+    bool nonZero = false;
     for (int i = 0; i < 16; i++)
     {
-        if (!std::isfinite(matrix[i]))
-            return;
+        if (!std::isfinite(matrix[i]) || matrix[i] == sl::INVALID_FLOAT)
+            return false;
+        nonZero = nonZero || matrix[i] != 0.0f;
     }
+    if (!nonZero)
+        return false;
 
     memcpy(out, matrix, sizeof(out));
+    return true;
+}
+
+void ResolveMatrices(const NVSDK_NGX_Parameter& params, bool depthInverted, float (&w2v)[16], float (&v2c)[16])
+{
+    const bool hasW2V = ReadMatrix(params, NVSDK_NGX_Parameter_DLSS_WORLD_TO_VIEW_MATRIX, w2v);
+    const bool hasV2C = ReadMatrix(params, NVSDK_NGX_Parameter_DLSS_VIEW_TO_CLIP_MATRIX, v2c);
+    if (hasW2V && hasV2C)
+        return;
+
+    if (!StreamlineHooks::isSetConstantsHooked())
+        return;
+
+    const auto slSnap = StreamlineHooks::getSLConstantsSnapshot();
+    const auto cam = FSRDCamera::Resolve(nullptr, nullptr, &slSnap.constants, depthInverted);
+    if (!hasV2C && cam.projectionSource != FSRDCamera::Source::Missing)
+    {
+        const DirectX::XMMATRIX rows = DirectX::XMMatrixTranspose(cam.projection);
+        DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(v2c), rows);
+    }
+    if (!hasW2V && cam.viewSource != FSRDCamera::Source::Missing)
+    {
+        const DirectX::XMMATRIX rows = DirectX::XMMatrixTranspose(cam.view);
+        DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(w2v), rows);
+    }
 }
 
 constexpr const char* kNgxTextures[] = {
@@ -776,8 +807,7 @@ bool OpenNrRrFeatureDx12::FillFrame(const NVSDK_NGX_Parameter& params, OnrRrFram
         !std::isfinite(frame.mv_scale_y) || frame.mv_scale_y == 0.0f)
         frame.mv_scale_y = 1.0f;
 
-    ReadMatrix(params, NVSDK_NGX_Parameter_DLSS_WORLD_TO_VIEW_MATRIX, frame.world_to_view);
-    ReadMatrix(params, NVSDK_NGX_Parameter_DLSS_VIEW_TO_CLIP_MATRIX, frame.view_to_clip);
+    ResolveMatrices(params, DepthInverted(), frame.world_to_view, frame.view_to_clip);
 
     const bool unreal =
         state.NVNGX_Engine == NVSDK_NGX_ENGINE_TYPE_UNREAL || state.gameQuirks & GameQuirk::ForceUnrealEngine;
@@ -832,12 +862,9 @@ bool OpenNrRrFeatureDx12::FillFrame(const NVSDK_NGX_Parameter& params, OnrRrFram
                 NVSDK_NGX_Parameter_DLSSD_SpecularRayDirectionHitDistance_Subrect_Base_X,
                 NVSDK_NGX_Parameter_DLSSD_SpecularRayDirectionHitDistance_Subrect_Base_Y, read);
     frame.output = texture(NVSDK_NGX_Parameter_Output, nullptr, nullptr, outputState);
-    frame.transparency_layer =
-        texture(NVSDK_NGX_Parameter_DLSSD_ColorBeforeParticles, "DLSS.TransparencyLayer.Subrect.Base.X",
-                "DLSS.TransparencyLayer.Subrect.Base.Y", read);
-    if (frame.transparency_layer.resource == nullptr)
-        frame.transparency_layer = texture("DLSS.TransparencyLayer", "DLSS.TransparencyLayer.Subrect.Base.X",
-                                           "DLSS.TransparencyLayer.Subrect.Base.Y", read);
+    // ColorBeforeParticles is a whole-scene guide (already contained in Color), not a premultiplied overlay.
+    frame.transparency_layer = texture("DLSS.TransparencyLayer", "DLSS.TransparencyLayer.Subrect.Base.X",
+                                       "DLSS.TransparencyLayer.Subrect.Base.Y", read);
     frame.transparency_opacity =
         texture("DLSS.TransparencyLayerOpacity", "DLSS.TransparencyLayerOpacity.Subrect.Base.X",
                 "DLSS.TransparencyLayerOpacity.Subrect.Base.Y", read);

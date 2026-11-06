@@ -636,7 +636,11 @@ struct PackPC {
 
 // the projection that turns hardware depth into view depth, and the sign that makes view depth positive ahead
 void depth_projection(const OnrRrFrame& f, float proj[4], float& sign) {
-    const float* m = f.view_to_clip;
+    const float persp[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, -0.1f, 0};
+    bool zero = true;
+    for (int i = 0; i < 16; ++i)
+        if (f.view_to_clip[i] != 0.0f) { zero = false; break; }
+    const float* m = zero ? persp : f.view_to_clip;
     proj[0] = m[10], proj[1] = m[11], proj[2] = m[14], proj[3] = m[15];
     sign = m[11] < 0 ? -1.0f : 1.0f;
 }
