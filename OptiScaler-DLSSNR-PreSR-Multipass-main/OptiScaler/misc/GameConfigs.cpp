@@ -322,7 +322,6 @@ const std::vector<GameConfig> gameConfigs = {
     {
         .exes = { "cyberpunk2077.exe" },
         .defaults = { WithUpscalerFGInput(FGDisableHUDFix = true), DxgiSpoofing = false,
-                      RestoreComputeSignature = true, ExtendedStateRestore = true,
                       ReprojectionDepthCutoff = 0.02f },
         .quirks = { CyberpunkHudlessState, FSRFGHudlessMismatchFixup },
     },
