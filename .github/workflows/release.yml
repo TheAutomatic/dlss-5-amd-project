@@ -149,7 +149,7 @@ jobs:
 
           - **Retired Built-in NR Backends in Favor of Standalone `.asi` Plugins**:
             - Removed the legacy host-integrated **`Mochizuki`**, **`lmxxf`**, and **`Daniel`** neural rendering backends (along with `person-model` helpers) from the OptiScaler host binary, transitioning fully to the standalone **`Mochizuki ASI` (`dlssnr-amd.asi 0.0.8.3`)** plugin;
-            - **Future Direction**: We plan to continue collaborating with other authors to standardize related backends and extensions as modular **`.asi` plugins**, decoupling host and backend release cycles and eliminating duplicated integration and maintenance work across projects.
+            - **Future Direction**: Plans to continue collaborating with other authors to standardize related backends and extensions as modular **`.asi` plugins**, decoupling host and backend release cycles and eliminating duplicated integration and maintenance work across projects.
           - **Upgraded Mochizuki `0.0.8.3` Direct ELF ASI Payload**: Added zero-copy SDR/HDR (`NR_LIN_IO` prewarm) D3D12 Direct ELF stages and bundled D3D12 HLSL shaders so the ACO network executes directly on the game's D3D12 command list without D3D12↔Vulkan bridge copies.
           - **Upgraded FSR Ray Regeneration (FSR-RR) to `1.2.1` (SDK v2.4.0)**: Fixed `AdditiveLightSplit` diffuse albedo regression and preserved glossy `hitDist` to restore sharp specular reflections; added `CanRecordOwnedCompute()` to fix the `v1.14.1` FSR-RR crash regression on D3D12 Enhanced Barrier games (e.g. Crimson Desert).
 
