@@ -384,9 +384,9 @@ Add-Type -TypeDefinition 'public static class PackageFixture { public static int
             self.assertIn('OptiScaler/plugins/dlssnr-amd.asi', archive.namelist())
             self.assertIn('dlssnr-amd/shaders/g_attn.spv', archive.namelist())
             self.assertNotIn('MochizukiNrRuntime.dll', archive.namelist())
-            self.assertNotIn('dlssnr-amd/dlssnr.bin', archive.namelist())
+            self.assertNotIn('dlssnr-amd/CC_SILVER_AARDWOLD.bin', archive.namelist())
             archive.extractall(extracted)
-        model = extracted / 'dlssnr-amd/dlssnr.bin'
+        model = extracted / 'dlssnr-amd/CC_SILVER_AARDWOLD.bin'
         model.write_bytes(b'user supplied official model')
         game = self.root / 'mochizuki game'
         game.mkdir()
@@ -398,7 +398,7 @@ Add-Type -TypeDefinition 'public static class PackageFixture { public static int
         self.assertEqual(len(asi), 1, out)
         self.assertEqual((game / 'dlssnr-amd/shaders/g_attn.spv').read_bytes(),
                          (extracted / 'dlssnr-amd/shaders/g_attn.spv').read_bytes())
-        self.assertEqual((game / 'dlssnr-amd/dlssnr.bin').read_bytes(), model.read_bytes())
+        self.assertEqual((game / 'dlssnr-amd/CC_SILVER_AARDWOLD.bin').read_bytes(), model.read_bytes())
         parsed = configparser.ConfigParser()
         parsed.read(game / 'OptiScaler.ini', encoding='utf-8-sig')
         self.assertEqual(parsed['DlssNr']['NrBackend'], 'mochizuki')
@@ -411,7 +411,7 @@ Add-Type -TypeDefinition 'public static class PackageFixture { public static int
         self.assertEqual(code, 0, out)
         self.assertFalse(asi[0].exists())
         self.assertFalse((game / 'dlssnr-amd/shaders/g_attn.spv').exists())
-        self.assertEqual((game / 'dlssnr-amd/dlssnr.bin').read_bytes(), model.read_bytes())
+        self.assertEqual((game / 'dlssnr-amd/CC_SILVER_AARDWOLD.bin').read_bytes(), model.read_bytes())
         self.assertEqual(user_asset.read_bytes(), b'user shader')
         self.assertEqual(lookalike.read_bytes(), b'user record')
 

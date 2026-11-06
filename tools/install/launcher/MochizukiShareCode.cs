@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -33,6 +33,7 @@ namespace OptScalerNR.Launcher
             list.Add(F("Network", "Resize History", "bool"));
             list.Add(F("Network", "History Precision", "history"));
             list.Add(F("Network", "Style Grade", "bool"));
+            list.Add(F("Network", "OptimizedLayers", "optimized_layers"));
             list.Add(F("RenoDX", "Enabled", "bool"));
             foreach (var key in new[] { "Enabled", "Exposure", "ExposureBias", "Curve", "Contrast", "Saturation", "Inverse" })
                 list.Add(F("Preprocess", key, key == "Enabled" || key == "Inverse" ? "bool" : (key == "Exposure" || key == "Curve") ? "str" : "num"));
@@ -239,6 +240,13 @@ namespace OptScalerNR.Launcher
                 var h = value.ToLowerInvariant();
                 if (h == "16" || h == "fp16" || h == "half" || h == "rgba16f" ||
                     h == "32" || h == "fp32" || h == "full" || h == "rgba32f") return;
+                throw new CodeException("value");
+            }
+            if (field.Kind == "optimized_layers") {
+                var o = value.ToLowerInvariant();
+                if (o == "0" || o == "1" || o == "2" || o == "3" ||
+                    o == "quality" || o == "balanced" || o == "performance" ||
+                    o == "ultra" || o == "ultra performance" || o == "ultra_performance") return;
                 throw new CodeException("value");
             }
             if (field.Kind == "processing") {

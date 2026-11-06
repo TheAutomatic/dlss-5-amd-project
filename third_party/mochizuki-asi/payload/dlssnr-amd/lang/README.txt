@@ -16,6 +16,8 @@ Making a language
      %-values differ from the English text's is not used, and the English text is shown.
    - \n is a new line, \" a quotation mark, \\ a backslash.
    - A text left in English, or removed from the file, is shown in English.
+   - The networks' names are texts too (msgid "CC_SMALL_FP8" and the others): a translation renames a network in
+     the menus only; dlssnr-amd.ini, the hotkey's log lines and the bug report keep its codename.
 5. Choose the language: in NR Control, on its NR Control page; on the ReShade route, on the Language page of the
    DLSSNR-AMD add-on. The file is read again each time you save it, so the translation can be checked in the game.
 

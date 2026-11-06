@@ -28,10 +28,10 @@ class Extractor {
         if (args.Length != 2 || !File.Exists(args[0])) return 2;
         Directory.CreateDirectory(args[1]);
         var magic = System.Text.Encoding.ASCII.GetBytes("NRMODEL1");
-        Write(Path.Combine(args[1], "dlssnr.bin"), magic, 599);
+        Write(Path.Combine(args[1], "CC_SILVER_AARDWOLD.bin"), magic, 599);
         var marker = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "extractor-small.marker");
         if (!File.Exists(marker) || File.ReadAllText(marker).Trim() != "0")
-            Write(Path.Combine(args[1], "dlssnr-small.bin"), magic, 0);
+            Write(Path.Combine(args[1], "CC_SMALL_FP8.bin"), magic, 0);
         return 0;
     }
     static void Write(string path, byte[] magic, uint entries) {

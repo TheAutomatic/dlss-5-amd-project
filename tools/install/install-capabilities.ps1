@@ -1,4 +1,4 @@
-﻿# Common backend capability and weight checking for OptScaler NR.
+# Common backend capability and weight checking for OptScaler NR.
 # Shared between launcher-worker.ps1 and install-amd-presr.ps1.
 
 function Test-LmxxfWeightsDir([string]$Directory) {
@@ -71,8 +71,8 @@ function Get-OptScalerBackendCapabilities([string]$pkgRoot, [string]$gameDir, [s
     if (-not $lmxxfWeights) {
         foreach ($root in @($pkgRoot, $gameDir)) {
             if (-not $root) { continue }
-            $packs = @((Join-Path $root 'dlssnr-amd/dlssnr.bin'))
-            if ($root -eq $pkgRoot) { $packs += Join-Path $root 'dlssnr.bin' }
+            $packs = @((Join-Path $root 'dlssnr-amd/CC_SILVER_AARDWOLD.bin'), (Join-Path $root 'dlssnr-amd/dlssnr.bin'))
+            if ($root -eq $pkgRoot) { $packs += @(Join-Path $root 'CC_SILVER_AARDWOLD.bin'); $packs += @(Join-Path $root 'dlssnr.bin') }
             foreach ($pack in $packs) {
                 if (Test-MochizukiModelHeaderFile $pack 599) { $originalSource = $true; break }
             }
@@ -94,8 +94,8 @@ function Get-OptScalerBackendCapabilities([string]$pkgRoot, [string]$gameDir, [s
     if (-not $lmxxfSmall) {
         foreach ($root in @($pkgRoot, $gameDir)) {
             if (-not $root) { continue }
-            $packs = @((Join-Path $root 'dlssnr-amd/dlssnr-small.bin'))
-            if ($root -eq $pkgRoot) { $packs += Join-Path $root 'dlssnr-small.bin' }
+            $packs = @((Join-Path $root 'dlssnr-amd/CC_SMALL_FP8.bin'), (Join-Path $root 'dlssnr-amd/dlssnr-small.bin'))
+            if ($root -eq $pkgRoot) { $packs += @(Join-Path $root 'CC_SMALL_FP8.bin'); $packs += @(Join-Path $root 'dlssnr-small.bin') }
             foreach ($pack in $packs) {
                 if (Test-MochizukiModelHeaderFile $pack 255) { $smallSource = $true; break }
             }
@@ -203,32 +203,32 @@ function Get-OptScalerBackendCapabilities([string]$pkgRoot, [string]$gameDir, [s
         foreach ($cand in @((Join-Path $pkgRoot 'OptiScaler\plugins\dlssnr-amd.asi'), (Join-Path $pkgRoot 'dlssnr-amd.asi'))) {
             if (Test-Path -LiteralPath $cand -PathType Leaf) { $mochiAsi = $cand; break }
         }
-        $cand = Join-Path $pkgRoot 'dlssnr-amd\dlssnr.bin'
+        $cand = Join-Path $pkgRoot 'dlssnr-amd\CC_SILVER_AARDWOLD.bin'
         if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiModel = $cand }
-        $cand = Join-Path $pkgRoot 'dlssnr-amd\dlssnr-small.bin'
+        $cand = Join-Path $pkgRoot 'dlssnr-amd\CC_SMALL_FP8.bin'
         if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiSmall = $cand }
-        $cand = Join-Path $pkgRoot 'dlssnr-amd\dlssnr-small-experimental.bin'
+        $cand = Join-Path $pkgRoot 'dlssnr-amd\CC_SMALL_FP8_EXPERIMENTAL.bin'
         if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiExperimental = $cand }
-        $cand = Join-Path $pkgRoot 'dlssnr-amd\dlssnr-int4.bin'
+        $cand = Join-Path $pkgRoot 'dlssnr-amd\CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin'
         if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiInt4 = $cand }
         $cand = Join-Path $pkgRoot 'nvngx_dlssnr.dll'
         if (Test-Path -LiteralPath $cand -PathType Leaf) { $mochiNv = $cand }
     }
     if ($gameDir) {
         if (-not $mochiModel) {
-            $cand = Join-Path $gameDir 'dlssnr-amd\dlssnr.bin'
+            $cand = Join-Path $gameDir 'dlssnr-amd\CC_SILVER_AARDWOLD.bin'
             if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiModel = $cand }
         }
         if (-not $mochiSmall) {
-            $cand = Join-Path $gameDir 'dlssnr-amd\dlssnr-small.bin'
+            $cand = Join-Path $gameDir 'dlssnr-amd\CC_SMALL_FP8.bin'
             if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiSmall = $cand }
         }
         if (-not $mochiExperimental) {
-            $cand = Join-Path $gameDir 'dlssnr-amd\dlssnr-small-experimental.bin'
+            $cand = Join-Path $gameDir 'dlssnr-amd\CC_SMALL_FP8_EXPERIMENTAL.bin'
             if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiExperimental = $cand }
         }
         if (-not $mochiInt4) {
-            $cand = Join-Path $gameDir 'dlssnr-amd\dlssnr-int4.bin'
+            $cand = Join-Path $gameDir 'dlssnr-amd\CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin'
             if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiInt4 = $cand }
         }
         if (-not $mochiNv) {
@@ -258,7 +258,10 @@ function Get-OptScalerBackendCapabilities([string]$pkgRoot, [string]$gameDir, [s
     $mochiSourceProvidesOriginal = [bool]$mochiNv
     $mochiSourceProvidesSmall = [bool]$mochiNv
     $mochiDelta = $pkgRoot -and (Test-Path -LiteralPath (Join-Path $pkgRoot 'experimental/dlssnr-small-experimental.delta') -PathType Leaf)
-    $mochiInt4Data = $pkgRoot -and (Test-Path -LiteralPath (Join-Path $pkgRoot 'dlssnr-amd/int4') -PathType Container)
+    $mochiInt4Data = $pkgRoot -and (
+        (Test-Path -LiteralPath (Join-Path $pkgRoot 'dlssnr-amd/int4-ultra') -PathType Container) -or
+        (Test-Path -LiteralPath (Join-Path $pkgRoot 'dlssnr-amd/int4') -PathType Container)
+    )
     $mochiInt4Tool = $pkgRoot -and (Test-Path -LiteralPath (Join-Path $pkgRoot 'model-tools/dlssnr-int4-weights.exe') -PathType Leaf)
     $mochiExperimentalPreparable = (-not $mochiExperimentalReady) -and
         ($mochiSmallReady -or $mochiSourceProvidesSmall) -and $mochiDelta

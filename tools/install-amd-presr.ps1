@@ -33,10 +33,10 @@ param(
     [string]$AuthorDll,
     [ValidateSet("auto", "daniel", "lmxxf", "mochizuki", "all")]
     [string]$Backend = "auto",
-    [ValidateSet('both', 'all', 'small', 'experimental', 'original', 'int4')]
+    [ValidateSet('both', 'all', 'small', 'experimental', 'original', 'int4', 'optimized')]
     [string]$MochizukiModels,
     [string[]]$MochizukiNetworks,
-    [ValidateSet('small', 'experimental', 'original', 'int4')]
+    [ValidateSet('small', 'experimental', 'original', 'int4', 'optimized')]
     [string]$MochizukiActiveModel,
     [ValidateSet('both', 'small', 'original')]
     [string]$LmxxfModels,
@@ -122,14 +122,14 @@ if ($launcherDecisions) {
     if (-not $PSBoundParameters.ContainsKey('MochizukiActiveModel') -and
         $launcherDecisions.PSObject.Properties['mochizukiActiveModel'] -and $launcherDecisions.mochizukiActiveModel) {
         $MochizukiActiveModel = [string]$launcherDecisions.mochizukiActiveModel
-        if ($MochizukiActiveModel -notin @('small','experimental','original','int4')) {
-            Fail 'DecisionJson mochizukiActiveModel must be small, experimental, original, or int4.'
+        if ($MochizukiActiveModel -notin @('small','experimental','original','int4','optimized')) {
+            Fail 'DecisionJson mochizukiActiveModel must be small, experimental, original, int4, or optimized.'
         }
     }
     if (-not $PSBoundParameters.ContainsKey('MochizukiModels') -and $launcherDecisions.mochizukiModels) {
         $MochizukiModels = [string]$launcherDecisions.mochizukiModels
-        if ($MochizukiModels -notin @('both','all','small','experimental','original','int4')) {
-            Fail 'DecisionJson mochizukiModels must be both, all, small, experimental, original, or int4.'
+        if ($MochizukiModels -notin @('both','all','small','experimental','original','int4','optimized')) {
+            Fail 'DecisionJson mochizukiModels must be both, all, small, experimental, original, int4, or optimized.'
         }
     }
     if (-not $lmxxfModelsExplicit -and $launcherDecisions.lmxxfModels) {
@@ -912,9 +912,9 @@ function Test-MochizukiModelHeader([string]$Path, [uint32]$Entries = 599) {
     return Test-MochizukiModelFile $Path $Entries
 }
 $mochizukiModel = $null
-$modelCandidates = @((Join-Path $Root 'dlssnr-amd/dlssnr.bin'), (Join-Path $Root 'dlssnr.bin'))
-if ($mochizukiAssets) { $modelCandidates += (Join-Path $mochizukiAssets 'dlssnr.bin') }
-$modelCandidates += (Join-Path $game 'dlssnr-amd/dlssnr.bin')
+$modelCandidates = @((Join-Path $Root 'dlssnr-amd/CC_SILVER_AARDWOLD.bin'), (Join-Path $Root 'CC_SILVER_AARDWOLD.bin'))
+if ($mochizukiAssets) { $modelCandidates += (Join-Path $mochizukiAssets 'CC_SILVER_AARDWOLD.bin') }
+$modelCandidates += (Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD.bin')
 foreach ($candidate in $modelCandidates) {
     # Presence only: the ASI owns the model format.
     if ((Test-Path -LiteralPath $candidate -PathType Leaf) -and (Get-Item -LiteralPath $candidate).Length -gt 0) {
@@ -923,9 +923,9 @@ foreach ($candidate in $modelCandidates) {
 }
 
 $mochizukiSmallModel = $null
-$smallModelCandidates = @((Join-Path $Root 'dlssnr-amd/dlssnr-small.bin'), (Join-Path $Root 'dlssnr-small.bin'))
-if ($mochizukiAssets) { $smallModelCandidates += (Join-Path $mochizukiAssets 'dlssnr-small.bin') }
-$smallModelCandidates += (Join-Path $game 'dlssnr-amd/dlssnr-small.bin')
+$smallModelCandidates = @((Join-Path $Root 'dlssnr-amd/CC_SMALL_FP8.bin'), (Join-Path $Root 'CC_SMALL_FP8.bin'))
+if ($mochizukiAssets) { $smallModelCandidates += (Join-Path $mochizukiAssets 'CC_SMALL_FP8.bin') }
+$smallModelCandidates += (Join-Path $game 'dlssnr-amd/CC_SMALL_FP8.bin')
 foreach ($candidate in $smallModelCandidates) {
     if ((Test-Path -LiteralPath $candidate -PathType Leaf) -and (Get-Item -LiteralPath $candidate).Length -gt 0) {
         $mochizukiSmallModel = $candidate; break
@@ -1094,7 +1094,7 @@ if ($installMochizuki) {
     if ($networksExplicit) {
         $MochizukiNetworks = @($MochizukiNetworks | ForEach-Object { ([string]$_).Split(',') } |
             ForEach-Object { $_.Trim().ToLowerInvariant() } | Where-Object { $_ } | Select-Object -Unique)
-        $badNetworks = @($MochizukiNetworks | Where-Object { $_ -notin @('small', 'experimental', 'original', 'int4') })
+        $badNetworks = @($MochizukiNetworks | Where-Object { $_ -notin @('small', 'experimental', 'original', 'int4', 'optimized') })
         if ($badNetworks.Count -gt 0) {
             Fail ("Unknown Mochizuki network(s): " + ($badNetworks -join ', '))
         }
@@ -1117,7 +1117,7 @@ if ($installMochizuki) {
                 Write-Host '  2. CC_SMALL_FP8'
                 Write-Host '  3. CC_SMALL_FP8_EXPERIMENTAL (made from CC_SMALL_FP8)'
                 Write-Host '  4. CC_SILVER_AARDWOLD'
-                Write-Host '  5. CC_SILVER_AARDWOLD_INT4_MIXED (made from CC_SILVER_AARDWOLD)'
+                Write-Host '  5. CC_SILVER_AARDWOLD_OPTIMIZED (made from CC_SILVER_AARDWOLD)'
                 Write-Host '  0. Cancel'
                 while ($true) {
                     $choice = Read-Host 'Enter choice [1/2/3/4/5/0]'
@@ -1145,23 +1145,23 @@ if ($installMochizuki) {
         }
     }
 
-    # Experimental is built from the small network; INT4 mixed from the original.
+    # Experimental is built from the small network; Optimized / INT4 from the original.
     if ($networksExplicit) {
         $wantSmall = @($MochizukiNetworks | Where-Object { $_ -in @('small', 'experimental') }).Count -gt 0
-        $wantOriginal = @($MochizukiNetworks | Where-Object { $_ -in @('original', 'int4') }).Count -gt 0
+        $wantOriginal = @($MochizukiNetworks | Where-Object { $_ -in @('original', 'int4', 'optimized') }).Count -gt 0
         $generateExperimental = $MochizukiNetworks -contains 'experimental'
-        $generateInt4 = $MochizukiNetworks -contains 'int4'
+        $generateInt4 = ($MochizukiNetworks -contains 'int4') -or ($MochizukiNetworks -contains 'optimized')
         if ($MochizukiActiveModel -and $MochizukiNetworks -notcontains $MochizukiActiveModel) {
             Fail "Conflict: -MochizukiActiveModel '$MochizukiActiveModel' is not in the selected install range."
         }
     } else {
         $wantSmall = $MochizukiModels -in @('both', 'all', 'small', 'experimental')
-        $wantOriginal = $MochizukiModels -in @('both', 'all', 'original', 'int4')
+        $wantOriginal = $MochizukiModels -in @('both', 'all', 'original', 'int4', 'optimized')
         $generateExperimental = $MochizukiModels -in @('both', 'all', 'experimental')
-        $generateInt4 = $MochizukiModels -in @('both', 'all', 'int4')
+        $generateInt4 = $MochizukiModels -in @('both', 'all', 'int4', 'optimized')
         if ($MochizukiActiveModel) {
             $activeNeedsSmall = $MochizukiActiveModel -in @('small', 'experimental')
-            $activeNeedsOriginal = $MochizukiActiveModel -in @('original', 'int4')
+            $activeNeedsOriginal = $MochizukiActiveModel -in @('original', 'int4', 'optimized')
             if ($activeNeedsSmall -and -not $wantSmall) {
                 Fail "Conflict: -MochizukiActiveModel '$MochizukiActiveModel' needs the small network, which -MochizukiModels does not install."
             }
@@ -1189,8 +1189,8 @@ if ($installMochizuki) {
         if ($code -ne 0) {
             Fail "Model preparation failed (extractor exit code $code). The existing installation was preserved."
         }
-        $extractedOriginal = Join-Path $modelOutput 'dlssnr.bin'
-        $extractedSmall = Join-Path $modelOutput 'dlssnr-small.bin'
+        $extractedOriginal = Join-Path $modelOutput 'CC_SILVER_AARDWOLD.bin'
+        $extractedSmall = Join-Path $modelOutput 'CC_SMALL_FP8.bin'
         $gotOriginal = (Test-Path -LiteralPath $extractedOriginal -PathType Leaf) -and
             (Get-Item -LiteralPath $extractedOriginal).Length -gt 0
         $gotSmall = (Test-Path -LiteralPath $extractedSmall -PathType Leaf) -and
@@ -1206,24 +1206,24 @@ if ($installMochizuki) {
         }
         if ($needExtractOriginal) {
             if (-not $gotOriginal) {
-                Fail 'Model preparation failed: the extractor did not produce dlssnr.bin. The existing installation was preserved.'
+                Fail 'Model preparation failed: the extractor did not produce CC_SILVER_AARDWOLD.bin. The existing installation was preserved.'
             }
             $mochizukiModel = $extractedOriginal
         }
         if ($needExtractSmall) {
             if (-not $gotSmall) {
-                Fail 'Model preparation failed: this DLL has no small model (dlssnr-small.bin); use the 310.9.16 DLL for both models, or install the original model only.'
+                Fail 'Model preparation failed: this DLL has no small model (CC_SMALL_FP8.bin); use the 310.9.16 DLL for both models, or install the original model only.'
             }
             $mochizukiSmallModel = $extractedSmall
         }
         # Keep the models in the package for later installs when that folder is writable.
         # A failed cache copy must not delete the staged file the install still needs.
-        foreach ($pair in @(@($extractedOriginal, 'dlssnr.bin'), @($extractedSmall, 'dlssnr-small.bin'))) {
+        foreach ($pair in @(@($extractedOriginal, 'CC_SILVER_AARDWOLD.bin'), @($extractedSmall, 'CC_SMALL_FP8.bin'))) {
             if (-not (Test-Path -LiteralPath $pair[0] -PathType Leaf)) { continue }
             $target = Join-Path $mochizukiAssets $pair[1]
             try {
                 Copy-Item -LiteralPath $pair[0] -Destination $target -Force -ErrorAction Stop
-                if ($pair[1] -eq 'dlssnr.bin') { $mochizukiModel = $target } else { $mochizukiSmallModel = $target }
+                if ($pair[1] -eq 'CC_SILVER_AARDWOLD.bin') { $mochizukiModel = $target } else { $mochizukiSmallModel = $target }
             } catch {
                 Write-Host "Note: could not keep $($pair[1]) in the package folder; the staged copy is used for this install." -ForegroundColor Yellow
             }
@@ -1239,7 +1239,7 @@ if ($installMochizuki) {
     if ($MochizukiActiveModel -in @('small', 'experimental') -and -not $mochizukiSmallModel) {
         Fail 'Conflict: the selected ASI network needs the small model, which this source does not provide.'
     }
-    if ($MochizukiActiveModel -in @('original', 'int4') -and -not $mochizukiModel) {
+    if ($MochizukiActiveModel -in @('original', 'int4', 'optimized') -and -not $mochizukiModel) {
         Fail 'Conflict: the selected ASI network needs the original model, which this source does not provide.'
     }
 }
@@ -1399,8 +1399,8 @@ if ($droppedBackends.Count -gt 0) {
 # Detect existing model locks before updating any game files.
 if ($installMochizuki) {
     $selectedModelNames = @()
-    if ($wantOriginal) { $selectedModelNames += 'dlssnr.bin' }
-    if ($wantSmall) { $selectedModelNames += 'dlssnr-small.bin' }
+    if ($wantOriginal) { $selectedModelNames += 'CC_SILVER_AARDWOLD.bin' }
+    if ($wantSmall) { $selectedModelNames += 'CC_SMALL_FP8.bin' }
     foreach ($modelName in $selectedModelNames) {
         $modelTarget = Join-Path $game (Join-Path 'dlssnr-amd' $modelName)
         if (Test-FileLocked $modelTarget) {
@@ -1764,7 +1764,7 @@ function Install-One([string]$src, [string]$rel) {
             return
         }
     } catch { }
-    $isMochizukiModel = ($rel -in @('dlssnr-amd/dlssnr.bin', 'dlssnr-amd/dlssnr-small.bin'))
+    $isMochizukiModel = ($rel -in @('dlssnr-amd/CC_SILVER_AARDWOLD.bin', 'dlssnr-amd/CC_SMALL_FP8.bin'))
     $isWeight = ($rel -ieq 'dlssnr_on_amd_weights.bin') -or
                 ($rel -ilike 'native-game-tiled-assets\*') -or
                 ($rel -ilike 'native-game-tiled-assets/*') -or $isMochizukiModel
@@ -1773,7 +1773,7 @@ function Install-One([string]$src, [string]$rel) {
     try {
         if (Test-Path -LiteralPath $dest) {
             if ($isMochizukiModel) {
-                $expectedEntries = if ($rel -eq 'dlssnr-amd/dlssnr-small.bin') { 255 } else { 599 }
+                $expectedEntries = if ($rel -eq 'dlssnr-amd/CC_SMALL_FP8.bin') { 255 } else { 599 }
                 if ((Test-MochizukiModelFile $dest $expectedEntries) -and ((Get-Sha256 $dest) -eq (Get-Sha256 $src))) {
                     Write-Host ("Skip (verified model already in place): {0}" -f $rel)
                     return
@@ -2013,16 +2013,16 @@ if ($installLmxxf) {
     }
 }
 
-# Build CC_SMALL_FP8_EXPERIMENTAL from CC_SMALL_FP8 and the vendored delta.
-# Structural checks only: no fixed SHA gate, so a newer official delta/model works.
+# Build CC_SMALL_FP8_EXPERIMENTAL or CC_SILVER_AARDWOLD_OPTIMIZED from its base pack and the vendored delta.
+# Supports added entries ("performance/<name>") for CC_SILVER_AARDWOLD_OPTIMIZED's levels in one pack.
 function New-MochizukiExperimentalWeights([string]$Small, [string]$Delta, [string]$Output) {
     $pack = [IO.File]::ReadAllBytes($Small)
     if ($pack.Length -lt 16 -or [Text.Encoding]::ASCII.GetString($pack, 0, 8) -ne 'NRMODEL1') {
         throw "$Small is not an NRMODEL1 model pack"
     }
-    $count = [BitConverter]::ToUInt32($pack, 8)
+    $countPack = [BitConverter]::ToUInt32($pack, 8)
     $index = @{}; $at = 16
-    for ($k = 0; $k -lt $count; $k++) {
+    for ($k = 0; $k -lt $countPack; $k++) {
         if ($at + 4 -gt $pack.Length) { throw "${Small}: truncated entry" }
         $n = [BitConverter]::ToUInt32($pack, $at)
         if ($at + 4 + $n + 16 -gt $pack.Length) { throw "${Small}: truncated entry name" }
@@ -2030,11 +2030,22 @@ function New-MochizukiExperimentalWeights([string]$Small, [string]$Delta, [strin
         $index[$name] = @([BitConverter]::ToUInt64($pack, $at + 4 + $n), [BitConverter]::ToUInt64($pack, $at + 12 + $n))
         $at += 4 + $n + 16
     }
+    $indexEnd = $at
     $d = [IO.File]::ReadAllBytes($Delta)
     if ($d.Length -lt 12 -or [Text.Encoding]::ASCII.GetString($d, 0, 8) -ne 'NRXDIFF1') {
         throw "$Delta is not an NRXDIFF1 weights difference"
     }
-    $count = [BitConverter]::ToUInt32($d, 8); $at = 12
+    $count = [BitConverter]::ToUInt32($d, 8)
+    $orig = $null; $at = 12
+    for ($k = 0; $k -lt $count; $k++) {
+        if ($at + 4 -gt $d.Length) { throw "${Delta}: truncated entry" }
+        $n = [BitConverter]::ToUInt32($d, $at)
+        if ($at + 4 + $n + 8 -gt $d.Length) { throw "${Delta}: truncated entry name" }
+        if (-not $index.ContainsKey([Text.Encoding]::UTF8.GetString($d, $at + 4, $n))) { $orig = [byte[]]$pack.Clone(); break }
+        $at += 4 + $n + 8 + [int64][BitConverter]::ToUInt64($d, $at + 4 + $n)
+    }
+    $added = New-Object System.Collections.Generic.List[object]
+    $at = 12
     for ($k = 0; $k -lt $count; $k++) {
         if ($at + 4 -gt $d.Length) { throw "${Delta}: truncated entry" }
         $n = [BitConverter]::ToUInt32($d, $at)
@@ -2042,18 +2053,53 @@ function New-MochizukiExperimentalWeights([string]$Small, [string]$Delta, [strin
         $name = [Text.Encoding]::UTF8.GetString($d, $at + 4, $n)
         $size = [BitConverter]::ToUInt64($d, $at + 4 + $n)
         $at += 4 + $n + 8
-        if (-not $index.ContainsKey($name) -or $index[$name][1] -ne $size) {
-            throw "$name is not in $Small with $size bytes"
-        }
-        if ($at + $size -gt $d.Length) { throw "${Delta}: truncated data for $name" }
-        $off = [int64]$index[$name][0]
-        if ($off + $size -gt $pack.Length) { throw "${Small}: entry $name exceeds the pack" }
-        for ([int64]$i = 0; $i -lt $size; $i++) {
-            $pack[$off + $i] = $pack[$off + $i] -bxor $d[$at + $i]
+        if (-not $index.ContainsKey($name)) {
+            $slash = $name.IndexOf('/')
+            $base = if ($slash -ge 0) { $name.Substring($slash + 1) } else { '' }
+            if (-not $index.ContainsKey($base) -or $index[$base][1] -ne $size) {
+                throw "${name}: an added entry without $base of $size bytes in $Small"
+            }
+            if ($at + $size -gt $d.Length) { throw "${Delta}: truncated data for $name" }
+            $boff = [int64]$index[$base][0]
+            if ($boff + $size -gt $orig.Length) { throw "${Small}: entry $base exceeds the pack" }
+            $bytes = New-Object byte[] $size
+            for ([int64]$i = 0; $i -lt $size; $i++) { $bytes[$i] = $orig[$boff + $i] -bxor $d[$at + $i] }
+            $added.Add(@($name, $bytes))
+        } else {
+            if ($index[$name][1] -ne $size) {
+                throw "$name is not in $Small with $size bytes"
+            }
+            if ($at + $size -gt $d.Length) { throw "${Delta}: truncated data for $name" }
+            $off = [int64]$index[$name][0]
+            if ($off + $size -gt $pack.Length) { throw "${Small}: entry $name exceeds the pack" }
+            for ([int64]$i = 0; $i -lt $size; $i++) {
+                $pack[$off + $i] = $pack[$off + $i] -bxor $d[$at + $i]
+            }
         }
         $at += [int64]$size
     }
     if ($at -ne $d.Length) { throw "$Delta has $($d.Length - $at) bytes left over" }
+    if ($added.Count -gt 0) {
+        $grow = 0; foreach ($e in $added) { $grow += 4 + [Text.Encoding]::UTF8.GetByteCount($e[0]) + 16 }
+        $ms = New-Object System.IO.MemoryStream; $bw = New-Object System.IO.BinaryWriter($ms)
+        $bw.Write($pack, 0, 8); $bw.Write([uint32]($countPack + $added.Count)); $bw.Write($pack, 12, 4)
+        $at = 16
+        for ($k = 0; $k -lt $countPack; $k++) {
+            $n = [BitConverter]::ToUInt32($pack, $at)
+            $bw.Write($pack, $at, 4 + $n)
+            $bw.Write([uint64]([BitConverter]::ToUInt64($pack, $at + 4 + $n) + $grow))
+            $bw.Write([uint64]([BitConverter]::ToUInt64($pack, $at + 12 + $n)))
+            $at += 4 + $n + 16
+        }
+        $end = [uint64]($pack.Length + $grow)
+        foreach ($e in $added) {
+            $nb = [Text.Encoding]::UTF8.GetBytes($e[0])
+            $bw.Write([uint32]$nb.Length); $bw.Write($nb); $bw.Write([uint64]$end); $bw.Write([uint64]$e[1].Length); $end += [uint64]$e[1].Length
+        }
+        $bw.Write($pack, $indexEnd, $pack.Length - $indexEnd)
+        foreach ($e in $added) { $bw.Write([byte[]]$e[1]) }
+        $bw.Flush(); $pack = $ms.ToArray()
+    }
     [IO.File]::WriteAllBytes($Output, $pack)
 }
 
@@ -2100,7 +2146,12 @@ if ($installMochizuki) {
     # built-in runtime's files are removed only where the legacy inventory owns
     # them, so user files and other runtimes are untouched.
     $resourceRoot = Join-Path $mochizukiAssets ''
-    $modelNames = @('dlssnr.bin', 'dlssnr-small.bin', 'dlssnr-int4.bin', 'dlssnr-small-experimental.bin')
+    $modelNames = @(
+        'CC_SILVER_AARDWOLD.bin', 'CC_SMALL_FP8.bin',
+        'CC_SMALL_FP8_EXPERIMENTAL.bin', 'CC_SILVER_AARDWOLD_OPTIMIZED.bin',
+        'CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin',
+        'dlssnr.bin', 'dlssnr-small.bin', 'dlssnr-int4.bin', 'dlssnr-small-experimental.bin'
+    )
     $legacyPin = Find-FirstFile @((Join-Path $Root 'mochizuki-owned.txt'), (Join-Path $PSScriptRoot 'install/mochizuki-owned.txt'))
     $newRelative = New-Object System.Collections.Generic.HashSet[string] ([StringComparer]::OrdinalIgnoreCase)
     foreach ($file in @(Get-LmxxfUnlinkedFiles $resourceRoot)) {
@@ -2158,10 +2209,10 @@ if ($installMochizuki) {
     # Models: presence-driven, no format or version gate.
     $mochizukiModelsToInstall = @()
     if ($wantOriginal -and $mochizukiModel) {
-        $mochizukiModelsToInstall += @{ Src = $mochizukiModel; Rel = 'dlssnr-amd/dlssnr.bin' }
+        $mochizukiModelsToInstall += @{ Src = $mochizukiModel; Rel = 'dlssnr-amd/CC_SILVER_AARDWOLD.bin' }
     }
     if ($wantSmall -and $mochizukiSmallModel) {
-        $mochizukiModelsToInstall += @{ Src = $mochizukiSmallModel; Rel = 'dlssnr-amd/dlssnr-small.bin' }
+        $mochizukiModelsToInstall += @{ Src = $mochizukiSmallModel; Rel = 'dlssnr-amd/CC_SMALL_FP8.bin' }
     }
     foreach ($m in $mochizukiModelsToInstall) {
         $destPath = Join-Path $game $m.Rel
@@ -2187,85 +2238,124 @@ if ($installMochizuki) {
     # Save-GameModelForNextInstall. A new game gets that real cache instead of
     # regenerating (and failing when the package tools are unavailable).
     $cachedExperimental = Find-FirstFile @(
-        (Join-Path $mochizukiAssets 'dlssnr-small-experimental.bin'),
-        (Join-Path $Root 'dlssnr-amd/dlssnr-small-experimental.bin')
+        (Join-Path $mochizukiAssets 'CC_SMALL_FP8_EXPERIMENTAL.bin'),
+        (Join-Path $Root 'dlssnr-amd/CC_SMALL_FP8_EXPERIMENTAL.bin')
     )
-    $cachedExperimentalTarget = Join-Path $game 'dlssnr-amd/dlssnr-small-experimental.bin'
+    $cachedExperimentalTarget = Join-Path $game 'dlssnr-amd/CC_SMALL_FP8_EXPERIMENTAL.bin'
     if ($generateExperimental -and $cachedExperimental -and
         [IO.Path]::GetFullPath($cachedExperimental) -ne [IO.Path]::GetFullPath($cachedExperimentalTarget) -and
         -not (Test-Path -LiteralPath $cachedExperimentalTarget -PathType Leaf)) {
         Copy-Item -LiteralPath $cachedExperimental -Destination $cachedExperimentalTarget -Force
         Write-Host 'Copied cached CC_SMALL_FP8_EXPERIMENTAL weights.' -ForegroundColor Green
     }
-    $cachedInt4 = Find-FirstFile @(
-        (Join-Path $mochizukiAssets 'dlssnr-int4.bin'),
-        (Join-Path $Root 'dlssnr-amd/dlssnr-int4.bin')
+    $cachedOptimized = Find-FirstFile @(
+        (Join-Path $mochizukiAssets 'CC_SILVER_AARDWOLD_OPTIMIZED.bin'),
+        (Join-Path $Root 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED.bin')
     )
-    $cachedInt4Target = Join-Path $game 'dlssnr-amd/dlssnr-int4.bin'
+    $cachedOptimizedTarget = Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED.bin'
+    if ($generateInt4 -and $cachedOptimized -and
+        [IO.Path]::GetFullPath($cachedOptimized) -ne [IO.Path]::GetFullPath($cachedOptimizedTarget) -and
+        -not (Test-Path -LiteralPath $cachedOptimizedTarget -PathType Leaf)) {
+        Copy-Item -LiteralPath $cachedOptimized -Destination $cachedOptimizedTarget -Force
+        Write-Host 'Copied cached CC_SILVER_AARDWOLD_OPTIMIZED weights.' -ForegroundColor Green
+    }
+    $cachedInt4 = Find-FirstFile @(
+        (Join-Path $mochizukiAssets 'CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin'),
+        (Join-Path $Root 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin')
+    )
+    $cachedInt4Target = Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin'
     if ($generateInt4 -and $cachedInt4 -and
         [IO.Path]::GetFullPath($cachedInt4) -ne [IO.Path]::GetFullPath($cachedInt4Target) -and
         -not (Test-Path -LiteralPath $cachedInt4Target -PathType Leaf)) {
         Copy-Item -LiteralPath $cachedInt4 -Destination $cachedInt4Target -Force
-        Write-Host 'Copied cached CC_SILVER_AARDWOLD_INT4_MIXED weights.' -ForegroundColor Green
+        Write-Host 'Copied cached CC_SILVER_AARDWOLD_OPTIMIZED_INT4 weights.' -ForegroundColor Green
     }
 
-    # INT4 mixed weights are generated by the official tool. When this install
-    # requests the network, missing inputs or a failed generation fail the
-    # install instead of reporting success or trusting an old file.
-    $int4Data = Join-Path $game 'dlssnr-amd/int4'
-    $int4OutFile = Join-Path $game 'dlssnr-amd/dlssnr-int4.bin'
+    # CC_SILVER_AARDWOLD_OPTIMIZED is generated from CC_SILVER_AARDWOLD.bin and optimized/dlssnr-optimized.delta,
+    # then its INT4 layers (CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin) are generated from it using dlssnr-int4-weights.exe.
+    $optOutFile = Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED.bin'
+    $int4Data = Join-Path $game 'dlssnr-amd/int4-ultra'
+    if (-not (Test-Path -LiteralPath $int4Data -PathType Container)) {
+        $int4Data = Join-Path $game 'dlssnr-amd/int4'
+    }
+    $int4OutFile = Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin'
     $int4Reusable = $false
-    if ($generateInt4 -and (Test-Path -LiteralPath $int4OutFile -PathType Leaf)) {
-        $originalPath = Join-Path $game 'dlssnr-amd/dlssnr.bin'
+    if ($generateInt4 -and (Test-Path -LiteralPath $optOutFile -PathType Leaf) -and (Test-Path -LiteralPath $int4OutFile -PathType Leaf)) {
+        $originalPath = Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD.bin'
         if (Test-Path -LiteralPath $originalPath -PathType Leaf) {
+            $optInfo = Get-Item -LiteralPath $optOutFile
             $int4Info = Get-Item -LiteralPath $int4OutFile
             $originalInfo = Get-Item -LiteralPath $originalPath
-            $int4Reusable = $int4Info.Length -gt 0 -and $int4Info.LastWriteTimeUtc -ge $originalInfo.LastWriteTimeUtc
+            $int4Reusable = $optInfo.Length -gt 0 -and $int4Info.Length -gt 0 -and
+                $optInfo.LastWriteTimeUtc -ge $originalInfo.LastWriteTimeUtc -and
+                $int4Info.LastWriteTimeUtc -ge $optInfo.LastWriteTimeUtc
         }
     }
     if ($generateInt4 -and $int4Reusable) {
         $int4Ready = $true
-        Write-Host 'Reused existing CC_SILVER_AARDWOLD_INT4_MIXED weights.' -ForegroundColor Green
+        Write-Host 'Reused existing CC_SILVER_AARDWOLD_OPTIMIZED weights.' -ForegroundColor Green
     } elseif ($generateInt4) {
+        $optimizedDelta = Find-FirstFile @(
+            (Join-Path $Root 'optimized/dlssnr-optimized.delta'),
+            (Join-Path $release 'optimized/dlssnr-optimized.delta')
+        )
+        if (-not (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD.bin') -PathType Leaf)) {
+            Fail 'CC_SILVER_AARDWOLD_OPTIMIZED needs the original model, which is not installed.'
+        }
+        if ($optimizedDelta) {
+            $optTemp = Join-Path ([IO.Path]::GetTempPath()) ('dlssnr-optimized-' + [guid]::NewGuid().ToString('N') + '.bin')
+            try {
+                New-MochizukiExperimentalWeights (Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD.bin') $optimizedDelta $optTemp
+                if (-not (Test-Path -LiteralPath $optTemp -PathType Leaf) -or (Get-Item -LiteralPath $optTemp).Length -le 0) {
+                    Fail 'CC_SILVER_AARDWOLD_OPTIMIZED generation produced no weights.'
+                }
+                Copy-Item -LiteralPath $optTemp -Destination $optOutFile -Force
+                Write-Host 'CC_SILVER_AARDWOLD_OPTIMIZED weights generated.' -ForegroundColor Green
+            } catch {
+                if ($_.Exception.Message -like 'CC_SILVER_AARDWOLD_OPTIMIZED*') { throw }
+                Fail "CC_SILVER_AARDWOLD_OPTIMIZED generation failed: $($_.Exception.Message)"
+            } finally {
+                Remove-Item -LiteralPath $optTemp -Force -ErrorAction SilentlyContinue
+            }
+        } else {
+            Copy-Item -LiteralPath (Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD.bin') -Destination $optOutFile -Force
+        }
         if (-not $mochizukiInt4Tool) {
-            Fail 'CC_SILVER_AARDWOLD_INT4_MIXED was requested, but model-tools/dlssnr-int4-weights.exe is missing. Re-extract the complete package.'
+            Fail 'CC_SILVER_AARDWOLD_OPTIMIZED was requested, but model-tools/dlssnr-int4-weights.exe is missing. Re-extract the complete package.'
         }
         if (-not (Test-Path -LiteralPath $int4Data -PathType Container)) {
-            Fail 'CC_SILVER_AARDWOLD_INT4_MIXED was requested, but dlssnr-amd/int4 is missing. Re-extract the complete package.'
-        }
-        if (-not (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/dlssnr.bin') -PathType Leaf)) {
-            Fail 'CC_SILVER_AARDWOLD_INT4_MIXED needs the original model, which is not installed.'
+            Fail 'CC_SILVER_AARDWOLD_OPTIMIZED was requested, but dlssnr-amd/int4-ultra is missing. Re-extract the complete package.'
         }
         $int4Out = Join-Path ([IO.Path]::GetTempPath()) ('dlssnr-int4-' + [guid]::NewGuid().ToString('N') + '.bin')
         try {
-            & $mochizukiInt4Tool (Join-Path $game 'dlssnr-amd/dlssnr.bin') $int4Data $int4Out
+            & $mochizukiInt4Tool $optOutFile $int4Data $int4Out
             if ($LASTEXITCODE -ne 0) {
-                Fail "CC_SILVER_AARDWOLD_INT4_MIXED generation failed (exit code $LASTEXITCODE)."
+                Fail "CC_SILVER_AARDWOLD_OPTIMIZED_INT4 generation failed (exit code $LASTEXITCODE)."
             }
             if (-not (Test-Path -LiteralPath $int4Out -PathType Leaf) -or (Get-Item -LiteralPath $int4Out).Length -le 0) {
-                Fail 'CC_SILVER_AARDWOLD_INT4_MIXED generation produced no weights.'
+                Fail 'CC_SILVER_AARDWOLD_OPTIMIZED_INT4 generation produced no weights.'
             }
             Copy-Item -LiteralPath $int4Out -Destination $int4OutFile -Force
-            Write-Host 'INT4 mixed weights generated.' -ForegroundColor Green
+            Write-Host 'CC_SILVER_AARDWOLD_OPTIMIZED_INT4 weights generated.' -ForegroundColor Green
         } catch {
-            if ($_.Exception.Message -like 'CC_SILVER_AARDWOLD_INT4_MIXED*') { throw }
-            Fail "CC_SILVER_AARDWOLD_INT4_MIXED generation failed: $($_.Exception.Message)"
+            if ($_.Exception.Message -like 'CC_SILVER_AARDWOLD_OPTIMIZED*') { throw }
+            Fail "CC_SILVER_AARDWOLD_OPTIMIZED_INT4 generation failed: $($_.Exception.Message)"
         } finally {
             Remove-Item -LiteralPath $int4Out -Force -ErrorAction SilentlyContinue
         }
         $int4Ready = $true
     } else {
-        $int4Ready = (Test-Path -LiteralPath $int4OutFile -PathType Leaf) -and
-            (Get-Item -LiteralPath $int4OutFile).Length -gt 0
+        $int4Ready = (Test-Path -LiteralPath $optOutFile -PathType Leaf) -and
+            (Get-Item -LiteralPath $optOutFile).Length -gt 0
     }
 
     # CC_SMALL_FP8_EXPERIMENTAL is made from the installed small model and the
     # packaged delta. A requested network whose generation fails is an install
     # failure, never a quiet fallback or a stale file.
-    $experimentalOut = Join-Path $game 'dlssnr-amd/dlssnr-small-experimental.bin'
+    $experimentalOut = Join-Path $game 'dlssnr-amd/CC_SMALL_FP8_EXPERIMENTAL.bin'
     $experimentalReusable = $false
     if ($generateExperimental -and (Test-Path -LiteralPath $experimentalOut -PathType Leaf)) {
-        $smallPathForTime = Join-Path $game 'dlssnr-amd/dlssnr-small.bin'
+        $smallPathForTime = Join-Path $game 'dlssnr-amd/CC_SMALL_FP8.bin'
         if (Test-Path -LiteralPath $smallPathForTime -PathType Leaf) {
             $expInfo = Get-Item -LiteralPath $experimentalOut
             $smallInfo = Get-Item -LiteralPath $smallPathForTime
@@ -2289,12 +2379,12 @@ if ($installMochizuki) {
         if (-not $experimentalDelta) {
             Fail 'CC_SMALL_FP8_EXPERIMENTAL was requested, but experimental/dlssnr-small-experimental.delta is missing. Re-extract the complete package.'
         }
-        if (-not (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/dlssnr-small.bin') -PathType Leaf)) {
+        if (-not (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/CC_SMALL_FP8.bin') -PathType Leaf)) {
             Fail 'CC_SMALL_FP8_EXPERIMENTAL needs the small model, which is not installed.'
         }
         $expOut = Join-Path ([IO.Path]::GetTempPath()) ('dlssnr-small-experimental-' + [guid]::NewGuid().ToString('N') + '.bin')
         try {
-            New-MochizukiExperimentalWeights (Join-Path $game 'dlssnr-amd/dlssnr-small.bin') $experimentalDelta $expOut
+            New-MochizukiExperimentalWeights (Join-Path $game 'dlssnr-amd/CC_SMALL_FP8.bin') $experimentalDelta $expOut
             if (-not (Test-Path -LiteralPath $expOut -PathType Leaf) -or (Get-Item -LiteralPath $expOut).Length -le 0) {
                 Fail 'CC_SMALL_FP8_EXPERIMENTAL generation produced no weights.'
             }
@@ -2374,23 +2464,23 @@ if ($installMochizuki) {
     $writeActiveNetwork = (-not $asiIniExisted -and $asiTemplate) -or
         ($asiIniExisted -and [bool]$MochizukiActiveModel)
     if ($writeActiveNetwork -and (Test-Path -LiteralPath $asiIni -PathType Leaf)) {
-        $smallReady = (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/dlssnr-small.bin') -PathType Leaf) -and
-            (Get-Item -LiteralPath (Join-Path $game 'dlssnr-amd/dlssnr-small.bin')).Length -gt 0
-        $originalReady = (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/dlssnr.bin') -PathType Leaf) -and
-            (Get-Item -LiteralPath (Join-Path $game 'dlssnr-amd/dlssnr.bin')).Length -gt 0
+        $smallReady = (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/CC_SMALL_FP8.bin') -PathType Leaf) -and
+            (Get-Item -LiteralPath (Join-Path $game 'dlssnr-amd/CC_SMALL_FP8.bin')).Length -gt 0
+        $originalReady = (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD.bin') -PathType Leaf) -and
+            (Get-Item -LiteralPath (Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD.bin')).Length -gt 0
         $activeModelName = $MochizukiActiveModel
         if (-not $activeModelName -and -not $asiIniExisted) {
             if ($networksExplicit) {
-                foreach ($candidate in @('small', 'experimental', 'original', 'int4')) {
+                foreach ($candidate in @('small', 'experimental', 'original', 'int4', 'optimized')) {
                     if ($MochizukiNetworks -notcontains $candidate) { continue }
                     $ready = ($candidate -eq 'small' -and $smallReady) -or
                         ($candidate -eq 'experimental' -and $experimentalReady) -or
                         ($candidate -eq 'original' -and $originalReady) -or
-                        ($candidate -eq 'int4' -and $int4Ready)
+                        (($candidate -in @('int4', 'optimized')) -and $int4Ready)
                     if ($ready) { $activeModelName = $candidate; break }
                 }
             }
-            if (-not $activeModelName -and $MochizukiModels -in @('small', 'experimental', 'original', 'int4')) {
+            if (-not $activeModelName -and $MochizukiModels -in @('small', 'experimental', 'original', 'int4', 'optimized')) {
                 $activeModelName = $MochizukiModels
             }
             if (-not $activeModelName) {
@@ -2401,8 +2491,8 @@ if ($installMochizuki) {
         if ($activeModelName -eq 'experimental' -and -not $experimentalReady) {
             Fail 'The selected startup network CC_SMALL_FP8_EXPERIMENTAL is not available; generation did not complete.'
         }
-        if ($activeModelName -eq 'int4' -and -not $int4Ready) {
-            Fail 'The selected startup network CC_SILVER_AARDWOLD_INT4_MIXED is not available; generation did not complete.'
+        if ($activeModelName -in @('int4', 'optimized') -and -not $int4Ready) {
+            Fail 'The selected startup network CC_SILVER_AARDWOLD_OPTIMIZED is not available; generation did not complete.'
         }
         if ($activeModelName -eq 'small' -and -not $smallReady) {
             Fail 'The selected startup network CC_SMALL_FP8 is not installed.'
@@ -2415,7 +2505,8 @@ if ($installMochizuki) {
                 'small' { 'CC_SMALL_FP8' }
                 'experimental' { 'CC_SMALL_FP8_EXPERIMENTAL' }
                 'original' { 'CC_SILVER_AARDWOLD' }
-                'int4' { 'CC_SILVER_AARDWOLD_INT4_MIXED' }
+                'int4' { 'CC_SILVER_AARDWOLD_OPTIMIZED' }
+                'optimized' { 'CC_SILVER_AARDWOLD_OPTIMIZED' }
             }
             Set-IniSettings $asiIni 'Network' ([ordered]@{ 'Model' = $networkName })
             # With LayerN sections read_chain uses each layer's Network for the
@@ -2444,10 +2535,10 @@ if ($installMochizuki) {
         }
     }
 
-    if ($wantSmall -and -not (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/dlssnr-small.bin'))) {
+    if ($wantSmall -and -not (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/CC_SMALL_FP8.bin'))) {
         Write-Host 'Mochizuki small model not installed. Run Mochizuki-Model.bat beside Setup.bat with your nvngx_dlssnr.dll, then run Setup again.' -ForegroundColor Yellow
     }
-    if ($wantOriginal -and -not (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/dlssnr.bin'))) {
+    if ($wantOriginal -and -not (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD.bin'))) {
         Write-Host 'Mochizuki original model not installed. Run Mochizuki-Model.bat beside Setup.bat with your nvngx_dlssnr.dll, then run Setup again.' -ForegroundColor Yellow
     }
 }
@@ -2841,7 +2932,7 @@ try {
 # Cache game models even when their backend was not selected for this install.
 # Publish only complete copies; never merge into or replace an existing package model.
 function Save-GameModelForNextInstall([ValidateSet('lmxxf', 'mochizuki', 'mochizuki-small',
-        'mochizuki-experimental', 'mochizuki-int4')][string]$Kind) {
+        'mochizuki-experimental', 'mochizuki-optimized', 'mochizuki-int4')][string]$Kind) {
     $stage = $null
     try {
         $packageRoot = [IO.Path]::GetFullPath($Root)
@@ -2860,10 +2951,11 @@ function Save-GameModelForNextInstall([ValidateSet('lmxxf', 'mochizuki', 'mochiz
             return
         }
         $relative = switch ($Kind) {
-            'mochizuki-small' { 'dlssnr-amd/dlssnr-small.bin' }
-            'mochizuki-experimental' { 'dlssnr-amd/dlssnr-small-experimental.bin' }
-            'mochizuki-int4' { 'dlssnr-amd/dlssnr-int4.bin' }
-            default { 'dlssnr-amd/dlssnr.bin' }
+            'mochizuki-small' { 'dlssnr-amd/CC_SMALL_FP8.bin' }
+            'mochizuki-experimental' { 'dlssnr-amd/CC_SMALL_FP8_EXPERIMENTAL.bin' }
+            'mochizuki-optimized' { 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED.bin' }
+            'mochizuki-int4' { 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin' }
+            default { 'dlssnr-amd/CC_SILVER_AARDWOLD.bin' }
         }
         $needsHeader = $Kind -in @('mochizuki', 'mochizuki-small')
         $entries = if ($Kind -eq 'mochizuki-small') { 255 } else { 599 }
@@ -2917,6 +3009,7 @@ Save-GameModelForNextInstall 'lmxxf'
 Save-GameModelForNextInstall 'mochizuki'
 Save-GameModelForNextInstall 'mochizuki-small'
 Save-GameModelForNextInstall 'mochizuki-experimental'
+Save-GameModelForNextInstall 'mochizuki-optimized'
 Save-GameModelForNextInstall 'mochizuki-int4'
 
 # Keep reusable danielblnc files in the package folder for the next game.
@@ -3014,7 +3107,7 @@ if ($weightProblems.Count -gt 0) {
     }
 }
 $activeNeedsSmall = if ($mochizukiActiveNetwork) { $mochizukiActiveNetwork -in @('small', 'experimental') } else { $targetNetworkModel -eq 1 }
-$mochizukiActiveValid = if ($activeNeedsSmall) { (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/dlssnr-small.bin') -PathType Leaf) } else { (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/dlssnr.bin') -PathType Leaf) }
+$mochizukiActiveValid = if ($activeNeedsSmall) { (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/CC_SMALL_FP8.bin') -PathType Leaf) } else { (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD.bin') -PathType Leaf) }
 $activeModelPending = ($selectedActiveBackend -eq 'mochizuki' -and -not $mochizukiActiveValid) -or
     ($selectedActiveBackend -eq 'lmxxf' -and $lmxxfSelectedModels -eq 'none')
 if ($activeModelPending) {

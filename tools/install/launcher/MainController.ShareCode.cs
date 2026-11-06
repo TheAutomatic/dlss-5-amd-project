@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
@@ -254,10 +254,10 @@ namespace OptScalerNR.Launcher
                     !string.Equals(entry.Key, "Model", StringComparison.OrdinalIgnoreCase)) continue;
                 var network = (entry.Value ?? "").Trim().ToUpperInvariant();
                 string file = null;
-                if (network == "CC_SMALL_FP8" || network == "SMALL") file = "dlssnr-small.bin";
-                else if (network == "CC_SMALL_FP8_EXPERIMENTAL") file = "dlssnr-small-experimental.bin";
-                else if (network == "CC_SILVER_AARDWOLD" || network == "ORIGINAL") file = "dlssnr.bin";
-                else if (network == "CC_SILVER_AARDWOLD_INT4_MIXED") file = "dlssnr-int4.bin";
+                if (network == "CC_SMALL_FP8" || network == "SMALL") file = "CC_SMALL_FP8.bin";
+                else if (network == "CC_SMALL_FP8_EXPERIMENTAL") file = "CC_SMALL_FP8_EXPERIMENTAL.bin";
+                else if (network == "CC_SILVER_AARDWOLD" || network == "ORIGINAL") file = "CC_SILVER_AARDWOLD.bin";
+                else if (network == "CC_SILVER_AARDWOLD_OPTIMIZED" || network == "CC_SILVER_AARDWOLD_INT4_MIXED") file = "CC_SILVER_AARDWOLD_OPTIMIZED.bin";
                 if (file != null && !files.Contains(file)) files.Add(file);
             }
             return files.ToArray();

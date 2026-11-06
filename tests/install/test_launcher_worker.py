@@ -1,4 +1,4 @@
-﻿"""Schema 1 worker inspect + mock worker + launcher compile."""
+"""Schema 1 worker inspect + mock worker + launcher compile."""
 from pathlib import Path
 import hashlib
 import json
@@ -259,7 +259,7 @@ class LauncherWorkerTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"package asset")
         (pkg / "dlssnr-amd/int4").mkdir(parents=True, exist_ok=True)
-        model = game / "dlssnr-amd/dlssnr-small.bin"
+        model = game / "dlssnr-amd/CC_SMALL_FP8.bin"
         model.parent.mkdir()
         model.write_bytes(b"NRMODEL1" + (255).to_bytes(4, "little") + bytes(20))
         code, result, events = self.invoke(pkg / WORKER.name, "inspect", exe)
@@ -269,7 +269,7 @@ class LauncherWorkerTests(unittest.TestCase):
         self.assertEqual(mochi["hints"], [])
         self.assertEqual(mochi["missingPackageFiles"], [])
         self.assertEqual(mochi["experimentalState"], "preparable", mochi)
-        (game / "dlssnr-amd/dlssnr.bin").write_bytes(b"NRMODEL1" + (599).to_bytes(4, "little") + bytes(20))
+        (game / "dlssnr-amd/CC_SILVER_AARDWOLD.bin").write_bytes(b"NRMODEL1" + (599).to_bytes(4, "little") + bytes(20))
         code, result, events = self.invoke(pkg / WORKER.name, "inspect", exe)
         self.assertEqual(code, 0, events)
         mochi = next(b for b in result["backends"] if b["id"] == "mochizuki")
@@ -310,7 +310,7 @@ class LauncherWorkerTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"package asset")
         (pkg / "nvngx_dlssnr.dll").write_bytes(b"any official source; no hash gate")
-        original = game / "dlssnr-amd/dlssnr.bin"
+        original = game / "dlssnr-amd/CC_SILVER_AARDWOLD.bin"
         original.parent.mkdir()
         original.write_bytes(b"NRMODEL1" + (599).to_bytes(4, "little") + bytes(20))
         code, result, events = self.invoke(pkg / WORKER.name, "inspect", exe)
@@ -349,7 +349,7 @@ class LauncherWorkerTests(unittest.TestCase):
             path = pkg / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"package asset")
-        small = game / "dlssnr-amd/dlssnr-small.bin"
+        small = game / "dlssnr-amd/CC_SMALL_FP8.bin"
         small.parent.mkdir()
         small.write_bytes(b"NRMODEL1" + (255).to_bytes(4, "little") + bytes(20))
         (pkg / "nvngx_dlssnr.dll").write_bytes(b"official source; never hashed")

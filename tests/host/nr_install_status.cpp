@@ -36,19 +36,19 @@ int main() {
     assert(ProbeInstallIssue(Kind::Mochizuki, dir).find("dlssnr-amd.asi is not installed") != std::string::npos);
     Write(dir / "OptiScaler/plugins/dlssnr-amd.asi", "asi");
     assert(ProbeInstallIssue(Kind::Mochizuki, dir).find("model missing") != std::string::npos);
-    Write(dir / "dlssnr-amd/dlssnr.bin", "any newer official model is accepted");
+    Write(dir / "dlssnr-amd/CC_SILVER_AARDWOLD.bin", "any newer official model is accepted");
     assert(ProbeInstallIssue(Kind::Mochizuki, dir).empty());
     assert(HasMochizukiSelectedModel(dir, 0));
     assert(!HasMochizukiSelectedModel(dir, 1));
-    fs::remove(dir / "dlssnr-amd/dlssnr.bin");
-    Write(dir / "dlssnr-amd/dlssnr-small.bin", std::string("NRMODEL1\xff\0\0\0payload", 19));
+    fs::remove(dir / "dlssnr-amd/CC_SILVER_AARDWOLD.bin");
+    Write(dir / "dlssnr-amd/CC_SMALL_FP8.bin", std::string("NRMODEL1\xff\0\0\0payload", 19));
     assert(HasMochizukiSelectedModel(dir, 1));
     assert(!HasMochizukiSelectedModel(dir, 0));
     assert(ProbeInstallIssue(Kind::Mochizuki, dir).empty());
     // The header helper remains for legacy installs and lmxxf pack detection.
-    assert(HasMochizukiModelHeader(dir / "dlssnr-amd/dlssnr-small.bin"));
-    Write(dir / "dlssnr-amd/dlssnr.bin", "corrupt");
-    assert(!HasMochizukiModelHeader(dir / "dlssnr-amd/dlssnr.bin"));
+    assert(HasMochizukiModelHeader(dir / "dlssnr-amd/CC_SMALL_FP8.bin"));
+    Write(dir / "dlssnr-amd/CC_SILVER_AARDWOLD.bin", "corrupt");
+    assert(!HasMochizukiModelHeader(dir / "dlssnr-amd/CC_SILVER_AARDWOLD.bin"));
     fs::remove_all(dir);
     std::cout << "PASS installation diagnostics and Unicode/shared path resolution\n";
 }

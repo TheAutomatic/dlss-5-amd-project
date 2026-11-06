@@ -1,14 +1,15 @@
-# Official Mochizuki NR ASI payload (0.0.8.2)
+# Official Mochizuki NR ASI payload (0.0.8.3)
 
-Vendored payload from the vendor package:
+Vendored payload for `dlssnr-amd.asi`:
 
-- Base package: `DLSSNR-AMD-Vulkan-Windows-0.0.8.2-pre1-preview-x86_64`
-- Plugin: `payload/OptiScaler/plugins/dlssnr-amd.asi` (updated `0.0.8.2` direct-ELF build, `9,295,289` bytes)
-- Probe: `optiscaler/asi/nr_present_probe.exe`
-- Resources: `dlssnr-amd/` (shaders, ACO records/shaders, INT4 data, language files)
+- Base: `DLSSNR-AMD 0.0.8.3` (`931c50f`) + Direct ELF D3D12 passthrough (`6a9249f`)
+- Plugin: `OptiScaler/plugins/dlssnr-amd.asi`
+- Probe: `nr_present_probe.exe`
+- Resources: `dlssnr-amd/` (shaders, ACO records/shaders, INT4 / performance / ultra data, language files)
 - Extraction tools: `model-tools/dlssnr_extract_model.exe`, `model-tools/dlssnr-int4-weights.exe`
-- ASI config template: `ini/dlssnr-amd-optiscaler.ini`
-- Extra licenses: `optiscaler/asi/DearImGui-LICENSE.txt`, `optiscaler/asi/Inter-LICENSE.txt`
+- Weight deltas: `experimental/dlssnr-small-experimental.delta`, `optimized/dlssnr-optimized.delta`
+- ASI config templates: `ini/dlssnr-amd-optiscaler.ini`, `ini/dlssnr-amd-optiscaler-renodx.ini`
+- Extra licenses: `Licenses/DearImGui-LICENSE.txt`, `Licenses/Inter-LICENSE.txt`
 
 Neural Rendering is owned by this plugin. The project no longer builds or ships
 `MochizukiNrRuntime.dll`, and the host does not require it: it detects the loaded

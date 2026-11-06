@@ -10,7 +10,9 @@
 namespace DlssNr::Backend {
 inline bool HasMochizukiSelectedModel(const std::filesystem::path& dir, uint32_t model) {
     std::error_code ec;
-    return std::filesystem::is_regular_file(dir / (model == 0 ? L"dlssnr-amd/dlssnr.bin"
+    return std::filesystem::is_regular_file(dir / (model == 0 ? L"dlssnr-amd/CC_SILVER_AARDWOLD.bin"
+                                                            : L"dlssnr-amd/CC_SMALL_FP8.bin"), ec) ||
+           std::filesystem::is_regular_file(dir / (model == 0 ? L"dlssnr-amd/dlssnr.bin"
                                                             : L"dlssnr-amd/dlssnr-small.bin"), ec);
 }
 inline bool NonemptyFile(const std::filesystem::path& path) {
@@ -72,8 +74,8 @@ inline std::string ProbeInstallIssue(Kind kind, const std::filesystem::path& dir
     if (kind == Kind::Mochizuki && !NonemptyFile(dir / L"MochizukiNrRuntime.dll")) {
         if (!HasAsiPlugin(dir))
             return "mochizuki: dlssnr-amd.asi is not installed. Run Setup from the complete package, or select another backend.";
-        const bool hasOriginal = NonemptyFile(dir / L"dlssnr-amd/dlssnr.bin");
-        const bool hasSmall = NonemptyFile(dir / L"dlssnr-amd/dlssnr-small.bin");
+        const bool hasOriginal = NonemptyFile(dir / L"dlssnr-amd/CC_SILVER_AARDWOLD.bin");
+        const bool hasSmall = NonemptyFile(dir / L"dlssnr-amd/CC_SMALL_FP8.bin");
         if (!hasOriginal && !hasSmall)
             return "mochizuki: model missing. Run Setup with nvngx_dlssnr.dll 310.9.16 or 310.8.0, then restart the game.";
         return {};

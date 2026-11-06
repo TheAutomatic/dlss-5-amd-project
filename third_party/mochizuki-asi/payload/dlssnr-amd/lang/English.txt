@@ -229,6 +229,30 @@ msgstr "missing (nothing fills it in)"
 
 # ---- nr_control_pages.hpp
 
+msgid "CC_SMALL_FP8"
+msgstr "CC_SMALL_FP8"
+
+msgid "CC_SMALL_FP8_EXPERIMENTAL"
+msgstr "CC_SMALL_FP8_EXPERIMENTAL"
+
+msgid "CC_SILVER_AARDWOLD"
+msgstr "CC_SILVER_AARDWOLD"
+
+msgid "CC_SILVER_AARDWOLD_OPTIMIZED"
+msgstr "CC_SILVER_AARDWOLD_OPTIMIZED"
+
+msgid "CC_SILVER_AARDWOLD_OPTIMIZED (layers: quality)"
+msgstr "CC_SILVER_AARDWOLD_OPTIMIZED (layers: quality)"
+
+msgid "CC_SILVER_AARDWOLD_OPTIMIZED (layers: balanced)"
+msgstr "CC_SILVER_AARDWOLD_OPTIMIZED (layers: balanced)"
+
+msgid "CC_SILVER_AARDWOLD_OPTIMIZED (layers: performance)"
+msgstr "CC_SILVER_AARDWOLD_OPTIMIZED (layers: performance)"
+
+msgid "CC_SILVER_AARDWOLD_OPTIMIZED (layers: ultra performance)"
+msgstr "CC_SILVER_AARDWOLD_OPTIMIZED (layers: ultra performance)"
+
 msgid "Video memory: NR %s MiB; this process %s MiB of a %s MiB budget"
 msgstr "Video memory: NR %s MiB; this process %s MiB of a %s MiB budget"
 
@@ -369,6 +393,45 @@ msgstr "Events:"
 
 msgid "none yet"
 msgstr "none yet"
+
+msgid "This session:"
+msgstr "This session:"
+
+msgid "How often each layer was asked to run and ran, and why frames passed through without NR: in red what went wrong, in yellow what video memory stopped, dimmed what is part of normal running (a network being built, a frame size settling). The longest stretch without NR and how it began. Kept since the game started or the reset; also in the report and the diagnostic package."
+msgstr "How often each layer was asked to run and ran, and why frames passed through without NR: in red what went wrong, in yellow what video memory stopped, dimmed what is part of normal running (a network being built, a frame size settling). The longest stretch without NR and how it began. Kept since the game started or the reset; also in the report and the diagnostic package."
+
+msgid "Presents: %llu of the game's own, %llu frames shown (frame generation's too), %llu game frames run at DLSS-G's evaluate"
+msgstr "Presents: %llu of the game's own, %llu frames shown (frame generation's too), %llu game frames run at DLSS-G's evaluate"
+
+msgid "Layer %d: ran %.1f %% (%llu of %llu)"
+msgstr "Layer %d: ran %.1f %% (%llu of %llu)"
+
+msgid "NR: ran %.1f %% (%llu of %llu)"
+msgstr "NR: ran %.1f %% (%llu of %llu)"
+
+msgid "Longest without NR: %.1f s%s, began with: %s"
+msgstr "Longest without NR: %.1f s%s, began with: %s"
+
+msgid " (still going)"
+msgstr " (still going)"
+
+msgid "%8llu x  %s (last %.0f s ago)"
+msgstr "%8llu x  %s (last %.0f s ago)"
+
+msgid "never passed a frame through"
+msgstr "never passed a frame through"
+
+msgid "No layer was asked to run yet."
+msgstr "No layer was asked to run yet."
+
+msgid "Save a diagnostic package"
+msgstr "Save a diagnostic package"
+
+msgid "with a screenshot pair"
+msgstr "with a screenshot pair"
+
+msgid "One zip in the game's folder (dlssnr-amd-diag-<date>-<time>.zip) to attach to a bug report: the report below with this session's run statistics, the versions and checksums of the installed programs, the system (Windows or Wine, the GPU and its driver), every log and settings file in the game's folder and a crash dump if there is one. Ticked: also the before / after screenshot pair of the current frame. It holds the game's folder path and the system's description; it stays on this computer, nothing is sent anywhere."
+msgstr "One zip in the game's folder (dlssnr-amd-diag-<date>-<time>.zip) to attach to a bug report: the report below with this session's run statistics, the versions and checksums of the installed programs, the system (Windows or Wine, the GPU and its driver), every log and settings file in the game's folder and a crash dump if there is one. Ticked: also the before / after screenshot pair of the current frame. It holds the game's folder path and the system's description; it stays on this computer, nothing is sent anywhere."
 
 msgid "No layer has run yet."
 msgstr "No layer has run yet."
@@ -631,8 +694,35 @@ msgstr "For ordinary stacking use Passes."
 msgid "Network model and options"
 msgstr "Network model and options"
 
-msgid "[Network] Model. CC_SMALL_FP8: 310.9.16's default network. CC_SMALL_FP8_EXPERIMENTAL: ours, CC_SMALL_FP8 made faster. CC_SILVER_AARDWOLD: 310.8.0's network (310.9.16's preset 1). CC_SILVER_AARDWOLD_INT4_MIXED: that network with part of its arithmetic in int4, faster, a slightly different picture. Switching builds the new network in the background; the running one serves until it is ready."
-msgstr "[Network] Model. CC_SMALL_FP8: 310.9.16's default network. CC_SMALL_FP8_EXPERIMENTAL: ours, CC_SMALL_FP8 made faster. CC_SILVER_AARDWOLD: 310.8.0's network (310.9.16's preset 1). CC_SILVER_AARDWOLD_INT4_MIXED: that network with part of its arithmetic in int4, faster, a slightly different picture. Switching builds the new network in the background; the running one serves until it is ready."
+msgid "[Network] Model. CC_SMALL_FP8: 310.9.16's default network. CC_SMALL_FP8_EXPERIMENTAL: ours, CC_SMALL_FP8 made faster. CC_SILVER_AARDWOLD: 310.8.0's network (310.9.16's preset 1). CC_SILVER_AARDWOLD_OPTIMIZED: ours, CC_SILVER_AARDWOLD made faster, its picture very close to it. Switching builds the new network in the background; the running one serves until it is ready."
+msgstr "[Network] Model. CC_SMALL_FP8: 310.9.16's default network. CC_SMALL_FP8_EXPERIMENTAL: ours, CC_SMALL_FP8 made faster. CC_SILVER_AARDWOLD: 310.8.0's network (310.9.16's preset 1). CC_SILVER_AARDWOLD_OPTIMIZED: ours, CC_SILVER_AARDWOLD made faster, its picture very close to it. Switching builds the new network in the background; the running one serves until it is ready."
+
+msgid "Quality"
+msgstr "Quality"
+
+msgid "Balanced"
+msgstr "Balanced"
+
+msgid "Performance"
+msgstr "Performance"
+
+msgid "Ultra Performance"
+msgstr "Ultra Performance"
+
+msgid "Optimized layers"
+msgstr "Optimized layers"
+
+msgid "[Network] OptimizedLayers, CC_SILVER_AARDWOLD_OPTIMIZED only: how many of its layers run in a faster form. It changes only how the network computes, not the resolution; every level's picture stays very close to CC_SILVER_AARDWOLD's. Quality: none of them in int4. Balanced: some of them in int4. Performance: also fixed attention on the first full-resolution layers. Ultra Performance (default): also more int4 layers, the fastest. Switching builds the network again in the background."
+msgstr "[Network] OptimizedLayers, CC_SILVER_AARDWOLD_OPTIMIZED only: how many of its layers run in a faster form. It changes only how the network computes, not the resolution; every level's picture stays very close to CC_SILVER_AARDWOLD's. Quality: none of them in int4. Balanced: some of them in int4. Performance: also fixed attention on the first full-resolution layers. Ultra Performance (default): also more int4 layers, the fastest. Switching builds the network again in the background."
+
+msgid "Running: %s"
+msgstr "Running: %s"
+
+msgid "NR settings runs a network of its own (%s); the model here is for NR set to [Global]."
+msgstr "NR settings runs a network of its own (%s); the model here is for NR set to [Global]."
+
+msgid "Layer %d runs a network of its own (%s); the model here is for the layers set to [Global]."
+msgstr "Layer %d runs a network of its own (%s); the model here is for the layers set to [Global]."
 
 msgid "ACO Mode: on in this run (machine code for %s)"
 msgstr "ACO Mode: on in this run (machine code for %s)"
@@ -661,8 +751,8 @@ msgstr "no key"
 msgid "Sound"
 msgstr "Sound"
 
-msgid "[Network] Sound. A cue on every switch: one note CC_SMALL_FP8, a higher one CC_SMALL_FP8_EXPERIMENTAL, two going down CC_SILVER_AARDWOLD, two going up CC_SILVER_AARDWOLD_INT4_MIXED."
-msgstr "[Network] Sound. A cue on every switch: one note CC_SMALL_FP8, a higher one CC_SMALL_FP8_EXPERIMENTAL, two going down CC_SILVER_AARDWOLD, two going up CC_SILVER_AARDWOLD_INT4_MIXED."
+msgid "[Network] Sound. A cue on every switch: one note CC_SMALL_FP8, a higher one CC_SMALL_FP8_EXPERIMENTAL, two going down CC_SILVER_AARDWOLD, two going up CC_SILVER_AARDWOLD_OPTIMIZED."
+msgstr "[Network] Sound. A cue on every switch: one note CC_SMALL_FP8, a higher one CC_SMALL_FP8_EXPERIMENTAL, two going down CC_SILVER_AARDWOLD, two going up CC_SILVER_AARDWOLD_OPTIMIZED."
 
 msgid "auto"
 msgstr "auto"
@@ -727,8 +817,8 @@ msgstr "Resize history"
 msgid "Memory guard"
 msgstr "Memory guard"
 
-msgid "[Network] Memory Guard. On (default): a network is built only while 1 GB of video memory stays free for the game, and the running one steps aside while video memory runs out. Off: no such check - NR builds and runs in whatever video memory is left; a game left short of it may stutter or fail to load its own data. Applied at once."
-msgstr "[Network] Memory Guard. On (default): a network is built only while 1 GB of video memory stays free for the game, and the running one steps aside while video memory runs out. Off: no such check - NR builds and runs in whatever video memory is left; a game left short of it may stutter or fail to load its own data. Applied at once."
+msgid "[Network] Memory Guard. On: a network is built only while the video memory it needs is free (measured on your GPU when the network is first built), and the running one steps aside once video memory has run out. Off (default): no such check - NR builds and runs in whatever video memory is left; a game left short of it may stutter or fail to load its own data. Applied at once."
+msgstr "[Network] Memory Guard. On: a network is built only while the video memory it needs is free (measured on your GPU when the network is first built), and the running one steps aside once video memory has run out. Off (default): no such check - NR builds and runs in whatever video memory is left; a game left short of it may stutter or fail to load its own data. Applied at once."
 
 msgid "Side by side"
 msgstr "Side by side"
@@ -1464,8 +1554,8 @@ msgstr "NRLookStabilizeDetail."
 msgid "SDR black restore"
 msgstr "SDR black restore"
 
-msgid "NRSdrBlackRestore."
-msgstr "NRSdrBlackRestore."
+msgid "NRSdrBlackRestore. Off (default): no black-level restore (dark scenes keep NR's own black level). Before 0.0.8.3 0 was Auto."
+msgstr "NRSdrBlackRestore. Off (default): no black-level restore (dark scenes keep NR's own black level). Before 0.0.8.3 0 was Auto."
 
 msgid "Every block"
 msgstr "Every block"
@@ -1476,8 +1566,8 @@ msgstr "Smooth"
 msgid "HDR dark pedestal"
 msgstr "HDR dark pedestal"
 
-msgid "NRDisplayPedestal."
-msgstr "NRDisplayPedestal."
+msgid "NRDisplayPedestal. Off (default): the dark pedestal is never removed (any codec). Before 0.0.8.3 0 was Auto."
+msgstr "NRDisplayPedestal. Off (default): the dark pedestal is never removed (any codec). Before 0.0.8.3 0 was Auto."
 
 msgid "Codec"
 msgstr "Codec"
@@ -2521,8 +2611,14 @@ msgstr "the game's device has no pipeline binaries (ACO Mode)"
 msgid "its weights were not made at install (run install.bat again)"
 msgstr "its weights were not made at install (run install.bat again)"
 
-msgid "not in this build"
-msgstr "not in this build"
+msgid "its int4 layers are not installed (run install.bat again)"
+msgstr "its int4 layers are not installed (run install.bat again)"
+
+msgid "its int4 weights were not made at install (run install.bat again)"
+msgstr "its int4 weights were not made at install (run install.bat again)"
+
+msgid "its int4 layers are not in this build"
+msgstr "its int4 layers are not in this build"
 
 msgid "could not allocate the render-resolution output"
 msgstr "could not allocate the render-resolution output"

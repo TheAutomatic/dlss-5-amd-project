@@ -330,8 +330,8 @@ if ($req.action -in @('repairXess','restoreXess','keepXess')) {
 if ($pkg) {
     $hasAsi = Test-Path -LiteralPath (Join-Path $pkg 'OptiScaler/plugins/dlssnr-amd.asi')
     $hasExtract = Test-Path -LiteralPath (Join-Path $pkg 'model-tools/dlssnr_extract_model.exe')
-    $hasModel = (Test-Path -LiteralPath (Join-Path $pkg 'dlssnr-amd/dlssnr.bin')) -or
-        (Test-Path -LiteralPath (Join-Path $pkg 'dlssnr-amd/dlssnr-small.bin'))
+    $hasModel = (Test-Path -LiteralPath (Join-Path $pkg 'dlssnr-amd/CC_SILVER_AARDWOLD.bin')) -or
+        (Test-Path -LiteralPath (Join-Path $pkg 'dlssnr-amd/CC_SMALL_FP8.bin'))
     $hasNv = Test-Path -LiteralPath (Join-Path $pkg 'nvngx_dlssnr.dll')
     $script:notes += ('Mochizuki NR ASI present: {0}; extractor present: {1}.' -f $hasAsi, $hasExtract)
     $script:notes += ('Package model file present: {0}. That is not a GPU compatibility test.' -f $hasModel)
@@ -422,7 +422,7 @@ if ($req.action -ne 'uninstall') {
         $modelChoice = if ($dec) { [string]$dec.mochizukiModels } else { '' }
         $networkChoice = if ($dec -and $dec.mochizukiNetworks) { @($dec.mochizukiNetworks | ForEach-Object { [string]$_ }) } else { @() }
         $activeChoice = if ($dec) { [string]$dec.mochizukiActiveModel } else { '' }
-        if (@($networkChoice | Where-Object { $_ -notin @('small','experimental','original','int4') }).Count -gt 0) {
+        if (@($networkChoice | Where-Object { $_ -notin @('small','experimental','original','int4','optimized') }).Count -gt 0) {
             Fail-Result 'failed' 'Invalid Mochizuki network selection.' 1
         }
         if (-not $networkChoice -and -not $modelChoice) {
@@ -431,10 +431,10 @@ if ($req.action -ne 'uninstall') {
                 prompt = 'Select the Mochizuki networks to install: small, experimental, original, int4 (or all).'
                 options = @('small','experimental','original','int4')
             }
-        } elseif ($modelChoice -and $modelChoice -notin @('both','all','small','experimental','original','int4')) {
+        } elseif ($modelChoice -and $modelChoice -notin @('both','all','small','experimental','original','int4','optimized')) {
             Fail-Result 'failed' 'Invalid Mochizuki models choice.' 1
         }
-        if ($activeChoice -and $activeChoice -notin @('small','experimental','original','int4')) {
+        if ($activeChoice -and $activeChoice -notin @('small','experimental','original','int4','optimized')) {
             Fail-Result 'failed' 'Invalid Mochizuki active network.' 1
         }
     }

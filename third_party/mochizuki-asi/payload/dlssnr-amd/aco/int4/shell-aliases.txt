@@ -1,5 +1,10 @@
 g_attn4.spv g_attn.spv
-g_fswin32nhp.spv g_fswin32nh.spv
+g_fswin32d.spv g_fswin32.spv
+g_fswin32e.spv g_fswin32.spv
+g_fswin32nhd.spv g_fswin32nh.spv
+g_fswin32nhe.spv g_fswin32nh.spv
+g_fswin32nhv.spv g_fswin32nh.spv
+g_fswin32v.spv g_fswin32.spv
 g_fswindsp32nh.spv g_fswindsp32.spv
 g_fswinfusedup32nh.spv g_fswinfusedup32.spv
 g_gemmproj4.spv g_gemmproj.spv

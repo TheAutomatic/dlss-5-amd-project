@@ -387,7 +387,7 @@ jobs:
           # Independent CI tripwire: inspect the exact archive that Release uploads.
           $ver = '${{ steps.ver.outputs.version }}'
           $zipPath = "dist\OptScaler-NR-$ver.zip"
-          $forbidden = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr(?:-int4|-small)?\.bin|pipeline\.cache|version\.dll|dlssnr_on_amd_setup\.exe)$'
+          $forbidden = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr(?:-int4|-small)?\.bin|CC_(?:SMALL_FP8|SMALL_FP8_EXPERIMENTAL|SILVER_AARDWOLD|SILVER_AARDWOLD_OPTIMIZED|SILVER_AARDWOLD_OPTIMIZED_INT4)\.bin|pipeline\.cache|version\.dll|dlssnr_on_amd_setup\.exe)$'
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $archive = [IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $zipPath))
           try {

@@ -89,18 +89,11 @@ namespace OptScalerNR.Launcher
             if (_lastInspectResult == null || _lastInspectResult.Backends == null) return false;
             var wanted = "";
             if (_mochiCheck != null && _mochiCheck.IsChecked == true && BackendHintsContain(FindBackend("mochizuki"), "mochi-source", "mochi-unsupported-source"))
-                wanted += (wanted.Length == 0 ? "" : " / ") + "nvngx_dlssnr.dll（Mochizuki 模型源，310.9.16 或 310.8.0）";
-            if (_lmxxfCheck != null && _lmxxfCheck.IsChecked == true && BackendHintsContain(FindBackend("lmxxf"), "lmxxf-weights", "lmxxf-original", "lmxxf-small"))
-                wanted += (wanted.Length == 0 ? "" : " / ") + "nvngx_dlssnr.dll（lmxxf 权重源）";
-            var daniel = FindBackend("daniel");
-            if (_danielCheck != null && _danielCheck.IsChecked == true && BackendHintsContain(daniel, "daniel-weights", "daniel-source"))
-                wanted += (wanted.Length == 0 ? "" : " / ") + "nvngx_dlssnr.dll 或 dlssnr_on_amd_weights.bin（Daniel 权重源）";
-            else if (_danielCheck != null && _danielCheck.IsChecked == true && BackendHintsContain(daniel, "daniel-runtime"))
-                wanted += (wanted.Length == 0 ? "" : " / ") + "dlssnr_on_amd_setup.exe 或 version.dll（Daniel 运行库）";
+                wanted += (wanted.Length == 0 ? "" : " / ") + L("nvngx_dlssnr.dll（Mochizuki 模型源，310.9.16 或 310.8.0）", "nvngx_dlssnr.dll (Mochizuki model source, 310.9.16 or 310.8.0)");
             if (_openRrToggle != null && _openRrToggle.IsChecked == true && !HasValidOpenRrDlssd())
                 wanted += (wanted.Length == 0 ? "" : " / ") + L("nvngx_dlssd.dll（OpenRR 光线重建模型源，310.9.1.0）", "nvngx_dlssd.dll (OpenRR model source, 310.9.1.0)");
             if (wanted.Length == 0) return false;
-            message = L("所选后端缺少：", "Selected backends are missing: ") + wanted +
+            message = L("缺少模型源：", "Missing model source: ") + wanted +
                       L("。点击右侧按钮导入，文件会复制到启动器目录，对所有游戏生效。", ". Import it with the button on the right; the file is copied into the launcher folder and applies to every game.");
             return true;
         }
@@ -191,7 +184,7 @@ namespace OptScalerNR.Launcher
             var directory = Path.GetDirectoryName(_selectedGame.Exe);
             var picker = new OpenFileDialog {
                 Title = L("选择模型源文件（复制到启动器目录）", "Choose a model source file (copied into the launcher folder)"),
-                Filter = L("模型源文件|nvngx_dlssnr.dll;nvngx_dlssd.dll;dlssnr_on_amd_setup.exe;dlssnr_on_amd_weights.bin|DLL (*.dll)|*.dll|EXE (*.exe)|*.exe|BIN (*.bin)|*.bin", "Model sources|nvngx_dlssnr.dll;nvngx_dlssd.dll;dlssnr_on_amd_setup.exe;dlssnr_on_amd_weights.bin|DLL (*.dll)|*.dll|EXE (*.exe)|*.exe|BIN (*.bin)|*.bin"),
+                Filter = L("模型源文件|nvngx_dlssnr.dll;nvngx_dlssd.dll|DLL (*.dll)|*.dll", "Model sources|nvngx_dlssnr.dll;nvngx_dlssd.dll|DLL (*.dll)|*.dll"),
                 CheckFileExists = true, RestoreDirectory = true
             };
             if (!string.IsNullOrEmpty(directory)) picker.InitialDirectory = directory;

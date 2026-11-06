@@ -1,5 +1,5 @@
-NR_HS_FOLD=1.785119
-NR_HS_FOLD32=1.789667
-NR_HS_FOLDPP=1.789667
-NR_HS_FOLD_BLOCKS=0+1+2+4+5+6+7+8+15+16+17+18+19+20+21+22+48+49+50+51+52+53+54+55+56+57+58+59+60+61+62+63+64+65+66+67+68+69+70
-NR_HS_ROUTE=1+2+67
+# CC_SILVER_AARDWOLD_OPTIMIZED's int4 layers (Optimized layers: Balanced): every other setting is in the network
+# (pipelines-int4.json) and the tables beside this file.
+# NR_SWI4_ROT: the Swin int4 expansions' input rotation (fswin_t NR_SWI4_ROT=8 in pipelines-int4.json); the tables in
+# swin/ are made for it (their header says 8) and the int4 weights are built with it.
+NR_SWI4_ROT=8

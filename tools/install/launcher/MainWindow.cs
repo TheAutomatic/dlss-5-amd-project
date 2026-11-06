@@ -266,7 +266,7 @@ namespace OptScalerNR.Launcher
             if (githubBtn != null) githubBtn.Click += (s, e) => OpenUrl("https://github.com/TheAutomatic/dlss-5-amd-project");
             var bilibiliBtn = window.FindName("BilibiliButton") as Button;
             if (bilibiliBtn != null) bilibiliBtn.Click += (s, e) => OpenUrl("https://space.bilibili.com/291088");
-            foreach (var name in new[] { "MochizukiAuthorButton", "LmxxfAuthorButton", "DanielAuthorButton" }) {
+            foreach (var name in new[] { "MochizukiAuthorButton", "OpenRrAuthorButton" }) {
                 var author = window.FindName(name) as Button;
                 if (author != null) author.Click += (s, e) => OpenUrl((string)((Button)s).ToolTip);
             }
@@ -760,13 +760,13 @@ namespace OptScalerNR.Launcher
 
                 SetLabel("LocalGamesHeading", "游戏库", "Library");
                 SetLabel("ProxyHeading", "注入代理", "Injection proxy");
-                SetLabel("BackendsHeading", "神经渲染后端", "Neural rendering backends");
+                SetLabel("BackendsHeading", "神经渲染后端", "Neural rendering backend");
                 SetLabel("LmxxfCheck", "lmxxf 0.4.4", "lmxxf 0.4.4");
                 SetLabel("DanielCheck", "daniel 0.6.0", "daniel 0.6.0");
-                SetLabel("MochiCheck", "mochizuki 0.0.8.2", "mochizuki 0.0.8.2");
+                SetLabel("MochiCheck", "mochizuki 0.0.8.3", "mochizuki 0.0.8.3");
                 SetLabel("LmxxfDescription", "适合 RX 9000 系列", "For RX 9000 series");
                 SetLabel("DanielDescription", "适合 RX 6000/7000/9000 系列", "For RX 6000/7000/9000 series");
-                SetLabel("MochiDescription", "适合 RX 7000/9000 系列", "For RX 7000/9000 series");
+                SetLabel("MochiDescription", "适合 RX 7000/9000 系列（Direct ELF D3D12 / Vulkan）", "For RX 7000/9000 series (Direct ELF D3D12 / Vulkan)");
                 SetLabel("DiagnosticsHeading", "配置与运行库兼容诊断", "Configuration & Runtime Compatibility");
                 SetLabel("LogHeading", "运行诊断日志", "Diagnostic Log");
                 SetLabel("SettingsHeading", "设置", "Settings");
@@ -1195,14 +1195,14 @@ namespace OptScalerNR.Launcher
         void RestoreBackendChoice()
         {
             var choice = CurrentBackendChoice();
-            var list = new List<string>(choice != null ? choice.Backends : new string[0]);
+            var list = new List<string>(choice != null ? choice.Backends : new[] { "mochizuki" });
             _updatingBackends = true;
             try
             {
-                if (_mochiCheck != null) _mochiCheck.IsChecked = list.Contains("mochizuki");
+                if (_mochiCheck != null) _mochiCheck.IsChecked = list.Contains("mochizuki") || choice == null;
                 if (_lmxxfCheck != null) _lmxxfCheck.IsChecked = list.Contains("lmxxf");
                 if (_danielCheck != null) _danielCheck.IsChecked = list.Contains("daniel");
-                _activeBackend = choice != null ? choice.ActiveBackend : "mochizuki";
+                _activeBackend = choice != null && !string.IsNullOrEmpty(choice.ActiveBackend) ? choice.ActiveBackend : "mochizuki";
                 UpdateActiveCombo();
             }
             finally { _updatingBackends = false; }
@@ -2166,7 +2166,7 @@ namespace OptScalerNR.Launcher
                     State = capability == null ? null : capability.ExperimentalState },
                 new { Value = "original", Label = L("Original — CC_SILVER_AARDWOLD（通用）", "Original — CC_SILVER_AARDWOLD (General)"),
                     State = capability == null ? null : capability.OriginalState },
-                new { Value = "int4", Label = L("INT4 Mixed — CC_SILVER_AARDWOLD_INT4_MIXED（暂仅限 RX 9000）", "INT4 Mixed — CC_SILVER_AARDWOLD_INT4_MIXED (Currently RX 9000 only)"),
+                new { Value = "int4", Label = L("Optimized — CC_SILVER_AARDWOLD_OPTIMIZED（暂仅限 RX 9000）", "Optimized — CC_SILVER_AARDWOLD_OPTIMIZED (Currently RX 9000 only)"),
                     State = capability == null ? null : capability.Int4State }
             };
             var ready = new bool[4];
@@ -2189,8 +2189,8 @@ namespace OptScalerNR.Launcher
             var panel = new StackPanel { Margin = new Thickness(24) };
             panel.Children.Add(new TextBlock
             {
-                Text = L("选择要安装的网络，再选择游戏启动时使用的网络。Experimental 依赖 Small，INT4 Mixed 依赖 Original；父模型会自动安装或提取。",
-                    "Choose the networks to install, then the one the game starts with. Experimental needs Small and INT4 Mixed needs Original; parent models are installed or extracted automatically."),
+                Text = L("选择要安装的网络，再选择游戏启动时使用的网络。Experimental 依赖 Small，Optimized 依赖 Original；父模型会自动安装或提取。",
+                    "Choose the networks to install, then the one the game starts with. Experimental needs Small and Optimized needs Original; parent models are installed or extracted automatically."),
                 TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12)
             });
             var checks = new CheckBox[4];
@@ -2238,7 +2238,7 @@ namespace OptScalerNR.Launcher
                 checks[2].IsEnabled = canInstall[2];
                 checks[2].Tag = !canInstall[2] ? "unavailable" : int4LocksOriginal ? ModelDependencyLock.TagValue : null;
                 checks[2].ToolTip = int4LocksOriginal && canInstall[2]
-                    ? L("INT4 Mixed 已选择，Original 是必需依赖，不能取消。", "INT4 Mixed is selected, so Original is a required dependency and cannot be cleared.")
+                    ? L("Optimized 已选择，Original 是必需依赖，不能取消。", "Optimized is selected, so Original is a required dependency and cannot be cleared.")
                     : null;
             };
             Action syncParents = delegate {

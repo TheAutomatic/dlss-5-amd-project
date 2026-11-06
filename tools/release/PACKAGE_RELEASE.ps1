@@ -720,8 +720,16 @@ Copy-Item -LiteralPath (Join-Path $asiPayload 'ini/dlssnr-amd-optiscaler-renodx.
 New-Item -ItemType Directory -Force (Join-Path $stage 'experimental') | Out-Null
 Get-ChildItem -LiteralPath (Join-Path $asiPayload 'experimental') -File |
     Copy-Item -Destination (Join-Path $stage 'experimental') -Force
+if (Test-Path -LiteralPath (Join-Path $asiPayload 'optimized') -PathType Container) {
+    New-Item -ItemType Directory -Force (Join-Path $stage 'optimized') | Out-Null
+    Get-ChildItem -LiteralPath (Join-Path $asiPayload 'optimized') -File |
+        Copy-Item -Destination (Join-Path $stage 'optimized') -Force
+}
 foreach ($name in @('dlssnr_extract_model.exe', 'dlssnr-int4-weights.exe')) {
     Copy-Item -LiteralPath (Join-Path $asiPayload "model-tools/$name") -Destination (Join-Path $stage 'model-tools') -Force
+}
+if (Test-Path -LiteralPath (Join-Path $asiPayload 'model-tools/dlssnr-int4.sha256') -PathType Leaf) {
+    Copy-Item -LiteralPath (Join-Path $asiPayload 'model-tools/dlssnr-int4.sha256') -Destination (Join-Path $stage 'model-tools') -Force
 }
 $mochizukiLicenseRoot = Join-Path $root 'third_party/mochizuki'
 Copy-Item -LiteralPath (Join-Path $mochizukiLicenseRoot 'LICENSE') -Destination (Join-Path $stage 'Licenses/Mochizuki_MIT.txt') -Force
@@ -742,7 +750,7 @@ foreach ($name in @('lmxxf-small-model.md','lmxxf-044-consumer-review.md')) {
 $mzDoc = [IO.File]::ReadAllText((Join-Path $root 'docs/mochizuki.md'))
 $mzDoc = $mzDoc.Replace('../third_party/mochizuki/UPSTREAM.md', '../Licenses/Mochizuki_SOURCES.md')
 [IO.File]::WriteAllText((Join-Path $stage 'docs/mochizuki.md'), $mzDoc, [Text.UTF8Encoding]::new($false))
-# Model preparation without the retired Python extractor: the official 0.0.8.2
+# Model preparation without the retired Python extractor: the official 0.0.8.3
 # tools write the models the ASI reads. No hash whitelist and no version gate.
 @'
 @echo off
@@ -757,7 +765,7 @@ if not exist "%SOURCE%" (
 "%~dp0model-tools\dlssnr_extract_model.exe" "%SOURCE%" "%~dp0dlssnr-amd"
 set "RC=%ERRORLEVEL%"
 if not "%RC%"=="0" echo Model extraction failed ^(exit code %RC%^).
-echo Base models only: Setup generates Experimental from Small and INT4 Mixed from Original.
+echo Base models only: Setup generates Experimental from Small and Optimized from Original.
 pause
 exit /b %RC%
 '@ | Set-Content -LiteralPath (Join-Path $stage 'Mochizuki-Model.bat') -Encoding ASCII
@@ -884,7 +892,7 @@ if (Test-Path -LiteralPath $versionFile -PathType Leaf) {
 # danielblnc pass（dlssnr_amd_pass*.dll）必须不在包内 —— README 明写「包里没有 danielblnc pass」。
 # Keep this filename-only and case-insensitive: the same expression validates the
 # staged tree and every entry in the finished archive.
-$forbidden = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr(?:-int4|-small)?\.bin|version\.dll|dlssnr_on_amd_setup\.exe|.*\.generated\.hip|.*\.hsaco\.s)$'
+$forbidden = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr(?:-int4|-small)?\.bin|CC_(?:SMALL_FP8|SMALL_FP8_EXPERIMENTAL|SILVER_AARDWOLD|SILVER_AARDWOLD_OPTIMIZED|SILVER_AARDWOLD_OPTIMIZED_INT4)\.bin|version\.dll|dlssnr_on_amd_setup\.exe|.*\.generated\.hip|.*\.hsaco\.s)$'
 $badAll = Get-ChildItem -LiteralPath $stage -Recurse -File -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -match $forbidden }
 if ($badAll) {
@@ -899,7 +907,7 @@ if ($LocalTest) {
         "Local test package $Version. Full release tests were not run for this package. Pending game validation and release validation.`n",
         [Text.UTF8Encoding]::new($false))
 }
-foreach ($model in @('dlssnr.bin', 'dlssnr-small.bin', 'dlssnr-int4.bin')) {
+foreach ($model in @('CC_SILVER_AARDWOLD.bin', 'CC_SMALL_FP8.bin', 'CC_SMALL_FP8_EXPERIMENTAL.bin', 'CC_SILVER_AARDWOLD_OPTIMIZED.bin', 'CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin', 'dlssnr.bin', 'dlssnr-small.bin', 'dlssnr-int4.bin')) {
     if (Test-Path (Join-Path $stage "dlssnr-amd/$model")) { throw 'User model must never be packaged.' }
 }
 if (Test-Path (Join-Path $stage 'dlssnr-amd/pipeline.cache')) { throw 'Pipeline cache must never be packaged.' }
