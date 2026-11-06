@@ -557,14 +557,15 @@ namespace OptScalerNR.Launcher
                 _danielActiveBtn.IsEnabled = _danielCheck != null && _danielCheck.IsChecked == true;
             }
 
+            bool multiBackendMode = FindBackend("lmxxf") != null || FindBackend("daniel") != null;
             if (_mochiActiveLabel != null)
             {
-                _mochiActiveLabel.Visibility = isMochi ? Visibility.Visible : Visibility.Collapsed;
+                _mochiActiveLabel.Visibility = (multiBackendMode && isMochi) ? Visibility.Visible : Visibility.Collapsed;
                 _mochiActiveLabel.Text = L("主后端", "Primary");
             }
             if (_mochiActiveBtn != null)
             {
-                _mochiActiveBtn.Visibility = isMochi ? Visibility.Collapsed : Visibility.Visible;
+                _mochiActiveBtn.Visibility = (multiBackendMode && !isMochi) ? Visibility.Visible : Visibility.Collapsed;
                 _mochiActiveBtn.Content = L("设为主后端", "Set primary");
                 _mochiActiveBtn.IsEnabled = _mochiCheck != null && _mochiCheck.IsChecked == true;
             }
@@ -1633,7 +1634,9 @@ namespace OptScalerNR.Launcher
                 return;
             }
 
-            var hasBackend = (_lmxxfCheck != null && _lmxxfCheck.IsChecked == true)
+            bool multiBackendMode = FindBackend("lmxxf") != null || FindBackend("daniel") != null;
+            var hasBackend = !multiBackendMode
+                || (_lmxxfCheck != null && _lmxxfCheck.IsChecked == true)
                 || (_danielCheck != null && _danielCheck.IsChecked == true)
                 || (_mochiCheck != null && _mochiCheck.IsChecked == true);
 
@@ -2480,11 +2483,40 @@ namespace OptScalerNR.Launcher
             if (_danielCheck != null && _danielCheck.IsChecked == true && FindBackend("daniel") != null) checkedBackends.Add("daniel");
             if (_mochiCheck != null && _mochiCheck.IsChecked == true) checkedBackends.Add("mochizuki");
 
-            if (installing && checkedBackends.Count == 0)
+            bool multiBackendMode = FindBackend("lmxxf") != null || FindBackend("daniel") != null;
+            if (installing && checkedBackends.Count == 0 && multiBackendMode)
             {
                 DialogTheme.Show(_window, _language == "zh" ? "请至少勾选一个可安装的后端。" : "Please select at least one backend to install.", _window.Title);
                 ReleaseLock();
                 return;
+            }
+            if (installing && !multiBackendMode && !keepModelChoice)
+            {
+                bool nrOn = checkedBackends.Contains("mochizuki");
+                bool rrOn = _openRrToggle == null || _openRrToggle.IsChecked == true;
+                if (!nrOn || !rrOn)
+                {
+                    string warnMsg;
+                    if (!nrOn && !rrOn)
+                        warnMsg = L(
+                            "当前未启用神经渲染（Mochizuki）与 DLSS 光线重建（OpenRR），本次将仅安装基础版 OptiScaler（支持超分、帧生成与内置 FSR-RR），无法获得神经渲染光影重塑与原生 DLSS 光线重建效果。\n\n是否继续？",
+                            "Neither Mochizuki Neural Rendering nor OpenRR (DLSS Ray Reconstruction) is enabled. Only base OptiScaler will be installed (supporting upscaling, frame generation, and built-in FSR-RR, without Neural Rendering or native DLSS Ray Reconstruction).\n\nContinue anyway?");
+                    else if (!nrOn)
+                        warnMsg = L(
+                            "当前未启用神经渲染（Mochizuki），将无法获得神经渲染光影重塑效果。\n\n是否继续？",
+                            "Mochizuki Neural Rendering is not enabled; Neural Rendering lighting effects will not be available.\n\nContinue anyway?");
+                    else
+                        warnMsg = L(
+                            "当前未启用 DLSS 光线重建（OpenRR），光线重建将使用内置 FSR-RR，无法获得原生 DLSS 光线重建效果。\n\n是否继续？",
+                            "OpenRR (DLSS Ray Reconstruction) is not enabled; Ray Reconstruction will use built-in FSR-RR instead of native DLSS Ray Reconstruction.\n\nContinue anyway?");
+                    if (DialogTheme.Show(_window, warnMsg, _window.Title, MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                    {
+                        ReleaseLock();
+                        return;
+                    }
+                }
+                if (!nrOn)
+                    checkedBackends.Add("none");
             }
             if (installing && !PrepareMissingModelSource(action, checkedBackends)) { ReleaseLock(); return; }
 
@@ -2520,7 +2552,7 @@ namespace OptScalerNR.Launcher
                 GameExe = _selectedGame.Exe,
                 ProxyChoice = proxy,
                 Backends = installing ? checkedBackends.ToArray() : null,
-                ActiveBackend = installing ? _activeBackend : null,
+                ActiveBackend = (installing && !checkedBackends.Contains("none")) ? _activeBackend : null,
                 PackageRoot = _packageRoot,
                 ExplicitDecisions = _decisions,
                 Fingerprint = (action != "inspect" && _lastInspectResult != null) ? _lastInspectResult.Fingerprint : null,
@@ -2700,7 +2732,7 @@ namespace OptScalerNR.Launcher
                         _danielCheck.IsEnabled = false;
                         if (preferredActiveBackend == "daniel") preferredActiveBackend = "mochizuki";
                     }
-                    if (!hasLmxxf && !hasDaniel && _mochiCheck != null && _mochiCheck.IsChecked != true)
+                    if (!hasLmxxf && !hasDaniel && !hasUserChoice && _mochiCheck != null && _mochiCheck.IsChecked != true)
                         _mochiCheck.IsChecked = true;
                     foreach (var b in result.Backends)
                     {

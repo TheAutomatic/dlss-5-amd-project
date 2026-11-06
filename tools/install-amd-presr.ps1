@@ -1029,7 +1029,7 @@ if ($hasBackendSelection -and $PSBoundParameters.ContainsKey('Backend')) {
     Fail 'Pass either -Backend or -Backends, not both.'
 }
 if ($hasBackendSelection) {
-    $allowedBackendIds = @('lmxxf','daniel','mochizuki')
+    $allowedBackendIds = @('lmxxf','daniel','mochizuki','none')
     if (-not $Backends -or @($Backends).Count -eq 0) { Fail '-Backends requires at least one backend id.' }
     $seenBackend = @{}
     foreach ($id in @($Backends)) {
@@ -1045,7 +1045,7 @@ if ($hasBackendSelection) {
     $installLmxxf = [bool]$seenBackend.ContainsKey('lmxxf')
     $installDaniel = [bool]$seenBackend.ContainsKey('daniel')
     $installMochizuki = [bool]$seenBackend.ContainsKey('mochizuki')
-    $selectedActiveBackend = $null
+    $selectedActiveBackend = 'mochizuki'
     foreach ($id in @('lmxxf','daniel','mochizuki')) {
         if ($seenBackend.ContainsKey($id)) { $selectedActiveBackend = $id; break }
     }
@@ -2684,12 +2684,20 @@ if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
             $dlssnrSettings['LmxxfNetworkModel'] = if ($lmxxfSelectedModels -eq 'small') { '1' } else { '0' }
         }
     }
-    if ($iniFromTemplate) {
+    $anyNrInstalled = $installLmxxf -or $installDaniel -or $installMochizuki
+    if (-not $anyNrInstalled) {
+        $dlssnrSettings['Enabled'] = 'false'
+        $staleAsi = Join-Path $game 'OptiScaler/plugins/dlssnr-amd.asi'
+        if (Test-Path -LiteralPath $staleAsi -PathType Leaf) {
+            Remove-Item -LiteralPath $staleAsi -Force -ErrorAction SilentlyContinue
+            Write-Host 'Removed dlssnr-amd.asi because Neural Rendering was unchecked.' -ForegroundColor DarkGray
+        }
+    } elseif ($iniFromTemplate) {
         $dlssnrSettings['Enabled'] = 'true'
     }
     Set-IniSettings $gameIni 'DlssNr' $dlssnrSettings
     # A user's explicit Enabled choice is preserved; only a missing key is seeded.
-    Set-IniSettings $gameIni 'DlssNr' ([ordered]@{ 'Enabled' = 'true' }) -OnlyMissing
+    Set-IniSettings $gameIni 'DlssNr' ([ordered]@{ 'Enabled' = $(if ($anyNrInstalled) { 'true' } else { 'false' }) }) -OnlyMissing
     if ($installMochizuki) {
         # The ASI is loaded by the host, not by a new loader.
         Set-IniSettings $gameIni 'Plugins' ([ordered]@{ 'LoadAsiPlugins' = 'true' })

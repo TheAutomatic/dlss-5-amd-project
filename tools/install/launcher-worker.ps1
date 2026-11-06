@@ -105,7 +105,7 @@ if ($req.action -in @('install','update')) {
         }
         $seenRequestedBackends = @{}
         foreach ($id in @($req.backends)) {
-            if ($id -notin @('lmxxf','daniel','mochizuki')) { Fail-Result 'failed' "Unknown backend id: $id" 1 }
+            if ($id -notin @('lmxxf','daniel','mochizuki','none')) { Fail-Result 'failed' "Unknown backend id: $id" 1 }
             if ($seenRequestedBackends.ContainsKey($id)) { Fail-Result 'failed' "Duplicate backend id: $id" 1 }
             $seenRequestedBackends[$id] = $true
         }
