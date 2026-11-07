@@ -142,7 +142,8 @@ HRESULT FGHooks::CreateSwapChain(IDXGIFactory* pFactory, IUnknown* pDevice, DXGI
         return E_INVALIDARG;
     }
 
-    if (State::Instance().currentFG == nullptr)
+    const bool createdFG = State::Instance().currentFG == nullptr;
+    if (createdFG)
     {
         // FG Init
         if (State::Instance().activeFgOutput == FGOutput::FSRFG)
@@ -242,6 +243,12 @@ HRESULT FGHooks::CreateSwapChain(IDXGIFactory* pFactory, IUnknown* pDevice, DXGI
         return S_OK;
     }
 
+    if (createdFG && State::Instance().currentFGSwapchain == nullptr)
+    {
+        delete State::Instance().currentFG;
+        State::Instance().currentFG = nullptr;
+    }
+
     return E_INVALIDARG;
 }
 
@@ -263,7 +270,8 @@ HRESULT FGHooks::CreateSwapChainForHwnd(IDXGIFactory* pFactory, IUnknown* pDevic
         return E_INVALIDARG;
     }
 
-    if (State::Instance().currentFG == nullptr)
+    const bool createdFG = State::Instance().currentFG == nullptr;
+    if (createdFG)
     {
         // FG Init
         if (State::Instance().activeFgOutput == FGOutput::FSRFG)
@@ -362,6 +370,12 @@ HRESULT FGHooks::CreateSwapChainForHwnd(IDXGIFactory* pFactory, IUnknown* pDevic
         SetFGSwapchain((IDXGISwapChain*) *ppSwapChain, hWnd);
 
         return S_OK;
+    }
+
+    if (createdFG && State::Instance().currentFGSwapchain == nullptr)
+    {
+        delete State::Instance().currentFG;
+        State::Instance().currentFG = nullptr;
     }
 
     return E_INVALIDARG;

@@ -126,6 +126,12 @@ bool XeFG_Dx12::CreateSwapchainContext(ID3D12Device* device)
                           bundledVersion.minor, bundledVersion.patch);
 
                 InputCommon::release_xefg_xell();
+                if (_swapChainContext != nullptr && XeFGProxy::Destroy() != nullptr)
+                {
+                    XeFGProxy::Destroy()(_swapChainContext);
+                    _swapChainContext = nullptr;
+                }
+                return false;
             }
             else
             {
@@ -134,6 +140,12 @@ bool XeFG_Dx12::CreateSwapchainContext(ID3D12Device* device)
                 if (result != XEFG_SWAPCHAIN_RESULT_SUCCESS)
                 {
                     LOG_ERROR("SetLatencyReduction error: {} ({})", magic_enum::enum_name(result), (UINT) result);
+                    InputCommon::release_xefg_xell();
+                    if (_swapChainContext != nullptr && XeFGProxy::Destroy() != nullptr)
+                    {
+                        XeFGProxy::Destroy()(_swapChainContext);
+                        _swapChainContext = nullptr;
+                    }
                     return false;
                 }
             }
@@ -141,6 +153,11 @@ bool XeFG_Dx12::CreateSwapchainContext(ID3D12Device* device)
         else
         {
             LOG_ERROR("Couldn't create XeLL");
+            if (_swapChainContext != nullptr && XeFGProxy::Destroy() != nullptr)
+            {
+                XeFGProxy::Destroy()(_swapChainContext);
+                _swapChainContext = nullptr;
+            }
             return false;
         }
 
@@ -299,9 +316,7 @@ bool XeFG_Dx12::CreateSwapchain(IDXGIFactory* factory, ID3D12CommandQueue* cmdQu
         if (State::Instance().currentD3D12Device == nullptr)
             return false;
 
-        CreateSwapchainContext(State::Instance().currentD3D12Device);
-
-        if (_swapChainContext == nullptr)
+        if (!CreateSwapchainContext(State::Instance().currentD3D12Device) || _swapChainContext == nullptr)
             return false;
 
         _width = desc->BufferDesc.Width;
@@ -489,9 +504,7 @@ bool XeFG_Dx12::CreateSwapchain1(IDXGIFactory* factory, ID3D12CommandQueue* cmdQ
         if (State::Instance().currentD3D12Device == nullptr)
             return false;
 
-        CreateSwapchainContext(State::Instance().currentD3D12Device);
-
-        if (_swapChainContext == nullptr)
+        if (!CreateSwapchainContext(State::Instance().currentD3D12Device) || _swapChainContext == nullptr)
             return false;
 
         _width = desc->Width;

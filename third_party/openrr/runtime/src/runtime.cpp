@@ -561,6 +561,7 @@ void build_network(Ctx* c) {
             g_log("network kernels ready (%zu pipelines) in %.1f s", names.size(),
                   std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
         }
+        if (c->lite_want && !c->lite_started.exchange(true)) build_lite(c);
         c->built = true;
     } catch (const std::exception& e) {
         std::lock_guard l(c->m);
@@ -770,7 +771,10 @@ void record_frame(Ctx* c, Rec& r, Job& j, bool network, bool split = false) {
             if (((ip.g[s][2] >> 16) & 12u) != 0) {
                 ip.dst[s] = 0;
             } else {
-                if (!c->guides[s].addr) c->guides[s] = d.create(size_t(c->guide_size.x) * c->guide_size.y * bpp8[s] + 64);
+                if (!c->guides[s].addr) {
+                    c->guides[s] = d.create(size_t(c->guide_size.x) * c->guide_size.y * bpp8[s] + 64);
+                    d.fill(c->guides[s], 0, c->guides[s].size, 0);
+                }
                 ip.dst[s] = gt.buf[s] = c->guides[s].addr;
                 ingest = true;
             }
@@ -1600,6 +1604,8 @@ int32_t plan_job(Ctx* c, const OnrRrFrame* f, std::unique_ptr<Job>& j, D3D12_PLA
     j->f.size = sizeof(OnrRrFrame);
     // a host from before the V4 tail gave the layer's opacity knowing it was not read: it stays unread
     if (f->size <= ONR_RR_FRAME_SIZE_V4) j->f.transparency_opacity = {};
+    if (!j->f.transparency_layer.resource) j->f.transparency_opacity = {}, j->f.transparency_motion = {};
+    if (j->f.flags & ONR_RR_FRAME_ROUGHNESS_PACKED) j->f.roughness = {};
     // rr2 has no input for the ray direction + hit distance (nvngx_dlssd.dll binds only DLSSD.SpecularHitDistance)
     if (j->f.specular_ray_direction_hit_distance.resource && !c->logged_ray) {
         c->logged_ray = true;
@@ -2195,34 +2201,21 @@ void d3d_ensure(Ctx* c, Buffer& b, UINT64 n) {
 // The typed view d3d_ingest reads a guide through, or UNKNOWN when its texel fetch might not give the bits tf_read
 // gives: float formats convert exactly; 8-bit unorm only into the albedos, which pack it back to the same bytes.
 DXGI_FORMAT direct_view(DXGI_FORMAT f, int slot) {
-    (void)slot;
     switch (f) {
     case DXGI_FORMAT_R16G16B16A16_TYPELESS: case DXGI_FORMAT_R16G16B16A16_FLOAT: return DXGI_FORMAT_R16G16B16A16_FLOAT;
     case DXGI_FORMAT_R32G32B32A32_TYPELESS: case DXGI_FORMAT_R32G32B32A32_FLOAT: return DXGI_FORMAT_R32G32B32A32_FLOAT;
     case DXGI_FORMAT_R11G11B10_FLOAT: return DXGI_FORMAT_R11G11B10_FLOAT;
-    case DXGI_FORMAT_R10G10B10A2_TYPELESS: case DXGI_FORMAT_R10G10B10A2_UNORM: return DXGI_FORMAT_R10G10B10A2_UNORM;
     case DXGI_FORMAT_R16G16_TYPELESS: case DXGI_FORMAT_R16G16_FLOAT: return DXGI_FORMAT_R16G16_FLOAT;
     case DXGI_FORMAT_R32G32_TYPELESS: case DXGI_FORMAT_R32G32_FLOAT: return DXGI_FORMAT_R32G32_FLOAT;
     case DXGI_FORMAT_R16_TYPELESS: case DXGI_FORMAT_R16_FLOAT: return DXGI_FORMAT_R16_FLOAT;
-    case DXGI_FORMAT_R32_TYPELESS: case DXGI_FORMAT_R32_FLOAT: return DXGI_FORMAT_R32_FLOAT;
-    case DXGI_FORMAT_R32G8X24_TYPELESS: case DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS:
+    case DXGI_FORMAT_R32_TYPELESS: case DXGI_FORMAT_R32_FLOAT: case DXGI_FORMAT_D32_FLOAT: return DXGI_FORMAT_R32_FLOAT;
+    case DXGI_FORMAT_R32G8X24_TYPELESS: case DXGI_FORMAT_D32_FLOAT_S8X24_UINT: case DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS:
         return DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS;
-    case DXGI_FORMAT_R24G8_TYPELESS: case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
-        return DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
-    case DXGI_FORMAT_R8_TYPELESS: case DXGI_FORMAT_R8_UNORM: return DXGI_FORMAT_R8_UNORM;
-    case DXGI_FORMAT_R16_UNORM: return DXGI_FORMAT_R16_UNORM;
-    case DXGI_FORMAT_R8G8_TYPELESS: case DXGI_FORMAT_R8G8_UNORM: return DXGI_FORMAT_R8G8_UNORM;
-    case DXGI_FORMAT_R16G16_UNORM: return DXGI_FORMAT_R16G16_UNORM;
-    case DXGI_FORMAT_R16G16_SNORM: return DXGI_FORMAT_R16G16_SNORM;
-    case DXGI_FORMAT_R16G16B16A16_UNORM: return DXGI_FORMAT_R16G16B16A16_UNORM;
-    case DXGI_FORMAT_R16G16B16A16_SNORM: return DXGI_FORMAT_R16G16B16A16_SNORM;
-    case DXGI_FORMAT_R8G8B8A8_SNORM: return DXGI_FORMAT_R8G8B8A8_SNORM;
-    case DXGI_FORMAT_R8G8B8A8_TYPELESS: case DXGI_FORMAT_R8G8B8A8_UNORM: return DXGI_FORMAT_R8G8B8A8_UNORM;
-    case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
-    case DXGI_FORMAT_B8G8R8A8_TYPELESS: case DXGI_FORMAT_B8G8R8A8_UNORM: return DXGI_FORMAT_B8G8R8A8_UNORM;
-    case DXGI_FORMAT_B8G8R8X8_TYPELESS: case DXGI_FORMAT_B8G8R8X8_UNORM: return DXGI_FORMAT_B8G8R8X8_UNORM;
-    case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
-    case DXGI_FORMAT_R9G9B9E5_SHAREDEXP: return DXGI_FORMAT_R9G9B9E5_SHAREDEXP;
+    case DXGI_FORMAT_R8G8B8A8_TYPELESS: case DXGI_FORMAT_R8G8B8A8_UNORM:
+        return slot == G_ALBEDO || slot == G_SPEC ? DXGI_FORMAT_R8G8B8A8_UNORM : DXGI_FORMAT_UNKNOWN;
+    case DXGI_FORMAT_B8G8R8A8_TYPELESS: case DXGI_FORMAT_B8G8R8A8_UNORM:
+    case DXGI_FORMAT_B8G8R8X8_TYPELESS: case DXGI_FORMAT_B8G8R8X8_UNORM:
+        return slot == G_ALBEDO || slot == G_SPEC ? DXGI_FORMAT_B8G8R8A8_UNORM : DXGI_FORMAT_UNKNOWN;
     default: return DXGI_FORMAT_UNKNOWN;
     }
 }
@@ -2262,6 +2255,7 @@ void d3d_plan_direct(Ctx* c, Job& j, std::vector<D3D12_RESOURCE_BARRIER>& back) 
         back.push_back(b);
     }
     if (!to.empty()) c->dx->list()->ResourceBarrier(UINT(to.size()), to.data());
+    else c->dx->barrier();
 }
 
 // the job's guides that are not read directly, copied into dinput (one barrier each way), on the bound list
@@ -2288,13 +2282,6 @@ void d3d_copy_inputs(Ctx* c, Job& j) {
 DXGI_FORMAT direct_uav_format(DXGI_FORMAT f) {
     switch (f) {
     case DXGI_FORMAT_R16G16B16A16_TYPELESS: case DXGI_FORMAT_R16G16B16A16_FLOAT: return DXGI_FORMAT_R16G16B16A16_FLOAT;
-    case DXGI_FORMAT_R32G32B32A32_TYPELESS: case DXGI_FORMAT_R32G32B32A32_FLOAT: return DXGI_FORMAT_R32G32B32A32_FLOAT;
-    case DXGI_FORMAT_R11G11B10_FLOAT: return DXGI_FORMAT_R11G11B10_FLOAT;
-    case DXGI_FORMAT_R10G10B10A2_TYPELESS: case DXGI_FORMAT_R10G10B10A2_UNORM: return DXGI_FORMAT_R10G10B10A2_UNORM;
-    case DXGI_FORMAT_R8G8B8A8_TYPELESS: case DXGI_FORMAT_R8G8B8A8_UNORM: return DXGI_FORMAT_R8G8B8A8_UNORM;
-    case DXGI_FORMAT_B8G8R8A8_TYPELESS: case DXGI_FORMAT_B8G8R8A8_UNORM: return DXGI_FORMAT_B8G8R8A8_UNORM;
-    case DXGI_FORMAT_B8G8R8X8_TYPELESS: case DXGI_FORMAT_B8G8R8X8_UNORM: return DXGI_FORMAT_B8G8R8X8_UNORM;
-    case DXGI_FORMAT_R16G16B16A16_UNORM: return DXGI_FORMAT_R16G16B16A16_UNORM;
     default: return DXGI_FORMAT_UNKNOWN;
     }
 }

@@ -849,6 +849,7 @@ void Device::begin() {
 
 void Device::dispatch(const Kernel& k, const void* push, uint32_t push_size, uint32_t gx, uint32_t gy, uint32_t gz) {
     set_bound_ = true;
+    if (transfer_) barrier_wide();
     VkPipelineLayout lay = k.views ? d3d_layout_ : layout_;
     vkCmdBindPipeline(cmd_, VK_PIPELINE_BIND_POINT_COMPUTE, k.pipe);
     vkCmdBindDescriptorSets(cmd_, VK_PIPELINE_BIND_POINT_COMPUTE, lay, 0, 1, k.views ? &views_ : &set_, 0, nullptr);

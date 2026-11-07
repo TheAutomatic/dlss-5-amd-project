@@ -59,7 +59,10 @@ f16vec3 texel(int x, int y, int lo, int hi) {
 #endif
 }
 
-float16_t wt(int k, int parity) { return hbits(W_ODD[parity == 1 ? k : 4 - k]); }
+float16_t wt(int k, int parity) {
+    int i = parity == 1 ? k : 4 - k;
+    return hbits(i == 0 ? 0xa8e7u : i == 1 ? 0x35f4u : i == 2 ? 0x38f6u : i == 3 ? 0x2d96u : 0xa94bu);
+}
 
 f16vec3 hpass(int row, int cx, int px, int lo, int hi) {
     precise f16vec3 acc = f16vec3(0.0hf);

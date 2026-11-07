@@ -701,6 +701,7 @@ bool OpenNrRrFeatureDx12::InitInternal(ID3D12GraphicsCommandList* InCommandList,
 
     int32_t rc;
     {
+        ScopedSkipHeapCapture skipHeapCapture {};
         ScopedSkipVulkanHooks skipVulkanHooks {};
         ScopedCreatingD3DDevice creatingDevice {};
         ScopedSkipSpoofingGlobal skipSpoofing {};
@@ -1140,10 +1141,15 @@ bool OpenNrRrFeatureDx12::EvaluateD3d12(ID3D12GraphicsCommandList* InCommandList
     if (!FillFrame(*InParameters, frame))
         return false;
 
+    ScopedSkipHeapCapture skipHeapCapture {};
     Microsoft::WRL::ComPtr<DlssNr::Submission::IRecordingResources> rec;
-    if (InCommandList != nullptr)
-        InCommandList->QueryInterface(__uuidof(DlssNr::Submission::IRecordingResources),
-                                      reinterpret_cast<void**>(rec.GetAddressOf()));
+    if (InCommandList != nullptr &&
+        FAILED(InCommandList->QueryInterface(__uuidof(DlssNr::Submission::IRecordingResources),
+                                             reinterpret_cast<void**>(rec.GetAddressOf()))))
+    {
+        if (const auto logical = DlssNr::Submission::QueryLogicalCommandList(InCommandList))
+            logical.As(&rec);
+    }
 
     if (rec != nullptr)
         rec->BeginPrivateBindings();
@@ -1159,6 +1165,9 @@ bool OpenNrRrFeatureDx12::EvaluateD3d12(ID3D12GraphicsCommandList* InCommandList
         FallBack(std::format("Record rc={}: {}", rc, RuntimeError()));
         return false;
     }
+
+    RecordingsRetired();
+    _recordingTickets.push_back(DlssNr::Submission::GpuBatch::Tracker::Instance().Record(InCommandList));
 
     _hasColor = true;
     _hasDepth = true;

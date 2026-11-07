@@ -213,7 +213,7 @@ bool D3dDevice::init(ID3D12Device* dev, Device* compiler, const std::wstring& ca
             fac->Release();
         }
         driver_key_ = compiler_->info().name + "|" + std::to_string(compiler_->info().driver_version) + "|" + compiler_->info().driver_info + "|" +
-                      std::to_string(umd_ver.QuadPart) + "|patch 1";
+                      std::to_string(umd_ver.QuadPart) + "|patch 2";
         if (!cache_dir.empty()) cache_ = cache_dir + L"\\elf-" + std::filesystem::path(hex(fnv(driver_key_.data(), driver_key_.size()))).wstring();
 
         D3D12_ROOT_PARAMETER rp{};
@@ -458,6 +458,7 @@ uint64_t D3dDevice::bind(ID3D12GraphicsCommandList* cl, uint32_t slot) {
     }
     bound_ = nullptr;
     dirty_ = false;
+    if (heap_) cl_->SetDescriptorHeaps(1, &heap_);
     cl_->SetComputeRootSignature(rs_);
     return current_serial_;
 }
@@ -526,7 +527,9 @@ void D3dDevice::staged(const Buffer& b, uint64_t off, uint64_t size, const void*
     D3D12_RESOURCE_BARRIER t = transition(r, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
     cl_->ResourceBarrier(1, &t);
     cl_->CopyBufferRegion(r, off, cur_ring_, at, size);
-    std::swap(t.Transition.StateBefore, t.Transition.StateAfter);
+    t = transition(r, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    cl_->ResourceBarrier(1, &t);
+    t = transition(r, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
     cl_->ResourceBarrier(1, &t);
 }
 

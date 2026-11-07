@@ -70,7 +70,7 @@ bool Sl_Inputs::setConstants(const sl::Constants& values, uint32_t frameId)
     auto& state = State::Instance();
     auto fgOutput = state.CurrentFG();
 
-    if (fgOutput == nullptr)
+    if (fgOutput == nullptr || !State::Instance().FGSwapchainExists())
         return false;
 
     CheckForFrame(fgOutput, frameId);
@@ -320,7 +320,7 @@ bool Sl_Inputs::evaluateState()
 {
     auto fgOutput = State::Instance().CurrentFG();
 
-    if (fgOutput == nullptr)
+    if (fgOutput == nullptr || !State::Instance().FGSwapchainExists())
         return false;
 
     LOG_FUNC();

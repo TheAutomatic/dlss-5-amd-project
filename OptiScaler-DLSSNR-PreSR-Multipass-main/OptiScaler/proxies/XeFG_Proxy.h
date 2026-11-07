@@ -104,16 +104,9 @@ class XeFGProxy
 
     inline static std::filesystem::path DllPath(HMODULE module)
     {
-        static std::filesystem::path dll;
-
-        if (dll.empty())
-        {
-            wchar_t dllPath[MAX_PATH];
-            GetModuleFileNameW(module, dllPath, MAX_PATH);
-            dll = std::filesystem::path(dllPath);
-        }
-
-        return dll;
+        wchar_t dllPath[MAX_PATH] {};
+        GetModuleFileNameW(module, dllPath, MAX_PATH);
+        return std::filesystem::path(dllPath);
     }
 
   public:

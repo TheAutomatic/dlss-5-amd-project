@@ -146,22 +146,23 @@ class XeLLProxy
 
     inline static std::filesystem::path DllPath(HMODULE module)
     {
-        static std::filesystem::path dll;
-
-        if (dll.empty())
-        {
-            wchar_t dllPath[MAX_PATH];
-            GetModuleFileNameW(module, dllPath, MAX_PATH);
-            dll = std::filesystem::path(dllPath);
-        }
-
-        return dll;
+        wchar_t dllPath[MAX_PATH] {};
+        GetModuleFileNameW(module, dllPath, MAX_PATH);
+        return std::filesystem::path(dllPath);
     }
+
+    inline static bool _inInitProper = false;
 
     static bool InitXeLLProper()
     {
-        if (_dll != nullptr)
-            return true;
+        if (_dll != nullptr || _inInitProper)
+            return _dll != nullptr;
+
+        struct Guard
+        {
+            ~Guard() { _inInitProper = false; }
+        } guard;
+        _inInitProper = true;
 
         HMODULE mainModule = nullptr;
 
@@ -255,6 +256,12 @@ class XeLLProxy
             return;
 
         std::lock_guard lock(_redirectMutex);
+
+        if (std::ranges::find(_redirected, module) != _redirected.end())
+            return;
+
+        if (_dll == nullptr && !_inInitProper)
+            InitXeLLProper();
 
         if (std::ranges::find(_redirected, module) != _redirected.end())
             return;

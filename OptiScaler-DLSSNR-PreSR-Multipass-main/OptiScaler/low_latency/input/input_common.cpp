@@ -457,7 +457,8 @@ bool InputCommon::update_low_latency_tech(IUnknown* pDevice, API api, std::optio
     // OptiScaler's XeFG XeLL (also for Auto) or the GPU's Reflex or AntiLag 2
     auto forced = forced_output();
 
-    if (!forced.has_value() && State::Instance().activeFgOutput == FGOutput::XeFG)
+    if (!forced.has_value() && State::Instance().activeFgOutput == FGOutput::XeFG &&
+        (State::Instance().FGSwapchainExists() || mode == LowLatencyMode::XeLL))
         forced = xefg_output(Config::Instance()->LowLatencyOutput.value_or_default());
 
     // The frame generation that decides the output runs it on its own device, OptiScaler's XeFG its XeLL on D3D12
