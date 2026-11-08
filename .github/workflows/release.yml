@@ -1,22 +1,9 @@
-# Build OptScaler(NR) and attach the user zip to a GitHub Release.
+# Build OptScaler(NR) v2.0+ (Official OptiScaler + dlssnr-amd.asi + openrr.asi + GUI Launcher)
+# and attach the user zip to a GitHub Release.
 #
-# Source default is 3 NR slots (AmdSlots); AMD_SINGLESLOT only moves it to 1.
-# Ordinary Release is the shipping configuration — do not add diagnostics.
-#
-# Does NOT package NVIDIA DLLs, NR weights, or the author's pass DLL.
-#
-# Dependencies (FFX / XeSS signed bins) come from the git submodules under
-# external/. `submodules: recursive` below is what puts them in the workspace —
-# they are *.dll, so they are deliberately not committed directly.
-#
-# Link inputs (freetype.lib, FSR2/FSR31 static libs, vulkan-1.lib, detours.lib)
-# live under OptiScaler/library and external/freetype. They are tracked in git
-# the same way upstream OptiScaler does (git add -f despite *.lib ignore).
-#
-# Runner: windows-latest. The benchmarked binaries were built with the v145
-# toolset (VS 2026), so we pin PLATFORM_TOOLSET to match rather than letting the
-# project's v143 fallback pick a different compiler than the one we benchmarked.
-# The preflight step fails loudly if the image no longer ships v145.
+# - Official OptiScaler is downloaded and verified by SHA-256 during packaging (tools/build/fetch-optiscaler.ps1).
+# - Wiki proxy-profiles.json and OptiPatcher.asi are refreshed best-effort in CI, falling back to the committed copies in assets/ and payloads/.
+# - Does NOT package NVIDIA DLLs or extracted model weights.
 
 name: release
 
@@ -24,35 +11,23 @@ on:
   push:
     tags:
       - 'v*'
-  # Manual runs can test and upload a package without creating a Release.
   workflow_dispatch:
     inputs:
       test_package:
-        description: Build, run full regression and upload a test ZIP (no Release)
+        description: Build and upload a test ZIP (no Release)
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: read
 
-env:
-  PLATFORM_TOOLSET: v145
-  # The MSVC toolchain the measured binaries were built with. The preflight picks
-  # the exact installed 14.44.35207 and the build pins VCToolsVersion to it, so CI
-  # produces the same compiler as the local build instead of whatever the image
-  # happens to default to.
-  MSVC_PREFIX: '14.44'
-  MSVC_VERSION: '14.44.35207'
-  WINDOWS_SDK_VERSION: '10.0.26100.0'
-  BUILD_OUT: exports/release-ci
-
 jobs:
   build:
-    if: (github.event_name == 'push' && github.ref_type == 'tag') || (github.event_name == 'workflow_dispatch' && inputs.test_package)
+    if: (github.event_name == 'push' && github.ref_type == 'tag') || github.event_name == 'workflow_dispatch'
     permissions:
       contents: write
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 25
     steps:
       - name: Enable long Git paths
         shell: pwsh
@@ -60,16 +35,12 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          submodules: recursive
 
       - name: Resolve version
         id: ver
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          # Tag pushes are authoritative: the tag name IS the version.
-          # VERSION file is only the fallback for non-tag (branch/dispatch) builds.
           if ($env:GITHUB_REF_TYPE -eq 'tag') {
               $v = $env:GITHUB_REF_NAME.TrimStart('v')
           } else {
@@ -79,107 +50,6 @@ jobs:
           if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $v += "-test-$env:GITHUB_RUN_NUMBER-$($env:GITHUB_SHA.Substring(0,8))" }
           "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-      - name: Prepare release notes
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: pwsh
-        env:
-          RELEASE_VERSION: ${{ steps.ver.outputs.version }}
-          SOURCE_SHA: ${{ github.sha }}
-          SOURCE_REPO: ${{ github.repository }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $body = @'
-          ### v1.15.1-alpha (对比 v1.14.1)
-
-          ## 新增 [OpenRR 0.1.1](https://github.com/OpenNeuralRendering/OpenRR)（DLSS 光线重建 · RX 9000 实验性支持）
-
-          特别感谢 **Matheus（[@MatheusFerreiraS](https://github.com/MatheusFerreiraS) / [OpenNeuralRendering](https://github.com/OpenNeuralRendering/OpenRR)）** 开发并开源 OpenRR 光线重建运行时（MIT 协议，详见仓库 `third_party/openrr/LICENSE` 与发布包 `Licenses/OpenRR_MIT.txt`）。
-
-          - **原生运行 DLSS-D 310.9.1.0 光线重建网络**：在 AMD Radeon RX 9000 系列（RDNA4 / `gfx12`）显卡上直接提取并运行 NVIDIA `nvngx_dlssd.dll`（`310.9.1.0`）的 Transformer 光线重建模型（`rr2`），支持三种录制与桥接模式：
-            - **D3D12 命令列表直录（默认自动优先）**：通过驱动 ELF 接口将计算内核直接录制进游戏的 D3D12 命令列表，支持游戏纹理 SRV 直读与输出 UAV 直写，无需跨队列拷贝或命令列表切分；
-            - **D3D12 ↔ Vulkan 跨队列桥接（回退路径）**：在未启用 D3D12 直录时，通过切分命令列表与共享资源桥接至独立 Vulkan 设备执行；
-            - **原生 Vulkan 游戏直录**：在原生 Vulkan 光追游戏（如《夺宝奇兵：古老之圈》）中直接复用游戏的 `VkDevice` 并录制进游戏 `VkCommandBuffer`。
-          - **OpenRR 0.1.1 `New` 快速模式（默认开启）**：后台异步编译快速模式管线，在几乎无画质损失的前提下降低约 8% GPU 耗时，支持在游戏内 `Insert` 菜单或通过 `[OpenNR-RR] Mode` 在 `New (Fast)` 与 `Legacy` 模式间实时热切。
-          - **游戏内 `OpenRR` ↔ `FSR-RR` 无缝实时热切与显存回收**：支持在游戏内通过顶部超分下拉框或 `启用 OpenRR (DLSS 光线重建)` 复选框当场热切 `OpenRR` 与 `FSR-RR`，无需重启游戏；切换后 1 帧内 100% 释放旧后端占用的显存（~983 MB）。
-          - **显存优化、DRS 预分配与跨队列去抢占计时滤波**：通过金字塔暂存区复用与按需分配将单实例显存占用降至 ~966 MB；修复 DRS 仅改变渲染分辨率时的历史帧重置并采用 64 槽位完成证明；新增零损耗跨队列异步计算（Async Compute）去抢占计时滤波，消除 UE5 等游戏异步光追队列穿插导致的耗时读数虚高。
-
-          ## 神经渲染架构插件化转型（Mochizuki 0.0.8.3 ASI）与 FSR-RR 1.2.1 更新
-
-          - **移除宿主内置后端，全面转向独立 `.asi` 插件架构**：
-            - 本版本已正式移除原先硬编码集成在 OptiScaler 宿主内部的 **`Mochizuki`、`lmxxf`、`Daniel`** 神经渲染后端及 `person-model` 辅助组件，全面转为集成独立的 **`Mochizuki ASI`（`dlssnr-amd.asi 0.0.8.3`）** 插件；
-            - **后续规划**：计划与其他作者继续合作，共同推动相关神经渲染后端与扩展统一采用标准 **`.asi` 独立插件形式**开发与分发，实现宿主与各后端的解耦独立迭代，减少多端重复移植与维护的负担。
-          - **升级 Mochizuki `0.0.8.3` Direct ELF ASI 载荷**：新增完整的 D3D12 Direct ELF 零拷贝 Stage（涵盖 SDR 与 HDR `NR_LIN_IO` 预热及配套 D3D12 HLSL 着色器），直接在游戏的 D3D12 命令列表上运行 ACO 网络，省去跨 Vulkan 设备桥接拷贝与额外显存开销。
-          - **升级 FSR 光线再生（FSR-RR）至 `1.2.1`（SDK v2.4.0）**：修复 `AdditiveLightSplit` 漫反射反照率分解与粗糙镜面命中距离（Glossy `hitDist`）丢失导致的反射模糊问题；新增 `CanRecordOwnedCompute()` 修复《红色沙漠》等 D3D12 Enhanced Barriers 游戏的崩溃回归。
-
-          ## 启动器（Launcher）体验与模型管理优化
-
-          - **秒开与切游戏极速响应**：将游戏状态检测与 XeSS 兼容性分析迁入 C# 进程内异步缓存，消除切换游戏时拉起后台 PowerShell 造成的 ~3.4 秒界面卡顿，修复安装进度条掉帧。
-          - **模型跨版本自动共享与旧版 `.bin` 自动迁移**：自动发现并复用本机已导入过的 `nvngx_dlssd.dll (310.9.1.0)` 与 `nvngx_dlssnr.dll`，解压新版无需重复导入；安装时自动将旧版 `dlssnr*.bin` 迁移至 `CC_*.bin` 并清理冗余文件（释放约 430 MB 空间）。
-          - **修复大体积游戏主程序识别**：修复超过 8 MB 的大型可执行文件（如 511 MB 的《影之刃零》`PBZ.exe`）PE 导入表探测被截断的问题，优化 `platform\steam\` 等子目录优先级并过滤压缩/环境检测等辅助程序。
-
-          ### 已知问题
-
-          - OpenRR 目前仅支持 **AMD RX 9000 系列（RDNA4）** 显卡，且必须搭配 **`310.9.1.0` 版本**的 `nvngx_dlssd.dll`；非 RX 9000 显卡或未导入该 DLL 时将自动回退至内置 FSR 光线再生（FSR-RR 1.2.1）。
-          - 在 16GB 显存显卡上以 4K 分辨率运行重度光追游戏时，不建议同时叠开光线重建、`dlssnr-amd.asi` 与多倍帧生成，以免超出显存预算引发换页降速。
-          - 多数游戏需开启 DXGI 伪装才会显示 DLSS / 光线重建选项；Experimental 与 INT4 模型需特定显卡指令集支持；Linux/Proton 支持为实验性。
-
-          ### 安装与模型提取
-
-          - 完整解压并运行新包 `Setup.bat` 覆盖安装。
-          - **OpenRR**：首次使用在启动器主界面点击 `导入 nvngx_dlssd.dll…` 选择 `310.9.1.0` 版 `nvngx_dlssd.dll`（导入一次即跨游戏、跨版本自动复用）。
-          - **Mochizuki 0.0.8.3**：启动器从您自备的官方原版 `nvngx_dlssnr.dll` 提取基础模型并生成派生网络（同样支持跨版本自动复用）。
-
-          ---
-
-          ### v1.15.1-alpha (vs v1.14.1)
-
-          ## [OpenRR 0.1.1](https://github.com/OpenNeuralRendering/OpenRR) (DLSS Ray Reconstruction on AMD RX 9000 · Experimental)
-
-          Special thanks to **Matheus ([@MatheusFerreiraS](https://github.com/MatheusFerreiraS) / [OpenNeuralRendering](https://github.com/OpenNeuralRendering/OpenRR))** for creating and open-sourcing the OpenRR Ray Reconstruction runtime (MIT License; see `third_party/openrr/LICENSE` and `Licenses/OpenRR_MIT.txt`).
-
-          - **Native DLSS-D 310.9.1.0 Ray Reconstruction on RDNA4**: Extracts weights from NVIDIA's `nvngx_dlssd.dll` (`310.9.1.0`) and runs the `rr2` Transformer Ray Reconstruction network natively on AMD Radeon RX 9000 series GPUs across three execution paths:
-            - **D3D12 Direct-Recording (Auto default)**: Compiles and patches pipeline ELFs onto the game's own `ID3D12Device` and records directly into the game's D3D12 command list with direct SRV guide reads and UAV output writes;
-            - **D3D12 ↔ Vulkan Cross-Queue Bridge (Fallback)**: Splits the D3D12 command list and bridges shared buffers to an isolated Vulkan device when D3D12 direct recording is disabled;
-            - **Native Vulkan Game Recording**: Adopts the game's own `VkDevice` in native Vulkan ray-tracing titles (e.g. Indiana Jones and the Great Circle) and records directly into the game's `VkCommandBuffer`.
-          - **OpenRR 0.1.1 `New` Fast Mode (Default)**: Compiles fast-mode pipelines asynchronously in the background for ~8% lower GPU frame time with negligible quality difference, and supports live switching between `New (Fast)` and `Legacy` modes via the in-game `Insert` menu or `[OpenNR-RR] Mode`.
-          - **Seamless In-Game `OpenRR` ↔ `FSR-RR` Live Switching & VRAM Reaping**: Switch between `OpenRR` and `FSR-RR` on the fly via the Upscaler combo or the `Enable OpenRR` checkbox without restarting the game; cross-reaping frees 100% of the retired backend's VRAM (~983 MB) within 1 frame.
-          - **VRAM Optimization, DRS Preallocation & Cross-Queue Preemption Timing Filter**: Reduced per-feature VRAM footprint to ~966 MB via pyramid scratch aliasing and on-demand staging; fixed DRS render-only delta reset (`nr_frame_`) with 64-slot GPU retirement proofs; added a zero-overhead cross-queue async-compute preemption filter so concurrent UE5 async ray-tracing queues no longer inflate reported Upscaler GPU times.
-
-          ## Neural Rendering Transition to `.asi` Plugin Architecture (Mochizuki 0.0.8.3) & FSR-RR 1.2.1
-
-          - **Retired Built-in NR Backends in Favor of Standalone `.asi` Plugins**:
-            - Removed the legacy host-integrated **`Mochizuki`**, **`lmxxf`**, and **`Daniel`** neural rendering backends (along with `person-model` helpers) from the OptiScaler host binary, transitioning fully to the standalone **`Mochizuki ASI` (`dlssnr-amd.asi 0.0.8.3`)** plugin;
-            - **Future Direction**: Plans to continue collaborating with other authors to standardize related backends and extensions as modular **`.asi` plugins**, decoupling host and backend release cycles and eliminating duplicated integration and maintenance work across projects.
-          - **Upgraded Mochizuki `0.0.8.3` Direct ELF ASI Payload**: Added zero-copy SDR/HDR (`NR_LIN_IO` prewarm) D3D12 Direct ELF stages and bundled D3D12 HLSL shaders so the ACO network executes directly on the game's D3D12 command list without D3D12↔Vulkan bridge copies.
-          - **Upgraded FSR Ray Regeneration (FSR-RR) to `1.2.1` (SDK v2.4.0)**: Fixed `AdditiveLightSplit` diffuse albedo regression and preserved glossy `hitDist` to restore sharp specular reflections; added `CanRecordOwnedCompute()` to fix the `v1.14.1` FSR-RR crash regression on D3D12 Enhanced Barrier games (e.g. Crimson Desert).
-
-          ## Launcher Responsiveness & Model Management
-
-          - **Instant Startup & `< 1 ms` Game Switching**: Replaced per-click background PowerShell spawns with in-process C# inspection and cached async XeSS probing, eliminating the ~3.4 s UI freeze when selecting games and smoothing install progress animations.
-          - **Cross-Version Shared Model Store & Legacy `.bin` Migration**: Automatically discovers and persists `nvngx_dlssd.dll (310.9.1.0)` and `nvngx_dlssnr.dll` across `%LOCALAPPDATA%\OptScalerNR\Launcher\models\`, `..\weights\`, and installed games so new package releases never require re-importing; automatically migrates/cleans up pre-0.0.8.2 `dlssnr*.bin` files (~430 MB saved).
-          - **Large PE Import Probe & Game EXE Ranking**: Fixed PE import table probing on `> 8 MB` executables (such as 511 MB `PBZ.exe` in Phantom Blade Zero), prioritized `platform\steam\` binary paths, and filtered out auxiliary tools (`8za_v2.exe`, `CheckEnv.exe`, `EpicWebHelper.exe`).
-
-          ### Known Issues
-
-          - OpenRR requires an **AMD RX 9000 series (RDNA4)** GPU and **`nvngx_dlssd.dll` version `310.9.1.0`**; non-RDNA4 GPUs or setups without `nvngx_dlssd.dll 310.9.1.0` automatically fall back to built-in FSR Ray Regeneration (FSR-RR 1.2.1).
-          - On 16 GB GPUs at 4K with heavy path tracing, avoid stacking Ray Reconstruction, `dlssnr-amd.asi`, and high-multiplier frame generation simultaneously to prevent VRAM over-budget paging.
-          - Most games need DXGI spoofing to expose DLSS/RR options; Linux/Proton support is experimental.
-
-          ### Installation & Model Extraction
-
-          - Extract the full package and run `Setup.bat` as an overwrite install.
-          - **OpenRR**: Click `Import nvngx_dlssd.dll…` on the OpenRR card in the Launcher to import `nvngx_dlssd.dll` (`310.9.1.0`) once (automatically reused across games and future package updates).
-          - **Mochizuki 0.0.8.3**: Launcher extracts base models from your official `nvngx_dlssnr.dll` and derives secondary models (also automatically reused across updates).
-          '@
-          if ([string]::IsNullOrWhiteSpace($body)) { throw 'Empty release notes' }
-          $headings = [regex]::Matches($body, '(?m)^### v([^\s]+)(?:[ \t]+[^\r\n]*)?\r?$')
-          if (!$headings.Count) { throw "Missing release notes version heading" }
-          foreach ($heading in $headings) {
-            if ($heading.Groups[1].Value -cne $env:RELEASE_VERSION) { throw "Release notes version mismatch" }
-          }
-          $body += "`nSource / 源码：[$env:SOURCE_SHA](https://github.com/$env:SOURCE_REPO/tree/$env:SOURCE_SHA)`n"
-          New-Item -ItemType Directory -Force exports | Out-Null
-          [IO.File]::WriteAllText((Join-Path $PWD 'exports/release-notes.md'), $body, [Text.UTF8Encoding]::new($false))
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
@@ -196,139 +66,28 @@ jobs:
           python -B .github/scripts/publish_release_asset.py --tag "$env:RELEASE_TAG" --verify-source "$env:GITHUB_SHA"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Toolchain preflight
-        id: toolchain
+      - name: Refresh Wiki compatibility profiles (best effort, fallback to committed assets/)
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $vs = & $vswhere -latest -products * -property installationPath
-          Write-Host "Visual Studio: $vs"
-
-          # Do NOT probe ...\MSBuild\Microsoft\VC\v*\...\PlatformToolsets by name.
-          # That tree exists once per VS generation, each holds a different subset,
-          # and picking one shows a misleading list: on the VS2026 image the first
-          # match lists only v142 (pulled in for UWP), which reads as "v145 absent"
-          # when it is in fact installed. MSVC's own directory is unambiguous.
-          $msvcRoot = Join-Path $vs 'VC\Tools\MSVC'
-          if (!(Test-Path $msvcRoot)) { throw "No MSVC toolchain directory at $msvcRoot" }
-          $have = @(Get-ChildItem -LiteralPath $msvcRoot -Directory |
-            Select-Object -ExpandProperty Name | Sort-Object)
-          Write-Host "MSVC toolchains: $($have -join ', ')"
-          # 14.44 is the toolchain the benchmarked binaries were built with.
-          $pick = $have | Where-Object { $_ -eq $env:MSVC_VERSION } | Select-Object -First 1
-          if (-not $pick) {
-            throw "No MSVC $env:MSVC_VERSION toolchain on this image (have: $($have -join ', '))."
+          try {
+            & ./tools/compat/update-wiki-profiles.ps1
+          } catch {
+            Write-Warning "Wiki profile refresh skipped, keeping committed assets/compatibility/proxy-profiles.json: $_"
           }
-          Write-Host "Using MSVC $pick (PlatformToolset=$env:PLATFORM_TOOLSET)"
-          "msvc=$pick" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          $global:LASTEXITCODE = 0
+          exit 0
 
-          $deps = @(
-            'OptiScaler-DLSSNR-PreSR-Multipass-main/external/xess/bin/libxess.dll',
-            'OptiScaler-DLSSNR-PreSR-Multipass-main/external/xess/bin/libxess_fg.dll',
-            'OptiScaler-DLSSNR-PreSR-Multipass-main/external/xess/bin/libxell.dll',
-            'OptiScaler-DLSSNR-PreSR-Multipass-main/external/directx_agility_sdk/lib/D3D12Core.dll',
-            'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK/PrebuiltSignedDLL/amd_fidelityfx_vk.dll',
-            'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK-v2/Kits/FidelityFX/signedbin/amd_fidelityfx_loader_dx12.dll',
-            'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK-v2/Kits/FidelityFX/signedbin/amd_fidelityfx_framegeneration_dx12.dll',
-            'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK-v2/Kits/FidelityFX/signedbin/amd_fidelityfx_upscaler_dx12.dll',
-            'third_party/fsr-rr-1.2.1/amd_fidelityfx_denoiser_dx12.dll'
-          )
-          foreach ($d in $deps) {
-            if (!(Test-Path $d)) { throw "Submodule content missing: $d (did checkout fetch submodules?)" }
-          }
-          Write-Host 'Submodule dependencies present.'
-
-      - name: Link-library preflight
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          # Same as upstream OptiScaler: these *.lib are tracked despite
-          # .gitignore (git add -f). They are not in the FFX/XeSS submodules.
-          $libRoot = 'OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/library'
-          $required = @(
-            "$libRoot/fsr2/ffx_fsr2_api_x64.lib",
-            "$libRoot/vulkan/vulkan-1.lib",
-            'OptiScaler-DLSSNR-PreSR-Multipass-main/external/freetype/freetype.lib'
-          )
-          $missing = @($required | Where-Object { !(Test-Path $_) })
-          if ($missing.Count -gt 0) {
-            $missing | ForEach-Object { Write-Host "MISSING $_" }
-            throw 'Link libraries missing from checkout. They must be in git (git add -f).'
-          }
-          Write-Host 'Link libraries present.'
-
-      - name: MSVC dev environment
-        # setup-msbuild only puts MSBuild on PATH — it deliberately does NOT add
-        # cl.exe. This action runs vcvarsall so `cl` below resolves.
-        # Maintained fork of ilammy/msvc-dev-cmd; the upstream one is still on
-        # node20 and GitHub force-runs it on node24 with a deprecation warning.
-        # Every action below is pinned to a node24 release for the same reason.
-        uses: TheMrMilchmann/setup-msvc-dev@v4.1.0
-        with:
-          arch: x64
-          toolset: ${{ steps.toolchain.outputs.msvc }}
-          sdk: ${{ env.WINDOWS_SDK_VERSION }}
-
-      - name: Verify compiler environment
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if ($env:VCToolsVersion.TrimEnd('\') -ne $env:MSVC_VERSION) { throw "Unexpected compiler: $env:VCToolsVersion" }
-          if ($env:WindowsSDKVersion.TrimEnd('\') -ne $env:WINDOWS_SDK_VERSION) { throw "Unexpected SDK: $env:WindowsSDKVersion" }
-          Write-Host "Runtime/tests/host: MSVC=$env:VCToolsVersion SDK=$env:WindowsSDKVersion"
-          Get-Command cl.exe | Select-Object -ExpandProperty Source
-
-      - name: Add MSBuild to PATH
-        uses: microsoft/setup-msbuild@v3
-
-
-      - name: FSRD shader mirror verification
-        shell: pwsh
-        run: |
-          python -B OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/shaders/shader_tools/verify_fsrd_mirrors.py
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Build host and run release checks concurrently
-        timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 45 || 25 }}
-        shell: pwsh
-        env:
-          # The resolved (tag-authoritative) version stamps the DLL's product version
-          # (NR_PRODUCT_VERSION); the repo VERSION file alone could lag the tag and
-          # split the package name from the in-game banner. PACKAGE_RELEASE.ps1
-          # already writes this same version into the in-package metadata.
-          NR_PRODUCT_VERSION: ${{ steps.ver.outputs.version }}
-        run: |
-          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
-            ./tools/build/build-ci.ps1 -FullRegression
-          } else {
-            ./tools/build/build-ci.ps1
-          }
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Create ephemeral package signing certificate
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          . ./tools/release/package-signing.ps1
-          $cert = Get-PackageSigningCertificate -Ephemeral
-          "PACKAGE_SIGNING_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      # Best-effort refresh of the bundled OptiPatcher.asi: fetch the latest rolling release,
-      # validate the PE image, and only then replace the committed copy that feeds packaging.
-      # On any failure the committed offline copy is kept. Local packaging never runs this step;
-      # the committed asset changes only through CI or a manual update.
-      - name: Refresh bundled OptiPatcher (best effort)
+      - name: Refresh bundled OptiPatcher (best effort, fallback to committed payloads/optipatcher/)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $url = 'https://github.com/optiscaler/OptiPatcher/releases/download/rolling/OptiPatcher.asi'
-          $dst = 'assets/plugins/OptiPatcher.asi'
+          $dst = 'payloads/optipatcher/OptiScaler/plugins/OptiPatcher.asi'
           $tmp = Join-Path $env:RUNNER_TEMP 'OptiPatcher.asi'
           $ok = $false
           try {
             & curl.exe -f -s -S -L --connect-timeout 10 --max-time 60 -o $tmp $url
             if ($LASTEXITCODE -ne 0) { throw "download exit $LASTEXITCODE" }
-            # PE validation: MZ header, PE signature, AMD64 machine, plausible plugin size.
             $bytes = [IO.File]::ReadAllBytes($tmp)
             if ($bytes.Length -lt 4096 -or $bytes.Length -gt 20MB) { throw "implausible size $($bytes.Length)" }
             if ($bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { throw 'missing MZ header' }
@@ -344,23 +103,26 @@ jobs:
           if ($ok) {
             New-Item -ItemType Directory -Path (Split-Path $dst) -Force | Out-Null
             Copy-Item -LiteralPath $tmp -Destination $dst -Force
-            $committed = git hash-object $dst
-            Write-Host "Bundled OptiPatcher.asi refreshed for packaging (blob $committed)."
+            Write-Host "Bundled OptiPatcher.asi refreshed for packaging."
           }
-          # Best-effort step: a handled download/validation failure keeps the committed copy and
-          # must stay green, or the Actions pwsh wrapper would exit with curl's nonzero code and
-          # skip packaging. Clear the handled exit code explicitly.
           $global:LASTEXITCODE = 0
           exit 0
 
-      - name: Package user zip
+      - name: Create ephemeral package signing certificate
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . ./tools/release/package-signing.ps1
+          $cert = Get-PackageSigningCertificate -Ephemeral
+          "PACKAGE_SIGNING_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Package user zip (fetches official OptiScaler, compiles Launcher, signs & verifies)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $ver = '${{ steps.ver.outputs.version }}'
           powershell -ExecutionPolicy Bypass -File tools\release\PACKAGE_RELEASE.ps1 `
             -Version $ver `
-            -OptiDll "$env:BUILD_OUT\OptiScaler.dll" `
             -SigningThumbprint "$env:PACKAGE_SIGNING_THUMBPRINT" `
             -OutDir dist
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -382,7 +144,6 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          # Independent CI tripwire: inspect the exact archive that Release uploads.
           $ver = '${{ steps.ver.outputs.version }}'
           $zipPath = "dist\OptScaler-NR-$ver.zip"
           $forbidden = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr(?:-int4|-small)?\.bin|CC_(?:SMALL_FP8|SMALL_FP8_EXPERIMENTAL|SILVER_AARDWOLD|SILVER_AARDWOLD_OPTIMIZED|SILVER_AARDWOLD_OPTIMIZED_INT4)\.bin|pipeline\.cache|version\.dll|dlssnr_on_amd_setup\.exe)$'
@@ -392,7 +153,6 @@ jobs:
             $bad = @($archive.Entries |
               Where-Object { -not [string]::IsNullOrEmpty($_.Name) -and $_.Name -match $forbidden } |
               ForEach-Object { $_.FullName })
-            $entryNames = @($archive.Entries | ForEach-Object { $_.Name })
             $entryPaths = @($archive.Entries | ForEach-Object { $_.FullName.Replace("\", "/") })
           } finally {
             $archive.Dispose()
@@ -401,36 +161,8 @@ jobs:
             $bad | ForEach-Object { Write-Host "FORBIDDEN: $_" }
             throw 'Refusing to publish: proprietary/user-supplied binaries found in package zip.'
           }
-          $required = @('OptiScaler.dll', 'OpenNrRrRuntime.dll', 'OptiScaler.ini', 'Setup.ps1', 'Setup.bat', 'LICENSE', 'NOTICE')
-          foreach ($r in $required) {
-            if ($entryNames -notcontains $r) {
-              throw "REQUIRED COMPONENT MISSING IN ZIP: $r"
-            }
-          }
-
-          $dependencyPaths = @(
-            'OptiScaler/amd_fidelityfx_loader_dx12.dll',
-            'OptiScaler/amd_fidelityfx_upscaler_dx12.dll',
-            'OptiScaler/amd_fidelityfx_framegeneration_dx12.dll',
-            'OptiScaler/amd_fidelityfx_denoiser_dx12.dll',
-            'OptiScaler/amd_fidelityfx_vk.dll',
-            'OptiScaler/libxess.dll', 'OptiScaler/libxess_fg.dll', 'OptiScaler/libxell.dll',
-            'OptiScaler/D3D12_OptiScaler/D3D12Core.dll'
-          )
-          foreach ($path in $dependencyPaths) {
-            if ($entryPaths -notcontains $path) { throw "REQUIRED DEPENDENCY MISSING IN ZIP: $path" }
-          }
-
-          foreach ($path in @('OptiScaler/plugins/dlssnr-amd.asi', 'dlssnr-amd/nr_present_probe.exe',
-              'model-tools/dlssnr_extract_model.exe', 'model-tools/dlssnr-int4-weights.exe',
-              'dlssnr-amd/shaders/g_attn.spv', 'dlssnr-amd/aco/shell-aliases.txt')) {
-            if ($entryPaths -notcontains $path) { throw "REQUIRED MOCHIZUKI ASI COMPONENT MISSING: $path" }
-          }
-          if ($entryPaths -match '(?i)/(aco-cache|pipeline-binaries)/') { throw 'Driver cache included in package.' }
-          foreach ($license in @('OptiScaler_LICENSE.txt', 'OpenRR_MIT.txt', 'Mochizuki_MIT.txt', 'RenoDX_MIT.txt', 'XeSS_LICENSE.txt', 'FidelityFX_v1_LICENSE.md', 'FidelityFX_v2_LICENSE.md', 'DirectX_LICENSE.txt')) {
-            if ($entryPaths -notcontains "Licenses/$license") {
-              throw "REQUIRED LICENSE MISSING IN ZIP: $license"
-            }
+          foreach ($req in @('OptiScaler.dll', 'OptiScaler.ini', 'OptScalerNR.Launcher.exe', 'Setup.ps1', 'Setup.bat', 'install.sh', 'OptiScaler/plugins/dlssnr-amd.asi', 'OptiScaler/plugins/openrr-amd.asi', 'openrr-amd.ini', 'LICENSE', 'NOTICE')) {
+            if ($entryPaths -notcontains $req) { throw "REQUIRED COMPONENT MISSING IN ZIP: $req" }
           }
 
       - name: Upload tested package
@@ -442,27 +174,14 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload validation logs
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: validation-logs
-          path: |
-            exports/release-ci/*.log
-            exports/release-ci/tests/summary.txt
-          if-no-files-found: ignore
-
-      - name: Create GitHub Release metadata
+      - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v3
         with:
-          # Pre-release when tag name has an -alpha/-beta/-rc suffix (e.g. v1.9.1-alpha).
-          # Formal tags like v1.9.1 stay latest/stable; plain substrings such as "source" do not count.
           prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
           name: ${{ github.ref_name }}
           target_commitish: ${{ github.sha }}
-          generate_release_notes: false
-          body_path: exports/release-notes.md
+          generate_release_notes: true
 
       - name: Upload release asset with verified retries
         if: startsWith(github.ref, 'refs/tags/')
@@ -476,43 +195,3 @@ jobs:
         run: |
           python -B .github/scripts/publish_release_asset.py --tag "$env:RELEASE_TAG" --asset "dist/OptScaler-NR-$env:RELEASE_VERSION.zip"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-  regression:
-    if: github.event_name == 'workflow_dispatch' && !inputs.test_package
-    runs-on: windows-latest
-    timeout-minutes: 60
-    steps:
-      - name: Enable long Git paths
-        shell: pwsh
-        run: git config --global core.longpaths true
-
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          submodules: recursive
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-      - name: Set up pinned compiler
-        uses: TheMrMilchmann/setup-msvc-dev@v4.1.0
-        with:
-          arch: x64
-          toolset: ${{ env.MSVC_VERSION }}
-          sdk: ${{ env.WINDOWS_SDK_VERSION }}
-      - name: Add MSBuild to PATH
-        uses: microsoft/setup-msbuild@v3
-      - name: Build and run full regression
-        shell: pwsh
-        run: |
-          ./tools/build/build-ci.ps1 -FullRegression
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Upload validation logs
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: validation-logs
-          path: |
-            exports/release-ci/*.log
-            exports/release-ci/tests/summary.txt
-          if-no-files-found: ignore

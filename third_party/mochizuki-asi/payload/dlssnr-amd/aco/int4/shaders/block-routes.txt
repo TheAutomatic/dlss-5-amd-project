@@ -1,2 +1,0 @@
-d fswin32 fswin32nh : 67
-v fswin32 fswin32nh : 68 69

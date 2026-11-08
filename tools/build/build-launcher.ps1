@@ -1,4 +1,4 @@
-﻿# Compile OptScalerNR.Launcher.exe with the machine Framework 4 WPF assemblies.
+# Compile OptScalerNR.Launcher.exe with the machine Framework 4 WPF assemblies.
 # Output: exports/launcher/ (never the repo root).
 [CmdletBinding()]
 param(
@@ -12,8 +12,8 @@ $profileCatalog = Get-Content -LiteralPath (Join-Path $root 'assets/compatibilit
 $profileExpected = @($profileCatalog.proxies | Sort-Object)
 foreach ($proxyContract in @(
     @{ Path = 'tools/install/proxy-probe.ps1'; Pattern = '^\$CandidateNames\s*=' },
-    @{ Path = 'tools/install-amd-presr.ps1'; Pattern = 'ValidateSet.*dxgi\.dll' },
-    @{ Path = 'tools/uninstall-amd-presr.ps1'; Pattern = '^\$proxyNames\s*=' }
+    @{ Path = 'tools/install/install.ps1'; Pattern = 'ValidateSet.*dxgi\.dll' },
+    @{ Path = 'tools/install/uninstall.ps1'; Pattern = '^\$proxyNames\s*=' }
 )) {
     $proxyLine = Get-Content -LiteralPath (Join-Path $root $proxyContract.Path) -Encoding UTF8 |
         Where-Object { $_ -match $proxyContract.Pattern } | Select-Object -First 1

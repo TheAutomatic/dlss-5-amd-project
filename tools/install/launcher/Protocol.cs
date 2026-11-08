@@ -34,7 +34,6 @@ namespace OptScalerNR.Launcher
         [DataMember(Name = "mochizukiModels")] public string MochizukiModels;
         [DataMember(Name = "mochizukiNetworks")] public string[] MochizukiNetworks;
         [DataMember(Name = "mochizukiActiveModel")] public string MochizukiActiveModel;
-        [DataMember(Name = "lmxxfModels")] public string LmxxfModels;
         [DataMember(Name = "shortFileContinue")] public string ShortFileContinue;
         [DataMember(Name = "optiPatcher")] public string OptiPatcher;
         [DataMember(Name = "openRr")] public string OpenRr;

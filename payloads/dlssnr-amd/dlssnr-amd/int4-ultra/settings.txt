@@ -1,0 +1,6 @@
+# CC_SILVER_AARDWOLD_OPTIMIZED's int4 layers at Optimized layers: Ultra Performance. The package's int4-ultra/ is
+# linux/data/int4/<arch>/ (Balanced's tables) with the tables beside this file added (Swin C=256 encoder QKV, Swin C=256
+# decoder expansions, ViT FFN of blocks 36-38) and this file in place of Balanced's; everything else is in the network
+# (pipelines-performance.json).
+# NR_SWI4_ROT: the Swin int4 expansions' input rotation, as Balanced's (their tables' headers say 8).
+NR_SWI4_ROT=8

@@ -7,7 +7,7 @@ $script:XessGroups = [ordered]@{
     fsr_fg = @('amd_fidelityfx_framegeneration_dx12.dll')
     fsr_upscaler = @('amd_fidelityfx_upscaler_dx12.dll')
     fsr_loader = @('amd_fidelityfx_loader_dx12.dll')
-    fsr_vk = @('amd_fidelityfx_vk.dll')
+    fsr_vk = @('amd_fidelityfx_loader_vk.dll', 'amd_fidelityfx_upscaler_vk.dll', 'amd_fidelityfx_framegeneration_vk.dll')
 }
 
 $script:XessFileCache = $null
@@ -117,7 +117,7 @@ function Get-XessJournal([string]$GameDir) {
         throw 'Invalid XeSS repair record. No game files were changed.'
     }
     $seen = @{}
-    $allowed = @($script:XessGroups.Values | ForEach-Object { $_ })
+    $allowed = @($script:XessGroups.Values | ForEach-Object { $_ }) + @('amd_fidelityfx_vk.dll')
     if (@($data.files).Count -lt 1 -or @($data.files).Count -gt $allowed.Count) { throw 'Invalid XeSS repair file list.' }
     foreach ($file in $data.files) {
         if ($file.name -notin $allowed -or $seen.ContainsKey([string]$file.name) -or

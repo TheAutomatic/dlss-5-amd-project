@@ -1,73 +1,9 @@
-# 第三方运行时 A 的二进制副本与派生镜像 —— 仅作本地分析/部署用，不随项目分发
-version*.dll
-dlssnr_on_amd_setup.exe
-
-# 神经网络运行时与权重（体积大，且不属于本项目）
-nvngx_dlssnr.dll
-dlssnr_on_amd_weights.bin
-
-# 打包输出（含 FSR/XeSS/pass DLL，体积大）
-OptiScaler-AMD-PreSR*.zip
-
-# 本机构建产物
-**/x64/Release/
-**/x64/Debug/
-**/Release/
-# core.ignorecase=true on Windows makes **/Release/ swallow the tools/release/ scripts too.
-!/tools/release/
-*.pdb
-*.ilk
-*.exp
-
-
-# iMMERSE（Marty's Mods / Pascal Gilcher）RTGI 的本地移植素材 —— 只留本地，不进仓库。
-# NOTICE.txt 是随附的第三方声明：「Proprietary and confidential」「Unauthorized copying
-# of this file, via any medium is strictly prohibited」；同目录 *.hlsl 是它的 native
-# adaptation，iMMERSE_*.rgba 是 iMMERSE 贴图的二进制转换。研究用，不随本项目分发。
-# 2026-09-15：git rm -r --cached，磁盘保留。发布的包走 assets/experimental_lighting
-# （Lighting.hlsl 编译成 GatherCS/ResolveCS.cso，自述「no translated effect code」），与此无关。
-
-# Release packaging output (local / CI artifact)
-dist/
-
-# 二进制：默认全忽略，只放行必须进仓库的那几个。
-# 这条与上游 OptiScaler 一致（它的 .gitignore 也是 *.dll + 单条例外）。
-# 注意：gitignore 对「已跟踪」的文件无效，已跟踪的要用 git rm --cached 才生效。
-*.dll
-!OptiScaler-DLSSNR-PreSR-Multipass-main/external/directx_agility_sdk/lib/D3D12Core.dll
-!third_party/fsr-rr-1.2.1/amd_fidelityfx_denoiser_dx12.dll
-
-# 编辑器/会话
-.vs/
-.vscode/
-*.code-workspace
-
-
-# Python 字节码缓存
-__pycache__/
-*.pyc
-
-# MSVC 中间产物 —— 可由构建脚本完全重建，不应进仓库。
-# 2026-09-14：此前 `git add -A exports` 把 review-s*/obj/ 一路扫进来，
-# 单个 OptiScaler.pch 达 183 MB，直接导致 GitHub push 被 GH001 拒绝。
-**/obj/
-*.pch
-*.iobj
-*.ipdb
-*.obj
-*.lib
-
-
-
-# Local workspace material and generated output stay outside version control.
-analysis/
-.analysis-tools/
+# Cache / build / release outputs (never committed)
+cache/
 exports/
-.handoff/
-GIT-REWRITE-STATUS.md
-/work/
-# Product banner version generated from VERSION by MSBuild.
-/OptiScaler-DLSSNR-PreSR-Multipass-main/OptiScaler/resource_build_product.h
-
-assets/person-model/
-
+dist/
+work/
+*.tmp
+*.log
+*.pdb
+__pycache__/

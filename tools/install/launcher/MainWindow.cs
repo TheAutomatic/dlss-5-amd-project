@@ -87,17 +87,15 @@ namespace OptScalerNR.Launcher
         Button _minBtn, _maxBtn, _closeBtn;
         Button _libraryTab, _settingsTab, _addButton, _primaryButton, _launchGameButton, _openFolderButton, _uninstallButton, _openLogButton, _refreshButton, _langToggle, _packageBrowse;
         FrameworkElement _libraryPage, _settingsPage;
-        ComboBox _filterCombo, _proxyCombo, _activeCombo, _langCombo;
+        ComboBox _filterCombo, _proxyCombo, _langCombo;
         ListBox _gameList;
         TextBlock _pageTitle, _countBadge, _heroKicker, _heroTitle, _heroMeta, _heroPath, _heroPosterInitial, _injectText, _injectIcon, _injectRecommendation, _refundWarning;
-        TextBlock _lmxxfReason, _danielReason, _mochiReason, _statusText, _countText, _versionText;
-        Border _lmxxfBadge, _danielBadge, _mochiBadge;
-        Button _lmxxfActiveBtn, _danielActiveBtn, _mochiActiveBtn;
+        TextBlock _mochiReason, _statusText, _countText, _versionText;
+        Border _mochiBadge;
         Button _compatButton, _restoreCompatButton, _compatHelpButton;
         MenuItem _removeGameMenuItem;
         TextBlock _compatSummary;
-        TextBlock _lmxxfActiveLabel, _danielActiveLabel, _mochiActiveLabel;
-        CheckBox _lmxxfCheck, _danielCheck, _mochiCheck, _replaceIni, _optiPatcherToggle, _openRrToggle, _scanOnStartup;
+        CheckBox _mochiCheck, _replaceIni, _optiPatcherToggle, _openRrToggle, _scanOnStartup;
         ProgressBar _progress;
         Image _heroPosterImage, _heroBgImage;
         Ellipse _statusLed;
@@ -218,25 +216,9 @@ namespace OptScalerNR.Launcher
             _pillWininet = (RadioButton)window.FindName("PillWininet");
             _pillDbghelp = (RadioButton)window.FindName("PillDbghelp");
 
-            _lmxxfCheck = (CheckBox)window.FindName("LmxxfCheck");
-            _lmxxfBadge = (Border)window.FindName("LmxxfBadge");
-            _lmxxfReason = (TextBlock)window.FindName("LmxxfReason");
-            _lmxxfActiveBtn = (Button)window.FindName("LmxxfActiveBtn");
-            _lmxxfActiveLabel = (TextBlock)window.FindName("LmxxfActiveLabel");
-
-            _danielCheck = (CheckBox)window.FindName("DanielCheck");
-            _danielBadge = (Border)window.FindName("DanielBadge");
-            _danielReason = (TextBlock)window.FindName("DanielReason");
-            _danielActiveBtn = (Button)window.FindName("DanielActiveBtn");
-            _danielActiveLabel = (TextBlock)window.FindName("DanielActiveLabel");
-
             _mochiCheck = (CheckBox)window.FindName("MochiCheck");
             _mochiBadge = (Border)window.FindName("MochiBadge");
             _mochiReason = (TextBlock)window.FindName("MochiReason");
-            _mochiActiveBtn = (Button)window.FindName("MochiActiveBtn");
-            _mochiActiveLabel = (TextBlock)window.FindName("MochiActiveLabel");
-
-            _activeCombo = (ComboBox)window.FindName("ActiveCombo");
             _replaceIni = (CheckBox)window.FindName("ReplaceIni");
             _optiPatcherToggle = (CheckBox)window.FindName("OptiPatcherToggle");
             _openRrToggle = (CheckBox)window.FindName("OpenRrToggle");
@@ -379,15 +361,9 @@ namespace OptScalerNR.Launcher
 
             RoutedEventHandler backendChanged = (s, e) => {
                 if (_updatingBackends) return;
-                UpdateActiveCombo(); SaveBackendChoice(); UpdatePrimaryButtonState(); RefreshInspectionText();
+                UpdateActiveCombo(); SaveBackendChoice(); UpdatePrimaryButtonState(); RefreshInspectionText(); RefreshModelImportBar();
             };
-            if (_lmxxfCheck != null) { _lmxxfCheck.Checked += backendChanged; _lmxxfCheck.Unchecked += backendChanged; }
-            if (_danielCheck != null) { _danielCheck.Checked += backendChanged; _danielCheck.Unchecked += backendChanged; }
             if (_mochiCheck != null) { _mochiCheck.Checked += backendChanged; _mochiCheck.Unchecked += backendChanged; }
-
-            if (_lmxxfActiveBtn != null) _lmxxfActiveBtn.Click += (s, e) => SetActiveBackend("lmxxf");
-            if (_danielActiveBtn != null) _danielActiveBtn.Click += (s, e) => SetActiveBackend("daniel");
-            if (_mochiActiveBtn != null) _mochiActiveBtn.Click += (s, e) => SetActiveBackend("mochizuki");
 
             _window.AllowDrop = true;
             _window.Drop += OnDrop;
@@ -508,67 +484,9 @@ namespace OptScalerNR.Launcher
             }
         }
 
-        void SetActiveBackend(string backend)
-        {
-            _activeBackend = backend;
-            if (_activeCombo != null)
-            {
-                for (int i = 0; i < _activeCombo.Items.Count; i++)
-                {
-                    if (string.Equals(Convert.ToString(_activeCombo.Items[i]), backend, StringComparison.OrdinalIgnoreCase))
-                    {
-                        _activeCombo.SelectedIndex = i;
-                        break;
-                    }
-                }
-            }
-            UpdateActiveUI();
-            SaveBackendChoice();
-        }
-
         void UpdateActiveUI()
         {
-            var isZh = _language == "zh";
-            var isLmxxf = string.Equals(_activeBackend, "lmxxf", StringComparison.OrdinalIgnoreCase);
-            var isDaniel = string.Equals(_activeBackend, "daniel", StringComparison.OrdinalIgnoreCase);
-            var isMochi = string.Equals(_activeBackend, "mochizuki", StringComparison.OrdinalIgnoreCase);
-
-            if (_lmxxfActiveLabel != null)
-            {
-                _lmxxfActiveLabel.Visibility = isLmxxf ? Visibility.Visible : Visibility.Collapsed;
-                _lmxxfActiveLabel.Text = L("主后端", "Primary");
-            }
-            if (_lmxxfActiveBtn != null)
-            {
-                _lmxxfActiveBtn.Visibility = isLmxxf ? Visibility.Collapsed : Visibility.Visible;
-                _lmxxfActiveBtn.Content = L("设为主后端", "Set primary");
-                _lmxxfActiveBtn.IsEnabled = _lmxxfCheck != null && _lmxxfCheck.IsChecked == true;
-            }
-
-            if (_danielActiveLabel != null)
-            {
-                _danielActiveLabel.Visibility = isDaniel ? Visibility.Visible : Visibility.Collapsed;
-                _danielActiveLabel.Text = L("主后端", "Primary");
-            }
-            if (_danielActiveBtn != null)
-            {
-                _danielActiveBtn.Visibility = isDaniel ? Visibility.Collapsed : Visibility.Visible;
-                _danielActiveBtn.Content = L("设为主后端", "Set primary");
-                _danielActiveBtn.IsEnabled = _danielCheck != null && _danielCheck.IsChecked == true;
-            }
-
-            bool multiBackendMode = FindBackend("lmxxf") != null || FindBackend("daniel") != null;
-            if (_mochiActiveLabel != null)
-            {
-                _mochiActiveLabel.Visibility = (multiBackendMode && isMochi) ? Visibility.Visible : Visibility.Collapsed;
-                _mochiActiveLabel.Text = L("主后端", "Primary");
-            }
-            if (_mochiActiveBtn != null)
-            {
-                _mochiActiveBtn.Visibility = (multiBackendMode && !isMochi) ? Visibility.Visible : Visibility.Collapsed;
-                _mochiActiveBtn.Content = L("设为主后端", "Set primary");
-                _mochiActiveBtn.IsEnabled = _mochiCheck != null && _mochiCheck.IsChecked == true;
-            }
+            _activeBackend = (_mochiCheck != null && _mochiCheck.IsChecked == true) ? "mochizuki" : "";
         }
 
         static void OpenUrl(string url)
@@ -769,22 +687,18 @@ namespace OptScalerNR.Launcher
                 if (_replaceIni != null) _replaceIni.Content = isZh ? "覆盖现有 OptiScaler.ini 配置文件 (推荐)" : "Replace existing OptiScaler.ini (recommended)";
                 SetLabel("OptiPatcherToggle", "安装 OptiPatcher（DLSS 伪装增强，按 Wiki 推荐预选）", "Install OptiPatcher (DLSS spoofing enhancement, preselected by Wiki recommendation)");
                 if (_optiPatcherToggle != null) _optiPatcherToggle.ToolTip = L("优先下载最新版本（30 秒时限），失败时回退包内离线副本，并启用 LoadAsiPlugins。", "Downloads the latest version with a 30-second limit, falls back to the bundled offline copy, and enables LoadAsiPlugins.");
-                SetLabel("OpenRrToggle", "OpenRR 光线重建 (DLSS-RR 0.1.1 · RX 9000 专属)", "OpenRR Ray Reconstruction (DLSS-RR 0.1.1 · RX 9000)");
+                SetLabel("OpenRrToggle", "OpenRR - ASI version", "OpenRR - ASI version");
                 SetLabel("OpenRrDescription",
-                    "在 RX 9000 (RDNA4) 显卡上原生运行 NVIDIA DLSS 光线重建网络（支持 D3D12 直录与 Vulkan）。需导入一次 310.9.1.0 版 nvngx_dlssd.dll；取消勾选或非 RX 9000 显卡将自动使用内置 FSR 光线再生 (FSR-RR)。",
-                    "Runs NVIDIA's DLSS Ray Reconstruction network natively on RX 9000 (RDNA4) GPUs (D3D12 & Vulkan). Import nvngx_dlssd.dll (310.9.1.0) once; unchecking or non-RX 9000 GPUs automatically use built-in FSR Ray Regeneration (FSR-RR).");
-                if (_openRrToggle != null) _openRrToggle.ToolTip = L("勾选时部署 OpenNrRrRuntime.dll 与 opennr-rr/shaders/，并在检测到您自备或导入的 nvngx_dlssd.dll (310.9.1.0) 时放入 opennr-rr/。取消勾选时在 OptiScaler.ini 中将 [OpenNR-RR] Enabled 设为 false（使用 FSR-RR）。", "Installs OpenNrRrRuntime.dll and opennr-rr/shaders/, and places your supplied/imported nvngx_dlssd.dll (310.9.1.0) into opennr-rr/. When unchecked, sets [OpenNR-RR] Enabled=false in OptiScaler.ini (uses FSR-RR).");
+                    "适合 RX 9000 系列（请仅在支持 NVIDIA 光线重建游戏中使用）",
+                    "For RX 9000 series (Use only in games supporting NVIDIA Ray Reconstruction)");
+                if (_openRrToggle != null) _openRrToggle.ToolTip = L("勾选时部署 openrr-amd.asi 与 openrr-amd/shaders/，并在检测到您自备或导入的 nvngx_dlssd.dll (310.9.1.0) 时放入 openrr-amd/。取消勾选时移除 openrr-amd.asi。", "Installs openrr-amd.asi and openrr-amd/shaders/, and places your supplied/imported nvngx_dlssd.dll (310.9.1.0) into openrr-amd/. When unchecked, removes openrr-amd.asi.");
                 if (_scanOnStartup != null) _scanOnStartup.Content = isZh ? "启动时自动扫描游戏库" : "Scan game library on startup";
 
                 SetLabel("LocalGamesHeading", "游戏库", "Library");
                 SetLabel("ProxyHeading", "注入代理", "Injection proxy");
-                SetLabel("BackendsHeading", "神经渲染后端", "Neural rendering backend");
-                SetLabel("LmxxfCheck", "lmxxf 0.4.4", "lmxxf 0.4.4");
-                SetLabel("DanielCheck", "daniel 0.6.0", "daniel 0.6.0");
-                SetLabel("MochiCheck", "mochizuki 0.0.8.3", "mochizuki 0.0.8.3");
-                SetLabel("LmxxfDescription", "适合 RX 9000 系列", "For RX 9000 series");
-                SetLabel("DanielDescription", "适合 RX 6000/7000/9000 系列", "For RX 6000/7000/9000 series");
-                SetLabel("MochiDescription", "适合 RX 7000/9000 系列（Direct ELF D3D12 / Vulkan）", "For RX 7000/9000 series (Direct ELF D3D12 / Vulkan)");
+                SetLabel("BackendsHeading", "ASI 插件选择 (神经渲染 & 光线重建)", "ASI Plugins (Neural Rendering & Ray Reconstruction)");
+                SetLabel("MochiCheck", "mochizuki 0.0.8.4", "mochizuki 0.0.8.4");
+                SetLabel("MochiDescription", "适合 RX 7000/9000 系列（6000 系请暂时先使用老版本）", "For RX 7000/9000 series (RX 6000 series please use the legacy version for now)");
                 SetLabel("DiagnosticsHeading", "配置与运行库兼容诊断", "Configuration & Runtime Compatibility");
                 SetLabel("LogHeading", "运行诊断日志", "Diagnostic Log");
                 SetLabel("SettingsHeading", "设置", "Settings");
@@ -843,37 +757,31 @@ namespace OptScalerNR.Launcher
 
         bool IsBackendVisible(string id)
         {
-            if (id == "mochizuki") return true;
-            var check = id == "lmxxf" ? _lmxxfCheck : id == "daniel" ? _danielCheck : null;
-            if (check != null && check.IsVisible) return true;
-            return FindBackend(id) != null;
+            return id == "mochizuki";
         }
 
         bool IsBackendSelected(string id)
         {
-            if (!IsBackendVisible(id)) return false;
-            var check = id == "lmxxf" ? _lmxxfCheck : id == "daniel" ? _danielCheck : id == "mochizuki" ? _mochiCheck : null;
-            return check != null && check.IsChecked == true;
+            return id == "mochizuki" && _mochiCheck != null && _mochiCheck.IsChecked == true;
         }
 
         void RefreshBackendStatus(string id, bool ready, string reason)
         {
+            if (id != "mochizuki") return;
             if (!IsBackendSelected(id))
             {
                 ready = false;
                 reason = L("未选择", "Not selected");
             }
-            var label = id == "lmxxf" ? _lmxxfReason : id == "daniel" ? _danielReason : _mochiReason;
-            var badge = id == "lmxxf" ? _lmxxfBadge : id == "daniel" ? _danielBadge : _mochiBadge;
-            if (label != null)
+            if (_mochiReason != null)
             {
-                label.Text = reason;
-                label.Foreground = ready ? ReadyBrush : MissingBrush;
+                _mochiReason.Text = reason;
+                _mochiReason.Foreground = ready ? ReadyBrush : MissingBrush;
             }
-            if (badge != null)
+            if (_mochiBadge != null)
             {
-                badge.Background = ready ? ReadyBg : MissingBg;
-                badge.BorderBrush = ready ? ReadyBorder : MissingBorder;
+                _mochiBadge.Background = ready ? ReadyBg : MissingBg;
+                _mochiBadge.BorderBrush = ready ? ReadyBorder : MissingBorder;
             }
         }
 
@@ -885,7 +793,7 @@ namespace OptScalerNR.Launcher
             if (_selectedGame != null && !_selectedGame.HasExecutable) {
                 if (_injectText != null) _injectText.Text = L("尚未定位启动程序。可以保留文件夹条目，扫描或选择 EXE 后再安装。", "Executable not selected. Keep this folder entry and find or choose its EXE before installing.");
                 UpdateProxyRecommendation();
-                foreach (var id in new[] { "lmxxf", "daniel", "mochizuki" })
+                foreach (var id in new[] { "mochizuki" })
                     RefreshBackendStatus(id, false, L("待选择 EXE", "Select EXE first"));
                 RefreshBackendHints();
                 RefreshModelImportBar();
@@ -905,7 +813,7 @@ namespace OptScalerNR.Launcher
                 : (!string.IsNullOrEmpty(result.Recommend)
                     ? L("导入表候选：" + result.Recommend + "，实际可用性待确认。", "Import candidate: " + result.Recommend + "; compatibility is unverified.")
                     : L("没有足够证据推荐代理，请手动选择。", "Insufficient evidence to recommend a proxy. Choose manually."));
-            foreach (var id in new[] { "lmxxf", "daniel", "mochizuki" })
+            foreach (var id in new[] { "mochizuki" })
             {
                 BackendInfo capability = null;
                 if (result != null && result.Backends != null)
@@ -927,52 +835,14 @@ namespace OptScalerNR.Launcher
             var lines = new List<string>();
             if (backend.MissingPackageFiles != null && backend.MissingPackageFiles.Length > 0)
                 lines.Add(L("安装包组件不完整，详见组件详情。", "Package components incomplete; see component details."));
-            var hintSet = new HashSet<string>(backend.Hints ?? new string[0], StringComparer.OrdinalIgnoreCase);
-            if (hintSet.Contains("lmxxf-original") && hintSet.Contains("lmxxf-small"))
-            {
-                lines.Add(L("缺少 lmxxf Original / lmxxf Small 模型：请将 nvngx_dlssnr.dll 放到安装包目录（也支持已解压的 native-game-tiled-assets）。",
-                    "lmxxf Original / lmxxf Small models missing: place nvngx_dlssnr.dll beside Setup.bat (or supply native-game-tiled-assets)."));
-            }
-            else if (hintSet.Contains("lmxxf-original-preparable") && hintSet.Contains("lmxxf-small-preparable"))
-            {
-                lines.Add(L("已找到 lmxxf Original / lmxxf Small 模型来源，安装时自动提取。", "lmxxf Original / lmxxf Small model source found. Selected models will be extracted during installation."));
-            }
             foreach (var hint in backend.Hints ?? new string[0])
             {
                 switch (hint)
                 {
-                    case "lmxxf-weights": lines.Add(L("缺少模型：请将 nvngx_dlssnr.dll 放到安装包目录。", "lmxxf weights are missing. Place nvngx_dlssnr.dll beside Setup.bat.")); break;
-                    case "lmxxf-original":
-                        if (!hintSet.Contains("lmxxf-small"))
-                            lines.Add(L("lmxxf Original 未安装：放入 nvngx_dlssnr.dll 即可提取。", "lmxxf Original not installed: place nvngx_dlssnr.dll beside Setup.bat to extract."));
-                        break;
-                    case "lmxxf-original-preparable":
-                        if (!hintSet.Contains("lmxxf-small-preparable"))
-                            lines.Add(L("lmxxf Original 未安装：选择后将自动提取。", "lmxxf Original not installed: will be extracted if selected."));
-                        break;
-                    case "lmxxf-small":
-                        if (!hintSet.Contains("lmxxf-original"))
-                            lines.Add(L("lmxxf Small 未安装：需要 nvngx_dlssnr.dll (310.9.16)。", "lmxxf Small not installed: requires nvngx_dlssnr.dll (310.9.16)."));
-                        break;
-                    case "lmxxf-small-preparable":
-                        if (!hintSet.Contains("lmxxf-original-preparable"))
-                            lines.Add(L("lmxxf Small 未安装：选择后将自动提取。", "lmxxf Small not installed: will be extracted if selected."));
-                        break;
-                    case "mochi-source": lines.Add(L("缺少 Mochi 模型：请将 nvngx_dlssnr.dll 放到安装包目录。", "Mochi models are missing. Place nvngx_dlssnr.dll beside Setup.bat.")); break;
+                    case "mochi-source": lines.Add(L("缺少 Mochi 模型：请将 nvngx_dlssnr.dll 放到安装包目录。", "Mochi models are missing. Place nvngx_dlssnr.dll in the package folder.")); break;
                     case "mochi-preparable": lines.Add(L("已找到模型来源，安装时自动提取。", "Model source found. Models will be prepared during installation.")); break;
                     case "mochi-versions": lines.Add(L("310.9.16 支持新旧模型；310.8.0 仅支持原始模型。", "310.9.16: both models. 310.8.0: original only.")); break;
                     case "mochi-unsupported-source": lines.Add(L("此 nvngx_dlssnr.dll 版本不受支持，请更换为 310.9.16 或 310.8.0。", "Unsupported nvngx_dlssnr.dll. Supply 310.9.16 or 310.8.0.")); break;
-                    case "daniel-runtime": lines.Add(L("缺少 Daniel 运行库：请放入 Daniel 的 dlssnr_on_amd_setup.exe 或 version.dll。", "Daniel runtime missing: place Daniel's dlssnr_on_amd_setup.exe or Daniel's version.dll beside Setup.bat.")); break;
-                    case "daniel-weights": lines.Add(L("缺少 Daniel 权重：请放入 nvngx_dlssnr.dll（或 dlssnr_on_amd_weights.bin）。", "Daniel weights missing: place nvngx_dlssnr.dll (or dlssnr_on_amd_weights.bin) beside Setup.bat.")); break;
-                    case "daniel-setup":
-                        if (!hintSet.Contains("daniel-runtime"))
-                            lines.Add(L("请放入 Daniel 的 dlssnr_on_amd_setup.exe 或 version.dll。", "Place Daniel's dlssnr_on_amd_setup.exe or Daniel's version.dll beside Setup.bat."));
-                        break;
-                    case "daniel-source":
-                        if (!hintSet.Contains("daniel-weights"))
-                            lines.Add(L("请将 nvngx_dlssnr.dll 放到安装包目录。", "Place nvngx_dlssnr.dll beside Setup.bat."));
-                        break;
-                    case "daniel-preparable": lines.Add(L("已找到提取文件，安装时自动提取。", "Extraction files found. Preparation will run during installation.")); break;
                 }
             }
             return string.Join(Environment.NewLine, lines.ToArray());
@@ -982,7 +852,7 @@ namespace OptScalerNR.Launcher
         {
             bool any = false;
             var details = new List<string>();
-            foreach (var id in new[] { "mochizuki", "lmxxf", "daniel" })
+            foreach (var id in new[] { "mochizuki" })
             {
                 BackendInfo backend = null;
                 if (_lastInspectResult != null && _lastInspectResult.Backends != null)
@@ -991,7 +861,7 @@ namespace OptScalerNR.Launcher
                 var text = backend != null ? BackendHintText(backend) : "";
                 if (IsBackendSelected(id) && backend != null && backend.MissingPackageFiles != null && backend.MissingPackageFiles.Length > 0)
                     details.Add(id + ": " + string.Join(", ", backend.MissingPackageFiles));
-                var label = _window.FindName(id == "mochizuki" ? "MochiHint" : id == "lmxxf" ? "LmxxfHint" : "DanielHint") as TextBlock;
+                var label = _window.FindName("MochiHint") as TextBlock;
                 if (label != null)
                 {
                     label.Text = text;
@@ -1205,8 +1075,6 @@ namespace OptScalerNR.Launcher
         {
             var list = new List<string>();
             if (_mochiCheck != null && _mochiCheck.IsChecked == true) list.Add("mochizuki");
-            if (_lmxxfCheck != null && _lmxxfCheck.IsChecked == true) list.Add("lmxxf");
-            if (_danielCheck != null && _danielCheck.IsChecked == true) list.Add("daniel");
             return list;
         }
 
@@ -1227,9 +1095,7 @@ namespace OptScalerNR.Launcher
             try
             {
                 if (_mochiCheck != null) _mochiCheck.IsChecked = list.Contains("mochizuki") || choice == null;
-                if (_lmxxfCheck != null) _lmxxfCheck.IsChecked = list.Contains("lmxxf");
-                if (_danielCheck != null) _danielCheck.IsChecked = list.Contains("daniel");
-                _activeBackend = choice != null && !string.IsNullOrEmpty(choice.ActiveBackend) ? choice.ActiveBackend : "mochizuki";
+                _activeBackend = (_mochiCheck != null && _mochiCheck.IsChecked == true) ? "mochizuki" : "";
                 UpdateActiveCombo();
             }
             finally { _updatingBackends = false; }
@@ -1247,7 +1113,7 @@ namespace OptScalerNR.Launcher
             {
                 var worker = Path.Combine(_packageRoot, "launcher-worker.ps1");
                 if (File.Exists(worker)) return worker;
-                throw new FileNotFoundException(L("请从完整解压的安装包启动 Setup.bat。若需指定其他安装包，请先确认开启诊断模式。", "Run Setup.bat from the complete extracted package. Enable diagnostic mode explicitly to select another package."));
+                throw new FileNotFoundException(L("请从完整解压的安装包启动 OptScalerNR.Launcher.exe。若需指定其他安装包，请先确认开启诊断模式。", "Run OptScalerNR.Launcher.exe from the complete extracted package. Enable diagnostic mode explicitly to select another package."));
             }
         }
 
@@ -1643,11 +1509,7 @@ namespace OptScalerNR.Launcher
                 return;
             }
 
-            bool multiBackendMode = FindBackend("lmxxf") != null || FindBackend("daniel") != null;
-            var hasBackend = !multiBackendMode
-                || (_lmxxfCheck != null && _lmxxfCheck.IsChecked == true)
-                || (_danielCheck != null && _danielCheck.IsChecked == true)
-                || (_mochiCheck != null && _mochiCheck.IsChecked == true);
+            var hasBackend = true;
 
             var proxyChosen = !string.IsNullOrEmpty(CurrentSelectedProxy);
             var isBusy = _session != null && _session.IsRunning && (_presentationBusy || !_session.CanKill);
@@ -1668,31 +1530,6 @@ namespace OptScalerNR.Launcher
 
         void UpdateActiveCombo()
         {
-            var checkedBackends = CheckedBackends();
-            if (checkedBackends.Count == 0) _activeBackend = "";
-
-            if (_activeCombo != null)
-            {
-                _activeCombo.Items.Clear();
-                foreach (var b in checkedBackends) _activeCombo.Items.Add(b);
-
-                if (checkedBackends.Count >= 1)
-                {
-                    if (checkedBackends.Contains(_activeBackend))
-                        _activeCombo.SelectedItem = _activeBackend;
-                    else
-                    {
-                        _activeBackend = checkedBackends[0];
-                        _activeCombo.SelectedIndex = 0;
-                    }
-                }
-            }
-
-            if (!checkedBackends.Contains(_activeBackend) && checkedBackends.Count > 0)
-            {
-                _activeBackend = checkedBackends[0];
-            }
-
             UpdateActiveUI();
         }
 
@@ -2338,52 +2175,6 @@ namespace OptScalerNR.Launcher
             return dialog;
         }
 
-        Window CreateLmxxfModelDialog()
-        {
-            BackendInfo capability = null;
-            if (_lastInspectResult != null && _lastInspectResult.Backends != null)
-                foreach (var backend in _lastInspectResult.Backends)
-                    if (backend != null && backend.Id == "lmxxf") { capability = backend; break; }
-            var original = capability != null && (capability.OriginalState == "ready" || capability.OriginalState == "preparable");
-            var small = capability != null && (capability.SmallState == "ready" || capability.SmallState == "preparable");
-            var needsOriginalPreparation = capability != null && capability.OriginalState == "preparable";
-            var needsSmallPreparation = capability != null && capability.SmallState == "preparable";
-            var dialog = new Window {
-                Owner = _window.IsVisible ? _window : null, Title = L("选择 lmxxf 模型", "Select lmxxf models"), Width = 540,
-                SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false,
-                Background = LauncherTheme.Brush("ThemeSurface"), Foreground = LauncherTheme.Brush("ThemeInk")
-            };
-            DialogTheme.Apply(dialog, _window);
-            var panel = new StackPanel { Margin = new Thickness(24) };
-            panel.Children.Add(new TextBlock { Text = L("请选择要安装的模型。现有的另一套模型会保留。", "Choose the models to install. Other installed models are retained."), TextWrapping = TextWrapping.Wrap });
-            panel.Children.Add(new TextBlock { Text = "Original: " +
-                (needsOriginalPreparation ? L("未安装（可提取）", "Not installed (can extract)") : original ? L("就绪", "Ready") : L("缺失", "Missing")) + "  |  Small: " +
-                (needsSmallPreparation ? L("未安装（可提取）", "Not installed (can extract)") : small ? L("已安装", "Installed") : L("缺失", "Missing")), Margin = new Thickness(0,10,0,10) });
-            var proceed = new Button { Content = L("继续", "Continue"), IsEnabled = false, MinWidth = 100, Margin = new Thickness(4) };
-            DialogTheme.Primary(dialog, proceed);
-            var values = new[] { "both", "small", "original" };
-            var labels = new[] { "Original + Small", "Small", "Original" };
-            var enabled = new[] { original && small, small, original };
-            for (var i = 0; i < values.Length; i++) {
-                var value = values[i];
-                var radio = new RadioButton { Content = labels[i], Foreground = enabled[i] ? LauncherTheme.Brush("ThemeInk") : LauncherTheme.Brush("ThemeMuted"), IsEnabled = enabled[i], GroupName = "LmxxfModels", Margin = new Thickness(0,6,0,6) };
-                radio.Checked += delegate { dialog.Tag = value; proceed.IsEnabled = true; };
-                panel.Children.Add(radio);
-            }
-            AddModelSourceChoice(panel, dialog, original, small);
-            var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-            var cancel = new Button { Content = L("取消", "Cancel"), IsCancel = true, MinWidth = 100, Margin = new Thickness(4) };
-            proceed.Click += delegate { if (dialog.Tag != null) dialog.DialogResult = true; };
-            buttons.Children.Add(cancel); buttons.Children.Add(proceed); panel.Children.Add(buttons); DialogTheme.SetContent(dialog, panel);
-            return dialog;
-        }
-
-        string SelectLmxxfModels(string action)
-        {
-            return SelectModelDialog(CreateLmxxfModelDialog(), action);
-        }
-
         bool PrepareMissingModelSource(string action, List<string> selected)
         {
             var needsSource = false;
@@ -2391,17 +2182,19 @@ namespace OptScalerNR.Launcher
                 foreach (var backend in _lastInspectResult.Backends) {
                     if (backend == null || !selected.Contains(backend.Id)) continue;
                     if (backend.Id == "mochizuki" && backend.RuntimeState == "ready" && backend.ModelState == "missing") needsSource = true;
-                    if (backend.Id == "lmxxf" && backend.RuntimeState == "ready" &&
-                        backend.OriginalState != "ready" && backend.OriginalState != "preparable" &&
-                        backend.SmallState != "ready" && backend.SmallState != "preparable") needsSource = true;
-                    if (backend.Id == "daniel" && backend.ModelState == "missing" &&
-                        (backend.RuntimeState == "ready" || (backend.Hints != null && Array.IndexOf(backend.Hints, "daniel-setup") < 0))) needsSource = true;
                 }
-            if (!needsSource) return true;
-            if (!string.IsNullOrEmpty(_decisions.ModelSourceDll))
-                DialogTheme.Show(_window, L("所选 DLL 无法提供需要的模型。请选择受支持的 nvngx_dlssnr.dll；Small 需要 310.9.16。", "The selected DLL cannot supply the required model. Choose a supported nvngx_dlssnr.dll; Small requires 310.9.16."), _window.Title);
-            ChooseModelSource(action);
-            return false;
+            if (needsSource)
+            {
+                if (!string.IsNullOrEmpty(_decisions.ModelSourceDll))
+                    DialogTheme.Show(_window, L("所选 DLL 无法提供需要的模型。请选择受支持的 nvngx_dlssnr.dll；Small 需要 310.9.16。", "The selected DLL cannot supply the required model. Choose a supported nvngx_dlssnr.dll; Small requires 310.9.16."), _window.Title);
+                ChooseModelSource(action);
+                return false;
+            }
+            if (_openRrToggle != null && _openRrToggle.IsChecked == true && !HasValidOpenRrDlssd())
+            {
+                if (!ChooseOpenRrDlssd()) return false;
+            }
+            return true;
         }
 
         void ChooseModelSource(string action)
@@ -2451,6 +2244,37 @@ namespace OptScalerNR.Launcher
             }
         }
 
+        static bool GameDirectoryHasDlssdDll(string gameDir)
+        {
+            if (string.IsNullOrEmpty(gameDir) || !Directory.Exists(gameDir)) return false;
+            try
+            {
+                if (File.Exists(Path.Combine(gameDir, "nvngx_dlssd.dll"))) return true;
+                var current = gameDir;
+                for (int up = 0; up < 3 && !string.IsNullOrEmpty(current); up++)
+                {
+                    if (File.Exists(Path.Combine(current, "nvngx_dlssd.dll"))) return true;
+                    try
+                    {
+                        if (Directory.GetFiles(current, "nvngx_dlssd.dll", SearchOption.AllDirectories).Length > 0)
+                            return true;
+                    }
+                    catch { }
+                    var parent = Path.GetDirectoryName(current.TrimEnd('\\', '/'));
+                    if (string.IsNullOrEmpty(parent) || string.Equals(parent, current, StringComparison.OrdinalIgnoreCase)) break;
+                    var parentLeaf = Path.GetFileName(current.TrimEnd('\\', '/'));
+                    if (!string.Equals(parentLeaf, "Win64", StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(parentLeaf, "Binaries", StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(parentLeaf, "bin", StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(parentLeaf, "x64", StringComparison.OrdinalIgnoreCase))
+                        break;
+                    current = parent;
+                }
+            }
+            catch { }
+            return false;
+        }
+
         void ExecuteAction(string action, bool keepModelChoice = false, string compatibilityFingerprint = null)
         {
             var installing = action == "install" || action == "update";
@@ -2465,7 +2289,7 @@ namespace OptScalerNR.Launcher
                 return;
             }
             if (installing && !HasLocalPackage()) {
-                DialogTheme.Show(_window, L("请从完整解压的安装包启动 Setup.bat。若需使用其他目录，请在设置中确认开启诊断模式并选择完整包。", "Run Setup.bat from a complete extracted package. To use another folder, explicitly enable diagnostic mode in Settings and select a complete package."), _window.Title);
+                DialogTheme.Show(_window, L("请从完整解压的安装包启动 OptScalerNR.Launcher.exe。若需使用其他目录，请在设置中确认开启诊断模式并选择完整包。", "Run OptScalerNR.Launcher.exe from a complete extracted package. To use another folder, explicitly enable diagnostic mode in Settings and select a complete package."), _window.Title);
                 return;
             }
 
@@ -2488,18 +2312,9 @@ namespace OptScalerNR.Launcher
             }
 
             var checkedBackends = new List<string>();
-            if (_lmxxfCheck != null && _lmxxfCheck.IsChecked == true && FindBackend("lmxxf") != null) checkedBackends.Add("lmxxf");
-            if (_danielCheck != null && _danielCheck.IsChecked == true && FindBackend("daniel") != null) checkedBackends.Add("daniel");
             if (_mochiCheck != null && _mochiCheck.IsChecked == true) checkedBackends.Add("mochizuki");
 
-            bool multiBackendMode = FindBackend("lmxxf") != null || FindBackend("daniel") != null;
-            if (installing && checkedBackends.Count == 0 && multiBackendMode)
-            {
-                DialogTheme.Show(_window, _language == "zh" ? "请至少勾选一个可安装的后端。" : "Please select at least one backend to install.", _window.Title);
-                ReleaseLock();
-                return;
-            }
-            if (installing && !multiBackendMode)
+            if (installing)
             {
                 bool nrOn = checkedBackends.Contains("mochizuki");
                 bool rrOn = _openRrToggle != null && _openRrToggle.IsChecked == true;
@@ -2509,11 +2324,11 @@ namespace OptScalerNR.Launcher
                     {
                         string warnMsg = !rrOn
                             ? L(
-                                "当前未启用神经渲染（Mochizuki）与 DLSS 光线重建（OpenRR），本次将仅安装基础版 OptiScaler（支持超分、帧生成与内置 FSR-RR），无法获得神经渲染光影重塑与原生 DLSS 光线重建效果。\n\n是否继续？",
-                                "Neither Mochizuki Neural Rendering nor OpenRR (DLSS Ray Reconstruction) is enabled. Only base OptiScaler will be installed (supporting upscaling, frame generation, and built-in FSR-RR, without Neural Rendering or native DLSS Ray Reconstruction).\n\nContinue anyway?")
+                                "当前未启用神经渲染（Mochizuki）与 DLSS 光线重建（OpenRR），本次将仅安装官方基础版 OptiScaler（支持超分与帧生成），不安装神经渲染与光线重建插件。\n\n是否继续？",
+                                "Neither Mochizuki Neural Rendering nor OpenRR (DLSS Ray Reconstruction) is enabled. Only official base OptiScaler will be installed.\n\nContinue anyway?")
                             : L(
-                                "当前未启用神经渲染（Mochizuki），将无法获得神经渲染光影重塑效果。\n\n是否继续？",
-                                "Mochizuki Neural Rendering is not enabled; Neural Rendering lighting effects will not be available.\n\nContinue anyway?");
+                                "当前未启用神经渲染（Mochizuki），本次将仅安装官方 OptiScaler 与 OpenRR 光线重建插件。\n\n是否继续？",
+                                "Mochizuki Neural Rendering is not enabled; only official OptiScaler and OpenRR will be installed.\n\nContinue anyway?");
                         if (DialogTheme.Show(_window, warnMsg, _window.Title, MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
                         {
                             ReleaseLock();
@@ -2524,18 +2339,25 @@ namespace OptScalerNR.Launcher
                 }
             }
             if (installing && !PrepareMissingModelSource(action, checkedBackends)) { ReleaseLock(); return; }
-
-            if (installing && checkedBackends.Contains("lmxxf") &&
-                (!keepModelChoice || string.IsNullOrEmpty(_decisions.LmxxfModels)))
-            {
-                _decisions.LmxxfModels = SelectLmxxfModels(action);
-                if (string.IsNullOrEmpty(_decisions.LmxxfModels)) { ReleaseLock(); return; }
-            }
             if (installing && checkedBackends.Contains("mochizuki") &&
                 (!keepModelChoice || string.IsNullOrEmpty(_decisions.MochizukiModels)))
             {
                 _decisions.MochizukiModels = SelectMochizukiModels(action);
                 if (string.IsNullOrEmpty(_decisions.MochizukiModels)) { ReleaseLock(); return; }
+            }
+            if (installing && !keepModelChoice && _openRrToggle != null && _openRrToggle.IsChecked == true)
+            {
+                if (!GameDirectoryHasDlssdDll(dir))
+                {
+                    var rrWarn = L(
+                        "未在当前游戏目录中检测到 nvngx_dlssd.dll，该游戏可能不支持英伟达光线重建（Ray Reconstruction）功能。\n\n是否仍要安装 OpenRR？",
+                        "nvngx_dlssd.dll was not found in the game folder. This game may not support NVIDIA Ray Reconstruction.\n\nInstall OpenRR anyway?");
+                    if (DialogTheme.Show(_window, rrWarn, _window.Title, MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                    {
+                        ReleaseLock();
+                        return;
+                    }
+                }
             }
 
             SetBusy(true, action);
@@ -2723,51 +2545,17 @@ namespace OptScalerNR.Launcher
             {
                 if (result.Backends != null)
                 {
-                    bool hasLmxxf = FindBackend("lmxxf") != null;
-                    bool hasDaniel = FindBackend("daniel") != null;
-                    if (!hasLmxxf && _lmxxfCheck != null)
-                    {
-                        _lmxxfCheck.IsChecked = false;
-                        _lmxxfCheck.IsEnabled = false;
-                        if (preferredActiveBackend == "lmxxf") preferredActiveBackend = "mochizuki";
-                    }
-                    if (!hasDaniel && _danielCheck != null)
-                    {
-                        _danielCheck.IsChecked = false;
-                        _danielCheck.IsEnabled = false;
-                        if (preferredActiveBackend == "daniel") preferredActiveBackend = "mochizuki";
-                    }
                     var savedChoice = CurrentBackendChoice();
                     bool onlyRetiredSaved = savedChoice != null && savedChoice.Backends != null &&
                         savedChoice.Backends.Length > 0 && Array.IndexOf(savedChoice.Backends, "mochizuki") < 0;
-                    if (!hasLmxxf && !hasDaniel && (!hasUserChoice || onlyRetiredSaved) && _mochiCheck != null && _mochiCheck.IsChecked != true)
+                    if ((!hasUserChoice || onlyRetiredSaved) && _mochiCheck != null && _mochiCheck.IsChecked != true)
                         _mochiCheck.IsChecked = true;
                     foreach (var b in result.Backends)
                     {
-                        if (b == null) continue;
-                        if (b.Id == "lmxxf")
+                        if (b != null && b.Id == "mochizuki" && _mochiCheck != null)
                         {
-                            if (_lmxxfCheck != null)
-                            {
-                                _lmxxfCheck.IsEnabled = true;
-                                if (!hasUserChoice) _lmxxfCheck.IsChecked = b.Enabled;
-                            }
-                        }
-                        else if (b.Id == "daniel")
-                        {
-                            if (_danielCheck != null)
-                            {
-                                _danielCheck.IsEnabled = true;
-                                if (!hasUserChoice) _danielCheck.IsChecked = b.Enabled;
-                            }
-                        }
-                        else if (b.Id == "mochizuki")
-                        {
-                            if (_mochiCheck != null)
-                            {
-                                _mochiCheck.IsEnabled = true;
-                                if (!hasUserChoice) _mochiCheck.IsChecked = b.Enabled || b.RuntimeState == "ready";
-                            }
+                            _mochiCheck.IsEnabled = true;
+                            if (!hasUserChoice) _mochiCheck.IsChecked = b.Enabled || b.RuntimeState == "ready";
                         }
                     }
                 }
@@ -2806,15 +2594,15 @@ namespace OptScalerNR.Launcher
                         return false;
                     }
                 }
-                else if (d.Id == "lmxxfModels")
-                {
-                    _decisions.LmxxfModels = SelectLmxxfModels(action);
-                    if (string.IsNullOrEmpty(_decisions.LmxxfModels)) return false;
-                }
+
                 else if (d.Id == "mochizukiModels" || d.Id == "mochizukiNetworks")
                 {
                     _decisions.MochizukiModels = SelectMochizukiModels(action);
                     if (string.IsNullOrEmpty(_decisions.MochizukiModels)) return false;
+                }
+                else if (d.Id == "openRrDlssd")
+                {
+                    if (!ChooseOpenRrDlssd()) return false;
                 }
                 else if (d.Id == "reinspect")
                 {

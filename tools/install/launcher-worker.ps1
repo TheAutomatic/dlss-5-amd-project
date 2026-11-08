@@ -1,4 +1,4 @@
-# Schema 1 worker. Inspect is read-only. Install/uninstall call the existing scripts.
+﻿# Schema 1 worker. Inspect is read-only. Install/uninstall call the existing scripts.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$RequestJson,
@@ -92,7 +92,7 @@ $script:partial = $false
 $script:mochizukiInstall = $null
 $allowedProxy = @($CandidateNames)
 $allowedAction = @('inspect','install','update','uninstall','scan','repairXess','restoreXess','keepXess')
-$allowedBackend = @('auto','daniel','lmxxf','mochizuki','all')
+$allowedBackend = @('auto','mochizuki','all','none')
 if ($allowedAction -notcontains [string]$req.action) { throw "invalid action $($req.action)" }
 
 # An explicitly empty list must not fall through to automatic/all-backend installation.
@@ -105,7 +105,7 @@ if ($req.action -in @('install','update')) {
         }
         $seenRequestedBackends = @{}
         foreach ($id in @($req.backends)) {
-            if ($id -notin @('lmxxf','daniel','mochizuki','none')) { Fail-Result 'failed' "Unknown backend id: $id" 1 }
+            if ($id -notin @('mochizuki','none')) { Fail-Result 'failed' "Unknown backend id: $id" 1 }
             if ($seenRequestedBackends.ContainsKey($id)) { Fail-Result 'failed' "Duplicate backend id: $id" 1 }
             $seenRequestedBackends[$id] = $true
         }
@@ -284,6 +284,7 @@ function Find-PackageRoot([string]$requested) {
         $dll = Join-Path $d 'OptiScaler.dll'
         $setup = @(
             (Join-Path $d 'Setup.ps1'),
+            (Join-Path $d 'install.ps1'),
             (Join-Path $d 'install-amd-presr.ps1')
         ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
         if ((Test-Path -LiteralPath $dll -PathType Leaf) -and $setup) { return $d }
@@ -383,10 +384,12 @@ function Find-Setup([string]$name) {
     if ($req.packageRoot) { return $null }
     return Find-Sibling $name
 }
-$install = Find-Setup 'install-amd-presr.ps1'
-if (-not $install) { $install = Find-Setup 'Setup.ps1' }
-$uninstall = Find-Setup 'uninstall-amd-presr.ps1'
-if (-not $uninstall) { $uninstall = Find-Setup 'Uninstall_OptiScaler_NR.ps1' }
+$install = Find-Setup 'Setup.ps1'
+if (-not $install) { $install = Find-Setup 'install.ps1' }
+if (-not $install) { $install = Find-Setup 'install-amd-presr.ps1' }
+$uninstall = Find-Setup 'Uninstall_OptiScaler_NR.ps1'
+if (-not $uninstall) { $uninstall = Find-Setup 'uninstall.ps1' }
+if (-not $uninstall) { $uninstall = Find-Setup 'uninstall-amd-presr.ps1' }
 if ($req.action -eq 'uninstall') { $install = $uninstall }
 if (-not $install) {
     Fail-Result 'failed' 'Complete package required: setup scripts are missing. Unzip the full package again.' 1
@@ -417,13 +420,6 @@ if ($req.action -in @('install','update')) {
     }
 }
 if ($req.action -ne 'uninstall') {
-    $lmxxfAvailable = @($script:backends | Where-Object { $_.id -eq 'lmxxf' -and $_.runtimeState -eq 'ready' }).Count -gt 0
-    $lmxxfSelected = if ($hasRequestedBackends) { @($req.backends) -contains 'lmxxf' } else { $backend -eq 'lmxxf' -or (($backend -in @('auto','all','')) -and $lmxxfAvailable) }
-    if ($lmxxfSelected) {
-        $modelChoice = if ($dec) { [string]$dec.lmxxfModels } else { '' }
-        if (-not $modelChoice) { $script:needed += @{ id='lmxxfModels'; prompt='Select lmxxf Original, Small, or both models.'; options=@('both','small','original') } }
-        elseif ($modelChoice -notin @('both','small','original')) { Fail-Result 'failed' 'Invalid lmxxf models choice.' 1 }
-    }
     $mochiAvailable = @($script:backends | Where-Object { $_.id -eq 'mochizuki' -and $_.runtimeState -eq 'ready' }).Count -gt 0
     $mochiSelected = if ($hasRequestedBackends) { @($req.backends) -contains 'mochizuki' } else {
         $backend -eq 'mochizuki' -or (($backend -in @('auto','all','')) -and $mochiAvailable)
@@ -446,6 +442,43 @@ if ($req.action -ne 'uninstall') {
         }
         if ($activeChoice -and $activeChoice -notin @('small','experimental','original','int4','optimized')) {
             Fail-Result 'failed' 'Invalid Mochizuki active network.' 1
+        }
+    }
+    $openRrExplicitlyRequested = $dec -and $dec.PSObject.Properties['openRr'] -and ([string]$dec.openRr -eq 'install')
+    if ($openRrExplicitlyRequested) {
+        $hasValidDlssd = $false
+        $dlssdCandidates = @()
+        if ($script:packageRoot) {
+            $dlssdCandidates += @(
+                (Join-Path $script:packageRoot 'nvngx_dlssd.dll'),
+                (Join-Path $script:packageRoot 'openrr-amd\nvngx_dlssd.dll'),
+                (Join-Path $script:packageRoot 'opennr-rr\nvngx_dlssd.dll')
+            )
+        }
+        if ($script:gameDir) {
+            $dlssdCandidates += @(
+                (Join-Path $script:gameDir 'nvngx_dlssd.dll'),
+                (Join-Path $script:gameDir 'openrr-amd\nvngx_dlssd.dll'),
+                (Join-Path $script:gameDir 'opennr-rr\nvngx_dlssd.dll')
+            )
+        }
+        foreach ($cand in $dlssdCandidates) {
+            if ($cand -and (Test-Path -LiteralPath $cand -PathType Leaf)) {
+                try {
+                    $v = (Get-Item -LiteralPath $cand).VersionInfo
+                    if ($v.FileMajorPart -eq 310 -and $v.FileMinorPart -eq 9 -and $v.FileBuildPart -eq 1) {
+                        $hasValidDlssd = $true
+                        break
+                    }
+                } catch { }
+            }
+        }
+        if (-not $hasValidDlssd) {
+            $script:needed += @{
+                id = 'openRrDlssd'
+                prompt = 'OpenRR requires nvngx_dlssd.dll (310.9.1.0). Provide nvngx_dlssd.dll or uncheck OpenRR.'
+                options = @('import','cancel')
+            }
         }
     }
     if ($probe.conflicts.Count -gt 0) {
@@ -487,7 +520,7 @@ if ($req.action -eq 'uninstall') {
         language = if ($req.language -eq 'zh') { 'zh' } else { 'en' }
     }
     if ($dec) {
-        foreach ($name in @('existingInstall','existingIni','mochizukiModels','mochizukiNetworks','mochizukiActiveModel','lmxxfModels','shortFileContinue','optiPatcher','openRr','foreignProxy','modelSourceDll')) {
+        foreach ($name in @('existingInstall','existingIni','mochizukiModels','mochizukiNetworks','mochizukiActiveModel','shortFileContinue','optiPatcher','openRr','foreignProxy','modelSourceDll')) {
             if ($dec.PSObject.Properties[$name] -and $null -ne $dec.$name) {
                 if ($name -eq 'foreignProxy') { $payload[$name] = ConvertTo-ForeignProxyMap $dec.$name }
                 else { $payload[$name] = $dec.$name }
@@ -502,37 +535,41 @@ $prevEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 if ($req.action -eq 'uninstall') {
     & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -GameDir $script:gameDir -NonInteractive -NoPause -RemoveBackups 1>$stdoutLog 2>$stderrLog
-    try {
-        $storeDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'OptScalerNR\ModelStore'
-        $dlssnrAmdDir = Join-Path $script:gameDir 'dlssnr-amd'
-        if (Test-Path -LiteralPath $dlssnrAmdDir -PathType Container) {
-            foreach ($modelFile in @(Get-ChildItem -LiteralPath $dlssnrAmdDir -Filter 'CC_*.bin' -File -ErrorAction SilentlyContinue)) {
-                [void][IO.Directory]::CreateDirectory($storeDir)
-                $dest = Join-Path $storeDir $modelFile.Name
-                if (-not (Test-Path -LiteralPath $dest -PathType Leaf)) {
-                    Copy-Item -LiteralPath $modelFile.FullName -Destination $dest -Force
+    $code = $LASTEXITCODE
+    if ($code -eq 0) {
+        try {
+            foreach ($legacyAppDir in @(
+                (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'OptScalerNR\ModelStore'),
+                (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'OptScalerNR\Launcher\models'),
+                (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'OpenNR')
+            )) {
+                if (Test-Path -LiteralPath $legacyAppDir -PathType Container) {
+                    Remove-Item -LiteralPath $legacyAppDir -Recurse -Force -ErrorAction SilentlyContinue
                 }
-                Remove-Item -LiteralPath $modelFile.FullName -Force -ErrorAction SilentlyContinue
             }
-            if (@(Get-ChildItem -LiteralPath $dlssnrAmdDir -Force -ErrorAction SilentlyContinue).Count -eq 0) {
-                [IO.Directory]::Delete($dlssnrAmdDir, $false)
+            $dlssnrAmdDir = Join-Path $script:gameDir 'dlssnr-amd'
+            if (Test-Path -LiteralPath $dlssnrAmdDir -PathType Container) {
+                foreach ($modelFile in @(Get-ChildItem -LiteralPath $dlssnrAmdDir -Filter 'CC_*.bin' -File -ErrorAction SilentlyContinue)) {
+                    Remove-Item -LiteralPath $modelFile.FullName -Force -ErrorAction SilentlyContinue
+                }
+                if (@(Get-ChildItem -LiteralPath $dlssnrAmdDir -Force -ErrorAction SilentlyContinue).Count -eq 0) {
+                    [IO.Directory]::Delete($dlssnrAmdDir, $false)
+                }
             }
-        }
-        $compatBackup = Join-Path $script:gameDir 'OptiScaler-compat-backup'
-        if (Test-Path -LiteralPath $compatBackup -PathType Container) {
-            Remove-Item -LiteralPath $compatBackup -Recurse -Force -ErrorAction SilentlyContinue
-        }
-    } catch { }
+        } catch { }
+    }
 } elseif ($hasRequestedBackends) {
     $activeArguments = @()
     if ($req.activeBackend) { $activeArguments = @('-ActiveBackend', [string]$req.activeBackend) }
     & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -GameDir $script:gameDir -Proxy $script:resolved -NoPause -NonInteractive -Root $script:packageRoot @activeArguments -DecisionJson $dj 1>$stdoutLog 2>$stderrLog
+    $code = $LASTEXITCODE
 } elseif ($backend -and $backend -ne 'auto') {
     & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -GameDir $script:gameDir -Proxy $script:resolved -NoPause -NonInteractive -Root $script:packageRoot -Backend $backend -DecisionJson $dj 1>$stdoutLog 2>$stderrLog
+    $code = $LASTEXITCODE
 } else {
     & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -GameDir $script:gameDir -Proxy $script:resolved -NoPause -NonInteractive -Root $script:packageRoot -DecisionJson $dj 1>$stdoutLog 2>$stderrLog
+    $code = $LASTEXITCODE
 }
-$code = $LASTEXITCODE
 $ErrorActionPreference = $prevEap
 if (Test-Path -LiteralPath $stdoutLog) {
     Write-EventBatch 'log' @(Get-Content -LiteralPath $stdoutLog -ErrorAction SilentlyContinue)

@@ -1,389 +1,135 @@
 [中文](README.md) | **English** | [Español](README.es.md)
 
-# OptScaler(NR) 1.15.0-alpha
+# OptScaler(NR)
 
-> **Note**: This README body has not been updated in a while and some details may lag behind the current build; please refer to the repository source code and [Release announcements](https://github.com/TheAutomatic/dlss-5-amd-project/releases) as authoritative.
+> [!IMPORTANT]
+> **🎉 v2.0 Full Architecture Upgrade**: This project has been upgraded to the **"Official Unmodified OptiScaler + Dual Standalone `.asi` Plugins (`dlssnr-amd.asi` + `openrr-amd.asi`) + One-Click GUI Launcher"** architecture!
+> Looking for the legacy `1.x` documentation (the custom 3-backend `lmxxf` / `danielblnc` / `mochizuki` fork)? Click here: **[Legacy English README](docs/legacy-readme/README.en.md)**.
 
-**Special Thanks**: Thank you to all users for your testing and feedback.
+**Special thanks** to everyone who tested builds and reported feedback.
 
-Connects **AMD Neural Rendering** (DLSS5 on AMD) into **OptiScaler**, enabling **pure DLSS / XeSS games** to run neural denoising on AMD GPUs; upscaling is handled by **FFX/FSR**.
+This repository provides a graphical launcher (**`OptScalerNR.Launcher.exe`**) that automatically scans Steam / Epic / GOG / Xbox game libraries, analyzes game `.exe` PE imports to recommend the optimal injection proxy DLL, extracts and synthesizes model weights offline in one click, and lets you freely select and deploy **official unmodified OptiScaler** alongside two standalone AMD neural rendering plugins—**DLSS Neural Rendering (`dlssnr-amd.asi`)** and **DLSS Ray Reconstruction (`openrr-amd.asi`)**—complete with shared INI profiles and style share codes.
 
-This project is forked from [MatheusGViana / dlss-5-amd-project](https://github.com/MatheusGViana/dlss-5-amd-project) and upstream community projects, maintaining and evolving the codebase with ongoing deep optimizations.
-
-**Project Homepage: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
-
-## Changelog
-UI upgrades, NR intensity, face protection and more; see the [Releases page](https://github.com/TheAutomatic/dlss-5-amd-project/releases) for details.
+**Project Home: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
 ---
 
 ## Table of Contents
-- [1. Standing on the Shoulders of Giants](#1-standing-on-the-shoulders-of-giants)
-- [2. Installation Guide](#2-installation-guide)
-  - ├─► [⚡ Quick Start Installation](#quick-start)
-  - ├─► [Full Installation Details & Advanced Options](#full-installation-details--advanced-options)
-  - └─► [Optional: 3x+ Frame Generation (XeFG/DLSSG)](#optional-3x-frame-generation-xefgdlssg)
-- [3. Three Backends & Historical Benchmarks](#3-three-backends--historical-benchmarks)
-- [4. In-Game Settings & Controls](#4-in-game-settings--controls)
-- [5. Troubleshooting, Logs & Uninstallation](#5-troubleshooting-logs--uninstallation)
-- [6. Attributions & Licenses](#6-attributions--licenses)
+- [1. Core Architecture & Upstream Credits](#1-core-architecture--upstream-credits)
+- [2. ⚡ Quick Installation Guide (Windows & Linux)](#2--quick-installation-guide-windows--linux)
+  - ├─► [Windows GUI Launcher Installation (Recommended)](#windows-gui-launcher-installation-recommended)
+  - └─► [Linux / SteamOS (Proton) Script Installation](#linux--steamos-proton-script-installation)
+- [3. Dual `.asi` Plugin Capabilities](#3-dual-asi-plugin-capabilities)
+- [4. In-Game Hotkeys & Menu Controls](#4-in-game-hotkeys--menu-controls)
+- [5. Compatibility Repair, Log Packing & Uninstallation](#5-compatibility-repair-log-packing--uninstallation)
+- [6. Free Software Notice, Attributions & Licenses](#6-free-software-notice-attributions--licenses)
 
 ---
 
-## 1. Standing on the Shoulders of Giants
+## 1. Core Architecture & Upstream Credits
 
-This project is built upon the collective achievements of pioneering developers in the open-source graphics community:
+In `2.0`, we no longer modify or rebuild the `OptiScaler.dll` host. Instead, we use a clean decoupled architecture of **official upstream host + standalone `.asi` plugins**:
 
-| Upstream / Pioneer | Their Contribution | What This Project Added |
+| Component | Upstream & Source | Role & Features |
 |---|---|---|
-| **[OptiScaler](https://github.com/optiscaler/OptiScaler)** | Universal upscaling proxy framework (DLSS / FFX / XeSS) | Serves as the host and injection layer, providing hooking and GUI controls |
-| **[Dagherbou / OptiScaler_DLSSNR](https://github.com/Dagherbou/OptiScaler_DLSSNR)** → **[wilsjo2 / PreSR-Multipass](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass)** | First integrated DLSS-NR into OptiScaler; architected Pre-SR Multi-Pass pipeline | Inherits their OptiScaler codebase foundation and Pre-SR dispatch structure |
-| **[MatheusGViana / dlss-5-amd-project](https://github.com/MatheusGViana/dlss-5-amd-project)** | Bridged Pre-SR to AMD runtime: DLSS Input → AMD NR → FFX; integrated [RenoDX](https://github.com/clshortfuse/renodx) OkLab and two-branch tone mapping for specular highlight preservation | Pioneered **Multi-slot scheduling**, eliminating **8.7 ms/frame** of idle GPU stalls; adapted 0.3.1; restored D3D12 state freeze/restore; enhanced XBOX PC compatibility. **Bridge overhead measured at just 0.01–0.03 ms** |
-| **[danielblnc / DLSS-NR-on-AMD](https://github.com/danielblnc/DLSS-NR-on-AMD)** | Core AMD Neural Rendering runtime (0.3.0–0.6.0) | Calls standard runtime without core modifications; adds D3D12 state protection for 0.3.1+ 1-pixel draw wait |
-| **[lmxxf / dlss5-on-amd-9070xt-porting](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)** | Reversed 71-block network ported to open-source AMD HIP kernels | **Integrated into OptiScaler universal proxy framework to support more DLSS / XeSS games**; implemented same-frame queue execution; developed standardized C-ABI standalone runtime (`LmxxfNrRuntime`); added real-time detail/color tuning sliders |
-| **[Mochizuki / DLSSNR-AMD](https://github.com/mochizuki0323/DLSSNR-AMD)** | Fully open-source Vulkan / RDNA4 neural rendering network core and SPIR-V shaders | Integrated into multi-backend architecture with overhauled lifecycle safety: eliminated stalls on unrelated game queues and memory leaks; integrated shader cancellation and driver 26.9.2+ fixes (provided by [@MatheusFerreiraS](https://github.com/MatheusFerreiraS)) |
-
-RX 6000 (RDNA2) cards using danielblnc 0.6.0 require the AMD HIP 7.2 runtime.
+| **[OptiScaler](https://github.com/optiscaler/OptiScaler)**<br>(Official Unmodified Host) | Official upstream release (packaged unmodified and verified by SHA-256) | Handles universal upscaling conversion (DLSS/XeSS/FSR → FSR 3.1 / FSR 4 / XeSS) and frame generation (DLSSG → FSR3 FG / XeFG), and loads `OptiScaler\plugins\*.asi` via its built-in ASI Loader |
+| **`dlssnr-amd.asi`**<br>(DLSS Neural Rendering Plugin) | **[mochizuki0323 / DLSSNR-AMD](https://gitlab.com/mochizuki0323/DLSSNR-AMD)**<br>**[TheAutomatic / DLSSNR-AMD](https://github.com/TheAutomatic/DLSSNR-AMD)** | Runs DLSS Neural Rendering on AMD **RX 9000 (RDNA4)** and **RX 7000 / 700M / 800M (RDNA3)** GPUs; supports **D3D12 Direct-ELF native recording** and **Vulkan ACO machine-code acceleration**, with built-in RenoDX and wilsjo2 styles |
+| **`openrr-amd.asi`**<br>(DLSS Ray Reconstruction Plugin) | **[Storm / OpenRR](https://github.com/OpenNeuralRendering/OpenRR)**<br>**[TheAutomatic / OpenRR-ASI](https://github.com/TheAutomatic/OpenRR-ASI)** | Runs NVIDIA's **DLSS Ray Reconstruction (DLSS-RR)** network natively on AMD **RX 9000 (RDNA4)** GPUs; supports **D3D12 Direct-ELF native recording** and **Vulkan**, coexisting seamlessly with `dlssnr-amd.asi` |
 
 ---
 
-## 2. Installation Guide
+## 2. ⚡ Quick Installation Guide (Windows & Linux)
 
-### <span id="quick-start"></span>⚡ Quick Start Installation (All Three Backends)
+### Windows GUI Launcher Installation (Recommended)
 
-1. **Download & Extract**: Download the latest release `.zip` from the [Releases page](https://github.com/TheAutomatic/dlss-5-amd-project/releases) and extract it to any folder.
-2. **Collect Required External Files** (copy them into the same extracted folder as `Setup.bat`, i.e., **1 folder + 1 DLL + 1 EXE**):
-   - `nvngx_dlssnr.dll` (NVIDIA native DLSS-NR dynamic library, supports version 310.9.16 or 310.8.0; 310.9.16 supports small and dual models, while 310.8.0 supports only the original model);
-   - [`native-game-tiled-assets` folder](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) (lmxxf weights directory containing model files);
-   - [`dlssnr_on_amd_setup.exe`](https://github.com/danielblnc/DLSS-NR-on-AMD/releases) (Setup/extraction executable for danielblnc).
-   > 💡 **Tip**: If you plan to use the **Mochizuki** backend, please make sure **Python 3.10+** is installed from the Microsoft Store beforehand. Model extraction supports three options: `both`, `small`, and `original`. The new small model currently does not support INT4, pending upstream adaptation.
-3. **Run Setup & Select Game Directory**:
-   - Double-click `Setup.bat` and select the directory where the **actual game executable** is located (e.g. Unreal Engine games typically use `...\<GameName>\Binaries\Win64\`, not the platform launcher or shortcut folder);
-   - Follow prompts to select your proxy DLL (typically `dxgi.dll`; try `winmm.dll` or other injection methods if unavailable) and desired backend. If an existing installation is detected, **Y (Recommended)** is suggested to uninstall first before installing (avoiding conflicts), or **N** to overwrite directly;
-   - At the end of installation, Setup prompts whether to install **OptiPatcher (DLSS Spoofing Enhancement)**: for games where DLSS cannot be enabled directly in settings, install it to enable ASI plugin loading automatically.
-4. **Note: Skip step 2 when upgrading**:
-   - If you have previously installed this project and backend weights in a game, **you can skip step 2 when upgrading**; the installer will automatically detect existing weights and files from the game folder and copy them back into the setup directory for reuse.
-
----
-
-### Full Installation Details & Advanced Options
-
-<details>
-<summary><strong>📖 Click to expand: Full Installation Details & Advanced Options (Contents, Backend Setup, Overwrite/Rollback & Manual Deployment)</strong></summary>
-
-<details>
-<summary><strong>📦 Click to expand: Package Contents</strong></summary>
-
-| File / Directory | Purpose |
-|---|---|
-| `OptiScaler.dll` | Main binary (renamed during installation to your chosen proxy name) |
-| `OptiScaler.ini` | Core configuration file (contains `[DlssNr]` three-backend options) |
-| `OptiScaler\` | Core dependencies (FFX, XeSS, Agility SDK, plugins including OptiPatcher) |
-| `LmxxfNrRuntime.dll` | lmxxf backend runtime (open-source HIP neural rendering) |
-| `MochizukiNrRuntime.dll` / `dlssnr-amd/shaders/` / `Mochizuki-Model.bat` | Mochizuki runtime, shaders and extraction tool; model supplied separately |
-| `lmxxf-modules\` | lmxxf dual-architecture compute modules (40 `.hsaco` each for `gfx1200` / `gfx1201`, with `SHA256SUMS` manifests) |
-| `shaders\` | lmxxf codec shaders (`native_codec_encode.hlsl` and others) |
-| `experimental_lighting\` | Precompiled shaders for the experimental lighting pass (`GatherCS.cso` / `ResolveCS.cso`) |
-| `Setup.bat` / `Setup.ps1` | Interactive installer (**Double-click `Setup.bat`**) |
-| `Uninstall_OptiScaler_NR.bat` / `.ps1` | Safe uninstaller (automatically placed in game directory) |
-| `lmxxf-module-package.ps1` | Module validation helper shared by the installer and uninstaller (keep it beside `Setup.ps1`) |
-| `Licenses\` | Third-party open-source licenses |
-| `README.md` / `README.en.md` / `README.es.md` | Documentation (Chinese / English / Spanish) |
-| `VERSION` | Package version |
-| `SHA256SUMS.txt` | SHA256 of every file in the package (check with `sha256sum -c SHA256SUMS.txt`) |
-
-> **Note**: To comply with upstream licenses and distribution policies, this package **does not bundle** NVIDIA proprietary binaries, danielblnc installer tools, or unauthorized model weights.
-
-</details>
-
-#### Step 1: Prepare Backend Files (Detailed)
-
-Prepare either backend (or both for side-by-side coexistence):
-
-##### Option A: [Prepare `lmxxf` Backend Files](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting)
-- `LmxxfNrRuntime.dll` from this complete project package (do not substitute the upstream ABI1 runtime);
-- Module folder `lmxxf-modules\` (official dual-architecture layout containing `gfx1200` [9060 series, experimental] and `gfx1201` [9070 series, production] subfolders, with 40 `.hsaco` compute modules each, leaf manifests, and root `SHA256SUMS` for a total of 80 modules; automatically matched by the runtime based on D3D12/HIP GPU architecture; the installer validates the complete bundle and supports overwriting older flat installs);
-- Shader folder `shaders\` (with `native_codec_encode.hlsl`);
-- Weights folder `native-game-tiled-assets\` (extract from model files you lawfully possess and are permitted to use; see upstream instructions);
-- Place these in the same extracted folder as `Setup.bat`.
-
-To upgrade, run the new package's `Setup.bat` and select the game folder. When OptiScaler is detected, Setup recommends uninstalling first to avoid conflicts between the new files, module layout, and old settings. Choose **Y (Recommended)** to run the new uninstaller automatically and continue installing, or **N** to overwrite the existing installation. Uninstall resets OptiScaler settings but keeps weights and existing backups. Normal overwrite does not create backup copies of old DLLs, INI files, or complete module folders. The old module tree is kept temporarily for rollback and removed after a successful switch. User-added `.hsaco` files and other content that cannot enter the new module layout are saved separately under `backup-amd-presr-*/lmxxf-modules`; compatible user files remain in place.
-
-
-##### Option B: [Prepare `danielblnc` Backend Files](https://github.com/danielblnc/DLSS-NR-on-AMD/releases)
-- `dlssnr_on_amd_setup.exe` and `nvngx_dlssnr.dll` (from [danielblnc Releases](https://github.com/danielblnc/DLSS-NR-on-AMD/releases); installer generates weights automatically);
-- Or pre-generated `version.dll` and `dlssnr_on_amd_weights.bin`;
-- Place in the same extracted folder as `Setup.bat`.
+1. **Download & Extract**: Download the latest `.zip` archive from the [Releases page](https://github.com/TheAutomatic/dlss-5-amd-project/releases) and extract all files.
+2. **Open Launcher**: Double-click **`OptScalerNR.Launcher.exe`** in the extracted folder to open **`OptScaler NR` Launcher**.
+3. **Select Game & Injection Proxy**:
+   - Pick a game from the left-hand library list (or click **`+`** at the top right to manually select the game's actual rendering `.exe`; for Unreal Engine games, pick `<Game>\Binaries\Win64\*-Shipping.exe`);
+   - The launcher automatically analyzes the game's PE imports and pre-selects the recommended proxy DLL (typically `dxgi.dll` or `winmm.dll`).
+4. **Select Which `.asi` Plugins to Install**:
+   - **[☑] `dlssnr-amd.asi` (DLSS Neural Rendering · Mochizuki)**:
+     - On first use, if prompted for a model source, click **"Import model source file…"** and select your `nvngx_dlssnr.dll` (`310.9.16` [both small & original models] or `310.8.0` [original model]). The launcher copies it into the launcher folder and extracts/generates the model weights during installation; later installs for other games reuse them automatically.
+   - **[☑] `openrr-amd.asi` (OpenRR Ray Reconstruction · RX 9000)**:
+     - When checked, click **"Import nvngx_dlssd.dll…"** on the card once and select `nvngx_dlssd.dll` version **`310.9.1.0`**, which is kept in the launcher folder for all games.
+   - **[☐] Install OptiPatcher (Optional)**: Pre-selected based on Wiki recommendations to unlock native DLSS options in 270+ games.
+5. **One-Click Install**: Click the red **"Install / Update"** button at the top right!
 
 ---
 
-##### Option C: Prepare Mochizuki (Windows / RDNA4)
+### Linux / SteamOS (Proton) Script Installation
 
-The complete package includes `MochizukiNrRuntime.dll` and `dlssnr-amd/shaders/`. Supply your own `nvngx_dlssnr.dll` **310.9.16** or **310.8.0** beside `Setup.bat`, install Python **3.10+**, and select Mochizuki in Setup to extract and validate the model. An existing model at `dlssnr-amd/dlssnr.bin` (original model) or `dlssnr-amd/dlssnr-small.bin` (new small model) can be reused without extraction. 310.9.16 supports three installation options: `both` (dual models), `small` (new model only), and `original` (original model only); 310.8.0 supports only the original model. The new small model currently does not support INT4 (saved INT4 preferences are preserved but only take effect on the original model). Project-owned installer prompts and options are in English. See [Mochizuki installation](docs/mochizuki.md) for source hashes and standalone extraction instructions.
+The package includes [`install.sh`](install.sh) for Linux / Steam Deck (Proton):
 
-When no valid model is available or model preparation fails, Setup aborts with a clear error, exits non-zero, and leaves the game directory untouched. If models are corrupted, the installer safely backs them up to `.bak-<timestamp>` and replaces them with verified models.
+```bash
+# Interactive install (scans game EXE imports to recommend proxy, then asks whether to install dlssnr-amd.asi, openrr-amd.asi, and OptiPatcher.asi)
+bash install.sh "/path/to/game/folder"
 
-The first network build can take minutes. The bottom-right panel shows build progress while frames pass through unchanged. Resolution, model scale or pass capacity changes can trigger another build. Mochizuki has independent preprocessing, three styles, 1–3 passes (default 1), and temporal controls. Its `Mochizuki*` INI keys do not change other backends. For troubleshooting, check Ins dependency/build status first, then `OptiScaler.log`.
+# Or non-interactive one-liner
+bash install.sh "/path/to/game/folder" install --proxy dxgi.dll --nr on --openrr on --dll /path/to/nvngx_dlssnr.dll --dlssd /path/to/nvngx_dlssd.dll
 
-#### Step 2: Run the Installer (Detailed)
-
-1. Extract this release to any temporary folder;
-2. Place your backend files alongside `Setup.bat`;
-3. **Ensure the game is not running**;
-4. **Double-click `Setup.bat`**:
-   - Select your game's executable directory (e.g. `...\Binaries\Win64\`);
-   - If OptiScaler is already installed, choose **Y** to uninstall automatically before installing (recommended), or **N** to overwrite;
-   - Select your proxy DLL name (default `dxgi.dll`, recommended; `winmm.dll`, `d3d12.dll` also supported; **do not use `dinput8.dll`**; please install corresponding crash-fix patches beforehand for Capcom RE Engine titles);
-   - Review the detected backends and weights, install one or all available backends, then choose the active backend;
-   - The installer sets up proxies, clears conflicting duplicate files, and configures `OptiScaler.ini`.
-
----
-
-#### Step 3: Manual Installation
-
-If you prefer manual file placement:
-1. Rename `OptiScaler.dll` to your proxy name (e.g. `dxgi.dll`) and copy it to the game directory;
-2. Copy `OptiScaler.ini` and the `OptiScaler\` folder into the game directory;
-3. **Deploy Backend Files**:
-   - **For `lmxxf`**: Copy `LmxxfNrRuntime.dll`, `lmxxf-modules\`, `shaders\`, and `native-game-tiled-assets\` into the game directory;
-   - **For `danielblnc`**: Duplicate `version.dll` into `dlssnr_amd_pass1.dll`, `dlssnr_amd_pass2.dll`, `dlssnr_amd_pass3.dll`; copy `dlssnr_on_amd_weights.bin` into the game directory (**do not leave a file named `version.dll`** to prevent double injection);
-   - **For `mochizuki`**: Copy `MochizukiNrRuntime.dll`, `dlssnr-amd/shaders/` and your `dlssnr-amd/dlssnr.bin`;
-4. In `OptiScaler.ini`, set `Enabled = true` under `[DlssNr]` and set `NrBackend = lmxxf`, `NrBackend = daniel` or `NrBackend = mochizuki`.
-
-</details>
-
----
-
-### Optional: 3x+ Frame Generation (XeFG/DLSSG)
-
-<details>
-<summary><strong>👉 Click to expand: 3x+ Frame Generation (Intel XeFG / Arturs DLSS Enabler)</strong></summary>
-
-These options are independent of DLSSNR. Required files are not bundled; obtain them separately.
-**Note**: Game restarts are required when changing INI settings. Keep `[FrameGen] External=false`. **Do not enable both simultaneously**.
-
----
-
-#### Option 1: Intel XeFG (Multi-Frame Generation & Dynamic MFG)
-`XeFGUnlock.asi` / `MFGUnlocker.asi` originate from the community (only the `.asi` plugin file is needed; not bundled with this package).
-Thanks to [@Overclockers](https://github.com/Overclockers) for contributing the NR-active independent XeFG frame generation multiplier override feature in PR #3 (allowing a dedicated XeFG interpolation multiplier when NR is active).
-1. Place your `.asi` unlocker plugin into the pre-created `OptiScaler\plugins\` folder in the game directory (or into the package's `plugins\` folder before running `Setup.bat`, which copies it while preserving existing plugin configuration and explicit loader settings; only a missing or auto loader setting is enabled), without the `-loadlate` parameter;
-2. Configure `OptiScaler.ini` in the game root:
-   ```ini
-   [Plugins]
-   LoadAsiPlugins=true
-
-   [FrameGen]
-   External=false
-   Enabled=true
-   FGInput=dlssg
-   FGOutput=xefg
-
-   [XeFG]
-   InterpolationCount=1
-   DynamicMFG=false
-   FramerateTargetDMFG=120
-   RoundingDMFG=0
-   DynamicAllow1X=false
-   ```
-   - `InterpolationCount`: `1` for 2x, `2` for 3x, `3` for 4x, etc. (acts as the maximum multiplier ceiling when `DynamicMFG` is enabled);
-   - `DynamicMFG`: enables Dynamic Multi-Frame Generation (also available in the Ins menu under XeFG), automatically scaling between `1x` and the configured ceiling to hit `FramerateTargetDMFG`;
-   - Actual multiplier is subject to hardware capability and plugin unlock limits;
-3. Save settings and restart the game. Note that some games may require enabling **Ignore FG pre-checks** under Frame Generation in the Ins menu to activate properly;
-4. Test with 2x first before increasing multipliers. Press **Page Up** for FPS overlay and **Page Down** for detailed stats.
-
----
-
-#### Option 2: Arturs (DLSS Enabler)
-1. Obtain `dlss-enabler-headless.dll` from the official author:
-   [artur-graniszewski/DLSS-Enabler Releases](https://github.com/artur-graniszewski/DLSS-Enabler/releases) or [Nexus Mods 757](https://www.nexusmods.com/site/mods/757)
-2. Place `dlss-enabler-headless.dll` into the **`OptiScaler\`** subfolder in the game directory;
-3. If the game has **native DLSSG**, configure in `OptiScaler.ini`:
-   ```ini
-   [FrameGen]
-   External=false
-   Enabled=true
-   FGInput=nvngxfg
-   FGOutput=auto
-   FGNvngxReplacement=Arturs
-   ```
-   If the game only has upscaling without DLSSG, use `FGInput=upscaler` + `FGOutput=dlssg`;
-4. Check `OptiScaler.log` for `Artur's initialized`.
-
-</details>
-
----
-
-## 3. Three Backends & Historical Benchmarks
-
-The three backends are lmxxf (HIP), Mochizuki (Vulkan), and Daniel. The benchmarks below are historical and do not measure 1.10.0 or Mochizuki:
-
+# Uninstall / Pack diagnostic logs
+bash install.sh "/path/to/game/folder" remove
+bash install.sh "/path/to/game/folder" logs
 ```
-                          ┌──► [lmxxf Backend]   ──► Open-source HIP / Same-frame queue / Deep tuning
-Game DLSS/XeSS Inputs ──► OptiScaler ──┤
-                          ├──► [Mochizuki] ──► Vulkan / D3D12 interop
-                          └──► [daniel Backend] ──► Multi-slot scheduling / 0.3.1 compat / Universal
-                                      │
-                                      ▼
-                            FFX / FSR Upscaling ──► Final Game Output
+After installation, add the printed Steam **Launch Options** to the game in Steam:
+```text
+WINEDLLOVERRIDES="dxgi=n,b" %command%
 ```
 
-### 1. `danielblnc` Backend: Multi-Slot Scheduling (NR on Every Frame)
+---
 
-Denoising (DLSS5) is inserted directly into the frame rendering pipeline: a frame must finish denoising before passing to upscaling. In single-slot setups, each frame must wait for the preceding frame's denoising to complete, causing severe GPU idle stalls (**MsGPUWait ~8.7 ms/frame** in PresentMon). Under heavy load, frames are forced to skip denoising entirely, causing visible shimmering or blur.
+## 3. Dual `.asi` Plugin Capabilities
 
-This project introduced **Multi-Slot Scheduling**: allocating independent parallel buffers (slots) so each frame can proceed without waiting for the previous frame's GPU completion.
+### 1. `dlssnr-amd.asi` (Mochizuki · DLSS Neural Rendering)
+- **Supported GPUs**:
+  - **AMD Radeon RX 9000 Series (RDNA4)**: Supports all 4 networks (`CC_SMALL_FP8`, `CC_SMALL_FP8_EXPERIMENTAL`, `CC_SILVER_AARDWOLD`, `CC_SILVER_AARDWOLD_OPTIMIZED` with INT4 layers).
+  - **AMD Radeon RX 7000 Series & Radeon 700M / 800M / 8000S (RDNA3)**: Supports `CC_SMALL_FP8` and `CC_SILVER_AARDWOLD` via pre-compiled RDNA3 ACO machine code.
+- **Dual Backends**: Supports **D3D12 Direct-ELF** (executes directly on the game's native D3D12 command list via the AMD driver with zero cross-API copy) and **Vulkan bridge / native Vulkan**.
+- **Dual Processing Styles**: Supports **RenoDX style** (default) and **wilsjo2 style**, with one-click **style share code** import/export in the launcher.
 
-#### Benchmark (Onimusha-type workload, 4K FSR Ultra Performance = 720p render; locked 60 fps comparison)
-
-| Configuration | Median Frame Time | Approx FPS | MsGPUWait (GPU Stall) | Per-Frame NR Status |
-|---|---:|---:|---:|---|
-| **Single-slot · per-frame NR (old baseline)** | 29.82 ms | **33.5** | **8.69 ms** | Blocked by previous frame |
-| **Our Multi-slot default** | 22.45 ms | **44.5** (**+33%**) | **≈ 0 ms** | **NR on virtually every frame** |
-| Upstream 0.3 native (baseline) | 22.35 ms | 44.8 | 0 ms | Native pipeline does not drop frames |
-
-- **Key Takeaway**: Delivers a **+33%** throughput increase (33.5 → 44.5 FPS) by optimizing pipeline scheduling rather than compromising denoising quality; the neural network computation itself remains unchanged (~12–13 ms @ 720p).
-
-#### Slot Count Recommendations (NR slots: 2–5, default 3)
-
-| Test Scene (4K FSR Ultra Performance, 720p render) | 2 Slots | 3 Slots |
-|---|---:|---:|
-| **Onimusha** | 19.50 ms, **0 skipped** | 19.49 ms, **0 skipped** |
-| **Where Winds Meet** | 19.05–19.25 ms, **Frequent skips** | 21.78–21.89 ms, **0 skipped** |
-
-- **Recommendations**:
-  - **3 slots** is the ideal sweet spot for most titles;
-  - Heavy scenes like *Where Winds Meet* on max settings benefit from **≥ 3 slots**;
-  - VRAM cost is minimal: each slot is one FP16 render-resolution texture (~29 MB at 1440p render; ~66 MB at native 4K).
-
-### 2. `lmxxf` Backend: Open-Source HIP Compute & Same-Frame Queue Execution
-
-- **Dual-Architecture Support & Auto-Selection**:
-  - **AMD Radeon RX 9070 / 9070 XT (`gfx1201`)**: Standard verified production architecture with 40 tuned compute modules;
-  - **AMD Radeon RX 9060 (`gfx1200`)**: Experimental support, verified through COMGR 3.0 compilation; real-device smoke test and PDL speedup pending hardware verification;
-  - **Adaptive Architecture & Strict Verification**: Automatically selects matching arch subfolder based on D3D12 queue binding and HIP device LUID, with SHA-256 integrity verification and PDL twin symbol preflight;
-- **Open Source & Hardware Optimized**: All 71 ViT neural network modules are implemented in HIP, tuned for modern RDNA architectures with LDS workgroup fences and C32 CU mode;
-- **Same-Frame Queue Execution**: OptiScaler schedules input recording, HIP inference, and barrier synchronization on the main queue before command list close, eliminating external cross-process synchronization delays;
-- **Dynamic Parameter Controls**: Real-time continuous sliders for detail/brightness enhancement and color calibration directly in the Ins menu.
+### 2. `openrr-amd.asi` (OpenRR · DLSS Ray Reconstruction)
+- **Supported GPUs**: **AMD Radeon RX 9000 Series (RDNA4)** (requires `nvngx_dlssd.dll` `310.9.1.0`).
+- **Core Capability**: Intercepts `NVSDK_NGX_Feature_RayReconstruction` (DLSS Ray Reconstruction) calls in path-traced / ray-traced titles (such as *Cyberpunk 2077*, *Alan Wake 2*, *Indiana Jones*, etc.) to run the neural ray reconstruction denoiser natively on AMD.
+- **Dual Backends & Coexistence**: Supports **D3D12 Direct-ELF** and **Vulkan**, and automatically coordinates command lists and hotkeys when loaded alongside `dlssnr-amd.asi`.
 
 ---
 
-## 4. In-Game Settings & Controls
+## 4. In-Game Hotkeys & Menu Controls
 
-1. Launch the game and enter 3D rendering.
-2. Press **Insert (Ins)** to open the OptiScaler overlay menu.
-3. Locate the **DLSS Neural Rendering** section and check **Enable NR**.
-   - The status line indicates the active runtime:
-     - `AMD NR runtime: lmxxf` for lmxxf backend;
-     - `AMD NR runtime: 0.3.x` for danielblnc backend;
-     - `AMD NR runtime: mochizuki` for mochizuki backend.
-4. Active pipeline: **DLSS Inputs → Neural Denoising → FFX/FSR Upscaling**.
+Once in game with **DLSS** (or FSR / XeSS) and **Ray Reconstruction** (if supported by the game) enabled:
 
-### Backend Controls
-- **`lmxxf` Specific**:
-  - `Detail strength`: Continuous slider for detail and brightness enhancement (default 1.0);
-  - `Colour strength`: Continuous slider for color saturation and balance (default 1.0);
-  - `Debug view`: Live visualization of inputs, network output, and difference buffers.
-- **`danielblnc` Specific**:
-  - `NR slots`, `Every-frame`, `New wait mode`, `Inline same-frame wait`;
-  - `Quality`: Reference (default, NVIDIA-exact) / Fast;
-  - **Display**: `Tone curve` / `Tone lift`;
-  - **Queue (experimental)**: `HIP high-priority queue`;
-  - **Compatibility & Scheduling / Diagnostics**: extra `dlssnr_on_amd.ini` keys.
-
-**Priority:** Ins session > `OptiScaler.ini` `[DlssNr]` (after Save) > `dlssnr_on_amd.ini` / env > defaults.  
-Ins labels are not written to ini; **Save Settings** persists menu values to both inis.  
-Unlisted daniel keys (`OverlayKey`, `PollSpacing`, ...) stay in `dlssnr_on_amd.ini`; `OverlayKey` binds only daniel's own overlay.  
-Advanced process env (no Ins toggle): `DLSSNR_NO_REG`, `DLSSNR_CHAIN`, `DLSSNR_NOBLEND`, `DLSSNR_NO_REPACK`, `DLSSNR_WBLOG`.
-
-**Hot switching** (menu **Allow backend hot switching**, or `OptiScaler.ini` `[DlssNr]`):
-
-| Key | Default | Description |
+| Hotkey | Menu / Action | Description |
 |---|---|---|
-| `NrConvenience` | `1` | `1`: Pre-arms submission hooks when lmxxf or mochizuki is installed, enabling live in-game hot switching across all three backends (daniel ↔ lmxxf ↔ mochizuki); `0`: loads only the active backend; changing backends requires restarting the game. Takes effect on next restart. |
+| **`Insert (Ins)`** | **OptiScaler Menu** + **OpenRR Sidebar** | Configures upscaling (FSR / XeSS) and frame generation; when `openrr-amd.asi` is installed, the **OpenRR settings panel docks and opens/closes together with `Insert`** |
+| **`End`** | **NR Control (Mochizuki Neural Rendering Menu)** | Configures all `dlssnr-amd.asi` settings: live-switch between the 4 networks, switch RenoDX / wilsjo2 styles, adjust Passes (1–3), HUD fix, and diagnostics |
+| **`Ctrl + F11`** | Cycle NR Network | Cycles through installed Neural Rendering networks in game |
+| **`F5`** | NR Comparison Screenshot | Saves side-by-side screenshots with and without NR into `NR Screenshots\` in the game folder |
 
 ---
 
-## 5. Troubleshooting, Logs & Uninstallation
+## 5. Compatibility Repair, Log Packing & Uninstallation
 
-**Unavailable XeSS, limited frame multipliers or startup problems**: close the game, open `Setup.bat` from the complete package, select the game and choose **Compatibility repair**. It compares game/package XeSS versions and file contents. Select components and choose **Back up and try repair**; XeFG and XeLL are replaced together. No manual DLL moving is needed, and a version difference alone does not prove a fault. If it does not help, choose **Restore game files** in the same place. Restoration stops if game updates changed the files, preserving them and the backups. This repair is independent of uninstallation: restore before uninstalling, or use the installer to restore afterwards. The Ins menu's Status / Compatibility pages show actual loaded paths and versions.
-
-### 1. Uninstallation
-1. Open the **game directory**;
-2. Run **`Uninstall_OptiScaler_NR.bat`**;
-3. Review the proposed deletion list, choose whether to keep backup folders, and confirm with `Y`;
-4. **Preserved Weights**: The script is designed to preserve user weight files (`native-game-tiled-assets/` and `dlssnr_on_amd_weights.bin`) and `nvngx_dlssnr.dll` by default, avoiding repeated multi-gigabyte downloads.
-
-### 2. Log Locations & Diagnostics
-
-> [!IMPORTANT]
-> **Primary Crash / Startup Error Troubleshooting**: If the game crashes on startup or throws errors, **please first try disabling XeFG Frame Generation** (turn it off in the Ins menu, or remove `XeFGUnlock.asi` from `OptiScaler\plugins\` and restart the game). The vast majority of reported crashes are related to third-party XeFG plugin compatibility. **This project focuses on the Neural Rendering (NR) pipeline and does not accept compatibility reports regarding XeFG frame generation.**
-
-Inspect the following logs in the game directory (or `_storage_` for Microsoft Store / XBOX PC games):
-- `OptiScaler.log`: Main initialization, hooking, and backend creation log;
-- `amd_bridge.log`: AMD bridge layer log;
-- `amd_presr.log`: Pre-SR dispatch log;
-- `dlssnr_on_amd.log`: danielblnc runtime log.
-
-> **Where are lmxxf & Mochizuki logs?**  
-> Unlike `danielblnc` which writes to a separate `dlssnr_on_amd.log`, both `lmxxf` and `mochizuki` pipe all initialization, telemetry, shader builds, and error messages directly into **`OptiScaler.log`** (and `amd_bridge.log`). There is no need to search for separate log files.
-
-#### `lmxxf` Backend Diagnostics
-- **Status displays `waiting` or NR does not activate**:
-  - Open `OptiScaler.log` and search for `Lmxxf`;
-  - Verify that `LmxxfNrRuntime.dll` exists in the game directory;
-  - Verify that `lmxxf-modules\` exists and contains `SHA256SUMS` along with all compute modules;
-  - Verify that `shaders\` exists and contains `native_codec_encode.hlsl`.
-- **Missing weights error**:
-  - Ensure the `native-game-tiled-assets\` directory is present in the game directory.
-- **Resolution exceeding limits**:
-  - Current lmxxf model slices support render resolutions **≤ 1080p**. If playing at 4K, select FSR Performance (1080p render) or Ultra Performance (720p render); 4K Quality (1440p render) exceeds the model slice limits.
-
-#### `danielblnc` Backend Diagnostics
-- **Status does not show `AMD NR runtime: 0.3.x`**:
-  - Ensure `dlssnr_amd_pass1.dll` (and pass2/pass3) and `dlssnr_on_amd_weights.bin` exist;
-  - Ensure there is no conflicting `version.dll` left in the game directory;
-  - Check `dlssnr_on_amd.log` for runtime initialization errors.
-
-#### `mochizuki` Backend Diagnostics
-- **Status indicates missing dependencies or NR does not activate**:
-  - Open `OptiScaler.log` and search for `mochizuki`, or check the Ins menu status for missing dependencies;
-  - Verify that `MochizukiNrRuntime.dll` exists in the game directory;
-  - Verify that `dlssnr-amd/shaders/` and `dlssnr-amd/dlssnr.bin` are present and valid;
-  - The first network build may take several minutes; progress is shown in the bottom-right overlay, with the original frame displayed until compilation finishes.
-- **Environment Checks**:
-  - Ensure an AMD driver with Vulkan support is installed; ensure Python 3.10+ from Microsoft Store was present during initial model extraction.
-
-#### Microsoft Store / XBOX PC Notes
-Due to Windows filesystem virtualization, certain Store/Game Pass titles create a **`_storage_`** folder next to the executable. Check this folder if logs or outputs do not appear in the primary game directory.
-
-### 3. Issue Reporting Format
-When reporting issues, please include:
-1. Proxy DLL name used (e.g. `dxgi.dll`);
-2. Selected backend (`lmxxf`, `daniel`, or `mochizuki`);
-3. GPU model, OS version, and AMD driver version;
-4. Game title, output resolution, and FSR mode;
-5. Relevant `.log` files listed above.
+1. **Companion Runtime Compatibility Repair (XeSS / FidelityFX)**:
+   - If a game's bundled `libxess.dll` / `libxell.dll` / `amd_fidelityfx_*.dll` causes upscaling or frame generation issues, select the game in the launcher and click **"Compatibility repair"** to back up the original files and replace them; click **"Restore game files"** at any time to revert.
+2. **One-Click Log Packing (Bug Reports)**:
+   - Click **"Pack Logs"** at the bottom right of the launcher to bundle `OptiScaler.log`, `dlssnr-amd.log`, `openrr-amd.log`, INI files, hardware/driver summary, and recent GPU driver crash events into a `.zip` on your Desktop.
+3. **Clean Uninstallation**:
+   - Select the game in the launcher and click **"Uninstall"** (or double-click `Uninstall_OptiScaler_NR.bat` in the game folder) to cleanly remove all injected proxies, `.asi` plugins, shaders, logs, and legacy artifacts while keeping extracted models in the launcher folder for future installs.
 
 ---
 
-## Free Software Notice
+## 6. Free Software Notice, Attributions & Licenses
 
-This project is distributed free of charge. The splash line "This software is free forever. If you paid for it, ask for a refund now." and the menu title-bar notice ("Free. Don't buy.") are notices the author asks to keep. If you paid for this software, ask for a refund. When redistributing or modifying the project, please keep these notices and do not remove or alter them to sell it.
+### Free Software Notice
+This software is distributed free of charge. If you paid for this package, request a refund immediately.
 
-## 6. Attributions & Licenses
+### Attributions & Licenses
+- **[OptiScaler](https://github.com/optiscaler/OptiScaler)** — **GPL-3.0 License**: Official universal upscaling and frame generation proxy framework (distributed unmodified);
+- **[Mochizuki / DLSSNR-AMD](https://gitlab.com/mochizuki0323/DLSSNR-AMD)** & **[TheAutomatic / DLSSNR-AMD](https://github.com/TheAutomatic/DLSSNR-AMD)** (`dlssnr-amd.asi`) — **MIT License** (© mochizuki0323): AMD RDNA4 / RDNA3 Neural Rendering core, D3D12 Direct-ELF native path, ACO machine-code records, and NR Control plugin;
+- **[Storm / OpenRR](https://github.com/OpenNeuralRendering/OpenRR)** & **[TheAutomatic / OpenRR-ASI](https://github.com/TheAutomatic/OpenRR-ASI)** (`openrr-amd.asi`) — **MIT License**: Open-source AMD RDNA4 DLSS Ray Reconstruction runtime and standalone ASI plugin;
+- **[RenoDX / clshortfuse](https://github.com/clshortfuse/renodx)** — **MIT License**: RenoDX tone mapping and color processing algorithms;
+- **[OptiPatcher](https://github.com/optiscaler/OptiPatcher)** — **GPL-3.0 License**: Native DLSS option unlocker ASI plugin;
+- **[This Project (TheAutomatic / dlss-5-amd-project)](https://github.com/TheAutomatic/dlss-5-amd-project)** — **GPL-3.0 License**: Graphical launcher, PE import probe, dual `.asi` deployment, shared INI profiles, and style share codes.
 
-Codebase heritage (top to bottom):  
-[OptiScaler](https://github.com/optiscaler/OptiScaler) → [Dagherbou](https://github.com/Dagherbou/OptiScaler_DLSSNR) → [wilsjo2](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) → [MatheusGViana](https://github.com/MatheusGViana/dlss-5-amd-project) → [**This Repository (TheAutomatic / dlss-5-amd-project)**](https://github.com/TheAutomatic/dlss-5-amd-project).
-
-- [**OptiScaler**](https://github.com/optiscaler/OptiScaler) — **GPL-3.0 License**: Universal upscaling proxy framework;
-- [**Dagherbou / OptiScaler_DLSSNR**](https://github.com/Dagherbou/OptiScaler_DLSSNR) — **GPL-3.0 License**: Initial DLSS-NR integration;
-- [**wilsjo2 / OptiScaler-DLSSNR-PreSR-Multipass**](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) — **GPL-3.0 License**: Pre-SR and Multi-Pass architecture;
-- [**MatheusGViana / dlss-5-amd-project**](https://github.com/MatheusGViana/dlss-5-amd-project) — **GPL-3.0 License**: AMD Pre-SR bridge;
-- [**danielblnc / DLSS-NR-on-AMD**](https://github.com/danielblnc/DLSS-NR-on-AMD) — **Custom Non-Commercial / All Rights Reserved**: Author retains all rights; redistribution prohibited; integrated via external detection;
-- [**lmxxf / dlss5-on-amd-9070xt-porting**](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) — **MIT License**: Open-source HIP neural rendering core and 71-block network recovery;
-- [**Mochizuki / DLSSNR-AMD**](https://github.com/mochizuki0323/DLSSNR-AMD) — **MIT License**: Fully open-source Vulkan / RDNA4 neural rendering network core and SPIR-V shaders;
-- [**RenoDX / clshortfuse**](https://github.com/clshortfuse/renodx) — **MIT License**: Color compositing algorithms in `dlssnr.hlsl`;
-- [**This Project (TheAutomatic / dlss-5-amd-project)**](https://github.com/TheAutomatic/dlss-5-amd-project) — **GPL-3.0 License**: Multi-slot scheduling, same-frame queue execution, C-ABI runtime creation and upstream PR, 0.3.1 state freeze/restore, dual-backend coexistence, and smart installer.
-
-This distribution contains no NVIDIA proprietary binaries, danielblnc installer tools, or unauthorized model weights. Please respect all upstream licenses.
+> This repository and release packages contain **no** proprietary NVIDIA binaries (`nvngx_dlssnr.dll` / `nvngx_dlssd.dll`) or extracted model weight files (`*.bin`). All model weights are extracted locally by the user from their own files.

@@ -324,6 +324,14 @@ namespace OptScalerNR.Launcher
                     using (var hash = SHA256.Create()) {
                         byte[] packageHash;
                         using (var source = File.OpenRead(Path.Combine(request.PackageRoot, "OptiScaler.dll"))) packageHash = hash.ComputeHash(source);
+                        byte[] pkgMochiHash = null, pkgOpenRrHash = null;
+                        string pkgMochiPath = Path.Combine(request.PackageRoot, @"OptiScaler\plugins\dlssnr-amd.asi");
+                        if (File.Exists(pkgMochiPath)) using (var s = File.OpenRead(pkgMochiPath)) pkgMochiHash = hash.ComputeHash(s);
+                        string pkgOpenRrPath = Path.Combine(request.PackageRoot, @"OptiScaler\plugins\openrr-amd.asi");
+                        if (!File.Exists(pkgOpenRrPath)) pkgOpenRrPath = Path.Combine(request.PackageRoot, @"OptiScaler\plugins\openrr.asi");
+                        if (File.Exists(pkgOpenRrPath) && new FileInfo(pkgOpenRrPath).Length > 0)
+                            using (var s = File.OpenRead(pkgOpenRrPath)) pkgOpenRrHash = hash.ComputeHash(s);
+
                         foreach (var exe in request.GamePaths) {
                             if (System.Threading.Thread.VolatileRead(ref _packageComparisonGeneration) != request.Generation) break;
                             try {
@@ -338,6 +346,26 @@ namespace OptScalerNR.Launcher
                                 using (var target = File.OpenRead(Path.Combine(directory, proxy))) installedHash = hash.ComputeHash(target);
                                 bool different = packageHash.Length != installedHash.Length;
                                 for (int i = 0; !different && i < packageHash.Length; ++i) different = packageHash[i] != installedHash[i];
+
+                                if (!different && pkgMochiHash != null) {
+                                    string gameMochi = Path.Combine(directory, @"OptiScaler\plugins\dlssnr-amd.asi");
+                                    if (File.Exists(gameMochi)) {
+                                        byte[] gmHash;
+                                        using (var gm = File.OpenRead(gameMochi)) gmHash = hash.ComputeHash(gm);
+                                        for (int i = 0; !different && i < pkgMochiHash.Length; ++i) different = pkgMochiHash[i] != gmHash[i];
+                                    }
+                                }
+                                if (!different && pkgOpenRrHash != null) {
+                                    string gameOpenRr = Path.Combine(directory, @"OptiScaler\plugins\openrr-amd.asi");
+                                    if (!File.Exists(gameOpenRr)) gameOpenRr = Path.Combine(directory, @"OptiScaler\plugins\openrr.asi");
+                                    if (File.Exists(gameOpenRr)) {
+                                        byte[] grHash;
+                                        using (var gr = File.OpenRead(gameOpenRr)) grHash = hash.ComputeHash(gr);
+                                        for (int i = 0; !different && i < pkgOpenRrHash.Length; ++i) different = pkgOpenRrHash[i] != grHash[i];
+                                    } else if ((Directory.Exists(Path.Combine(directory, @"openrr-amd\shaders")) || Directory.Exists(Path.Combine(directory, @"opennr-rr\shaders")))) {
+                                        different = true;
+                                    }
+                                }
                                 compared[exe] = different;
                             } catch { }
                         }

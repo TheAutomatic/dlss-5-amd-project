@@ -1,0 +1,5 @@
+# CC_SILVER_AARDWOLD_OPTIMIZED's int4 layers (Optimized layers: Balanced): every other setting is in the network
+# (pipelines-int4.json) and the tables beside this file.
+# NR_SWI4_ROT: the Swin int4 expansions' input rotation (fswin_t NR_SWI4_ROT=8 in pipelines-int4.json); the tables in
+# swin/ are made for it (their header says 8) and the int4 weights are built with it.
+NR_SWI4_ROT=8

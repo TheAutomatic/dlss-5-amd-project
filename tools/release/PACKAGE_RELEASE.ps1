@@ -1,62 +1,24 @@
 ﻿<#
 .SYNOPSIS
-  Stage and zip a complete user package (no NVIDIA / danielblnc proprietary files).
-  Default product: OptScaler-NR-<VERSION>
-    VERSION = this fork's product version
-    0.3.0–0.6.0 = supported danielblnc runtime
-    lmxxf  = supported lmxxf HIP neural rendering runtime
-
-.EXAMPLE
-  .\tools\release\PACKAGE_RELEASE.ps1
-  .\tools\release\PACKAGE_RELEASE.ps1 -Version 1.9.0 -DepsRoot 'C:\path\with\OptiScaler'
+  Stage and zip the standalone OptScaler ASI Launcher package:
+    - Official unmodified OptiScaler release (fetched/verified by tools/build/fetch-optiscaler.ps1)
+    - payloads/dlssnr-amd/  (OptiScaler/plugins/dlssnr-amd.asi + resources + model tools)
+    - payloads/openrr/      (OptiScaler/plugins/openrr-amd.asi + openrr-amd/shaders/*.spv)
+    - payloads/optipatcher/ (OptiScaler/plugins/OptiPatcher.asi)
+    - OptScalerNR.Launcher.exe + Setup.ps1
 #>
 [CmdletBinding()]
 param(
-    [string]$Version = '1.10.2',
+    [string]$Version = '',
     [string]$OutDir = 'dist',
     [string]$Name = '',
-    [string]$OptiDll = '',
-    [string]$DepsRoot = '',
+    [string]$OptiArchive = '',
+    [string]$OptiDir = '',
     [string]$SigningThumbprint = '',
-    # Local smoke package only: does not certify the release checks.
-    [switch]$LocalTest,
-    [switch]$AllowMissingDeps
+    [switch]$LocalTest
 )
 $ErrorActionPreference = 'Stop'
-function Assert-LmxxfUnlinkedPath([string]$Path) {
-    $full = [IO.Path]::GetFullPath($Path)
-    if ($full.Length -gt [IO.Path]::GetPathRoot($full).Length) { $full = $full.TrimEnd('\', '/') }
-    $cursor = $full
-    while ($cursor) {
-        $item = Get-Item -LiteralPath $cursor -Force -ErrorAction SilentlyContinue
-        if ($item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-            throw "Refusing linked module path (symlink/junction/reparse point): $cursor"
-        }
-        $cursor = [IO.Path]::GetDirectoryName($cursor.TrimEnd('\', '/'))
-    }
-    return $full
-}
 
-function Get-LmxxfUnlinkedFiles([string]$Directory) {
-    $full = Assert-LmxxfUnlinkedPath $Directory
-    if (-not (Test-Path -LiteralPath $full -PathType Container)) { throw "Missing module directory: $full" }
-    $pending = [Collections.Generic.Stack[string]]::new()
-    $pending.Push($full)
-    while ($pending.Count) {
-        foreach ($item in Get-ChildItem -LiteralPath $pending.Pop() -Force -ErrorAction Stop) {
-            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
-                throw "Refusing linked module path (symlink/junction/reparse point): $($item.FullName)"
-            }
-            if ($item.PSIsContainer) { $pending.Push($item.FullName) }
-            else { $item }
-        }
-    }
-}
-
-# 不要用 Get-FileHash：它属于 Microsoft.PowerShell.Utility，靠模块自动加载。
-# 当环境里的 PSModulePath 指向 PowerShell 7 的模块目录时（CI 里在 shell: pwsh
-# 步骤里调 powershell -File 正是这种情况），5.1 子进程加载不到它，会直接报
-# CommandNotFoundException，整个打包步骤失败。用 .NET 自己算，不依赖任何模块。
 function Get-Sha256([string]$path) {
     $sha = [System.Security.Cryptography.SHA256]::Create()
     try {
@@ -67,55 +29,26 @@ function Get-Sha256([string]$path) {
 }
 
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-if (-not $root) { $root = (Get-Location).Path }
-$source = Join-Path $root 'OptiScaler-DLSSNR-PreSR-Multipass-main'
-# Required notices are part of the complete package, even with -AllowMissingDeps.
-foreach ($license in @(
-    'LICENSE',
-    'NOTICE',
-    'OptiScaler-DLSSNR-PreSR-Multipass-main/LICENSE',
-    'third_party/openrr/LICENSE',
-    'third_party/fsr-rr-1.2.1/license.md',
-    'third_party/fsr-rr-1.2.1/3rdpartynotice.md',
-    'third_party/mochizuki-asi/LICENSE',
-    'OptiScaler-DLSSNR-PreSR-Multipass-main/external/xess/LICENSE.txt',
-    'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK/docs/license.md',
-    'OptiScaler-DLSSNR-PreSR-Multipass-main/external/FidelityFX-SDK-v2/docs/license.md',
-    'OptiScaler-DLSSNR-PreSR-Multipass-main/external/directx_agility_sdk/LICENSE.txt'
-)) {
-    if (!(Test-Path -LiteralPath (Join-Path $root $license) -PathType Leaf)) { throw "Required license missing: $license" }
-}
-
-# Prefer repo-root VERSION when -Version was not passed explicitly.
-if (-not $PSBoundParameters.ContainsKey('Version')) {
+if (-not $Version) {
     $vf = Join-Path $root 'VERSION'
     if (Test-Path -LiteralPath $vf -PathType Leaf) {
-        $v = (Get-Content -LiteralPath $vf -Encoding UTF8 -TotalCount 1).Trim()
-        if ($v) { $Version = $v }
+        $Version = (Get-Content -LiteralPath $vf -Encoding UTF8 -TotalCount 1).Trim()
     }
+    if (-not $Version) { $Version = '2.0.0-alpha' }
 }
 if (-not $Name) { $Name = "OptScaler-NR-$Version" }
+
 $stage = Join-Path $root (Join-Path $OutDir $Name)
-$zip = Join-Path $root (Join-Path $OutDir ($Name + '.zip'))
+$zip   = Join-Path $root (Join-Path $OutDir ($Name + '.zip'))
 
-if (-not $OptiDll) {
-    foreach ($c in @(
-        (Join-Path $root 'exports/release-local/OptiScaler.dll'),
-        (Join-Path $root 'exports/build/OptiScaler.dll'),
-        (Join-Path $source 'x64/Release/OptiScaler.dll'),
-        (Join-Path $root 'exports/release-r17/OptiScaler.dll')
-    )) {
-        if (Test-Path -LiteralPath $c) { $OptiDll = $c; break }
-    }
-}
-if (!(Test-Path -LiteralPath $OptiDll)) {
-    throw 'OptiScaler.dll not found. Build Release first (r18: ordinary Release, multi-slot default).'
-}
+# 1. Fetch / verify official OptiScaler release (Mochi-style)
+$fetchScript = Join-Path $root 'tools/build/fetch-optiscaler.ps1'
+$optiInfo = & $fetchScript -OptiArchive $OptiArchive -OptiDir $OptiDir
+$optiReleaseDir = $optiInfo.ReleaseDir
+$optiLicense    = $optiInfo.LicensePath
 
-# Neural Rendering ships the official dlssnr-amd.asi payload, not the retired
-# built-in MochizukiNrRuntime.dll. Names and layout only; no hash gate, so the
-# user may replace the plugin or its resources with a newer official build.
-$asiPayload = Join-Path $root 'third_party/mochizuki-asi/payload'
+# 2. Verify ASI payloads exist
+$asiPayload = Join-Path $root 'payloads/dlssnr-amd'
 foreach ($required in @(
     'OptiScaler/plugins/dlssnr-amd.asi',
     'nr_present_probe.exe',
@@ -125,565 +58,102 @@ foreach ($required in @(
     'model-tools/dlssnr-int4-weights.exe',
     'experimental/dlssnr-small-experimental.delta'
 )) {
-    if (!(Test-Path -LiteralPath (Join-Path $asiPayload $required) -PathType Leaf)) {
-        throw "Mochizuki ASI payload incomplete: $required"
+    if (-not (Test-Path -LiteralPath (Join-Path $asiPayload $required) -PathType Leaf)) {
+        throw "dlssnr-amd payload incomplete: $required"
     }
 }
-if (!(Test-Path -LiteralPath (Join-Path $asiPayload 'dlssnr-amd/shaders') -PathType Container)) {
-    throw 'Mochizuki ASI payload incomplete: dlssnr-amd/shaders'
+$openRrPayload = Join-Path $root 'payloads/openrr'
+$openRrAsiSrc = $null
+foreach ($cand in @('OptiScaler/plugins/openrr-amd.asi', 'openrr-amd.asi', 'OptiScaler/plugins/openrr.asi', 'plugins/openrr-amd.asi', 'plugins/openrr.asi')) {
+    $p = Join-Path $openRrPayload $cand
+    if (Test-Path -LiteralPath $p -PathType Leaf) { $openRrAsiSrc = $p; break }
 }
-$hostHash = Get-Sha256 $OptiDll
-$outputRoot = [IO.Path]::GetFullPath((Join-Path $root $OutDir)).TrimEnd('\', '/')
-$stage = Assert-LmxxfUnlinkedPath $stage
-if ([IO.Path]::GetDirectoryName($stage) -ine $outputRoot) { throw 'Package Name must be a single directory name inside OutDir.' }
+if (-not $openRrAsiSrc) {
+    throw 'openrr payload missing OptiScaler/plugins/openrr-amd.asi (or openrr.asi).'
+}
+if (-not (Test-Path -LiteralPath (Join-Path $openRrPayload 'openrr-amd/shaders') -PathType Container)) {
+    throw 'openrr payload missing openrr-amd/shaders.'
+}
+$optiPatcherAsiSrc = Join-Path $root 'payloads/optipatcher/OptiScaler/plugins/OptiPatcher.asi'
+if (-not (Test-Path -LiteralPath $optiPatcherAsiSrc -PathType Leaf)) {
+    throw 'optipatcher payload missing OptiScaler/plugins/OptiPatcher.asi.'
+}
+
+# 3. Prepare clean staging directory
 if (Test-Path -LiteralPath $stage) {
-    $null = @(Get-LmxxfUnlinkedFiles $stage)
     Remove-Item -LiteralPath $stage -Recurse -Force
 }
 New-Item -ItemType Directory -Force -Path $stage, (Join-Path $stage 'OptiScaler'), (Join-Path $stage 'Licenses') | Out-Null
-Copy-Item -LiteralPath $OptiDll -Destination (Join-Path $stage 'OptiScaler.dll') -Force
 
-$deps = Join-Path $stage 'OptiScaler'
-$missing = [System.Collections.Generic.List[string]]::new()
+# 4. Copy unmodified official OptiScaler release files
+Copy-Item -LiteralPath (Join-Path $optiReleaseDir 'OptiScaler.dll') -Destination (Join-Path $stage 'OptiScaler.dll') -Force
+Copy-Item -LiteralPath (Join-Path $optiReleaseDir 'OptiScaler.ini') -Destination (Join-Path $stage 'OptiScaler.ini') -Force
+Get-ChildItem -LiteralPath (Join-Path $optiReleaseDir 'OptiScaler') | ForEach-Object {
+    Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $stage 'OptiScaler') -Recurse -Force
+}
+if (Test-Path -LiteralPath (Join-Path $optiReleaseDir 'Licenses') -PathType Container) {
+    Get-ChildItem -LiteralPath (Join-Path $optiReleaseDir 'Licenses') -File | Copy-Item -Destination (Join-Path $stage 'Licenses') -Force
+}
+Copy-Item -LiteralPath $optiLicense -Destination (Join-Path $stage 'Licenses/OptiScaler_LICENSE.txt') -Force
 
-function Find-Dep([string[]]$candidates) {
-    foreach ($c in $candidates) {
-        if ($c -and (Test-Path -LiteralPath $c -PathType Leaf)) { return $c }
-    }
-    return $null
+# Update official OptiScaler.ini in-place (Mochi-style: LoadAsiPlugins=true, LogToFile=true, LogLevel=1, FGShortcutKey=-1)
+$iniPath = Join-Path $stage 'OptiScaler.ini'
+$wanted = [ordered]@{
+    'Plugins|LoadAsiPlugins' = 'true'
+    'Log|LogToFile'          = 'true'
+    'Log|LogLevel'           = '1'
+    'Menu|FGShortcutKey'     = '-1'
 }
-
-$depSearch = @()
-if ($DepsRoot) {
-    $depSearch += (Join-Path $DepsRoot 'OptiScaler')
-    $depSearch += $DepsRoot
-}
-# Fail early if bundled DLL/hsaco are older than the sources they came from.
-$freshness = Join-Path $PSScriptRoot 'check-release-freshness.ps1'
-# A release gate: a missing script must not quietly skip it.
-if (-not (Test-Path -LiteralPath $freshness -PathType Leaf)) {
-    throw "Release freshness check is missing: $freshness"
-}
-& powershell -NoProfile -ExecutionPolicy Bypass -File $freshness -Root $root -OptiDll $OptiDll
-if ($LASTEXITCODE -ne 0) {
-    throw "Release freshness check failed. Rebuild LmxxfNrRuntime.dll and/or modules before packaging."
-}
-$depSearch += (Join-Path $root 'third_party/fsr-rr-1.2.1')
-$depSearch += (Join-Path $source 'external/FidelityFX-SDK-v2/Kits/FidelityFX/signedbin')
-$depSearch += (Join-Path $root 'OptiScaler-AMD-PreSR-R1/OptiScaler')
-$depSearch += (Join-Path $root 'OptiScaler-AMD-PreSR-Multipass-v2.25/OptiScaler')
-
-foreach ($name in @(
-    'amd_fidelityfx_loader_dx12.dll',
-    'amd_fidelityfx_upscaler_dx12.dll',
-    'amd_fidelityfx_framegeneration_dx12.dll',
-    'amd_fidelityfx_denoiser_dx12.dll'
-)) {
-    $cands = @()
-    foreach ($d in $depSearch) { $cands += (Join-Path $d $name) }
-    $hit = Find-Dep $cands
-    if ($hit) { Copy-Item -LiteralPath $hit -Destination $deps -Force }
-    else { $missing.Add($name) }
-}
-
-$vkCands = @(Join-Path $source 'external/FidelityFX-SDK/PrebuiltSignedDLL/amd_fidelityfx_vk.dll')
-if ($depSearch.Count) { $vkCands += (Join-Path $depSearch[0] 'amd_fidelityfx_vk.dll') }
-$vk = Find-Dep $vkCands
-if ($vk) { Copy-Item -LiteralPath $vk -Destination $deps -Force }
-
-$xessDirs = @(
-    (Join-Path $source 'external/xess/bin'),
-    (Join-Path $root 'OptiScaler-AMD-PreSR-R1/OptiScaler'),
-    (Join-Path $root 'OptiScaler-AMD-PreSR-Multipass-v2.25/OptiScaler')
-)
-if ($DepsRoot) {
-    $xessDirs = @((Join-Path $DepsRoot 'OptiScaler'), $DepsRoot) + $xessDirs
-}
-$xessCopied = 0
-foreach ($d in $xessDirs) {
-    if (!(Test-Path $d)) { continue }
-    Get-ChildItem -LiteralPath $d -Filter 'libxess*.dll' -ErrorAction SilentlyContinue |
-        ForEach-Object { Copy-Item $_.FullName -Destination $deps -Force; $xessCopied++ }
-    Get-ChildItem -LiteralPath $d -Filter 'libxell*.dll' -ErrorAction SilentlyContinue |
-        ForEach-Object { Copy-Item $_.FullName -Destination $deps -Force; $xessCopied++ }
-    if ($xessCopied) { break }
-}
-if ($xessCopied -eq 0) { $missing.Add('libxess*.dll (optional but recommended)') }
-
-New-Item -ItemType Directory -Path (Join-Path $deps 'D3D12_OptiScaler') -Force | Out-Null
-# Only Agility D3D12Core (and optional Agility companions). Never sweep a
-# user-supplied DepsRoot for every *.dll — that could pick up version.dll.
-$agilityNames = @('D3D12Core.dll', 'd3d12SDKLayers.dll')
-$agilityCands = @(
-    (Join-Path $source 'external/directx_agility_sdk/lib'),
-    (Join-Path $root 'OptiScaler-AMD-PreSR-R1/OptiScaler/D3D12_OptiScaler')
-)
-if ($DepsRoot) {
-    $agilityCands = @((Join-Path $DepsRoot 'OptiScaler/D3D12_OptiScaler')) + $agilityCands
-}
-foreach ($d in $agilityCands) {
-    if (!(Test-Path $d)) { continue }
-    foreach ($n in $agilityNames) {
-        $p = Join-Path $d $n
-        if (Test-Path -LiteralPath $p) {
-            Copy-Item -LiteralPath $p -Destination (Join-Path $deps 'D3D12_OptiScaler') -Force
+$raw = [IO.File]::ReadAllText($iniPath)
+$newline = if ($raw.Contains("`r`n")) { "`r`n" } else { "`n" }
+$lines = $raw -split [regex]::Escape($newline)
+$section = $null; $seen = @{}
+for ($i = 0; $i -lt $lines.Length; $i++) {
+    if ($lines[$i] -match '^\s*\[([^\]]+)\]') { $section = $Matches[1]; continue }
+    if ($section -and $lines[$i] -match '^\s*([A-Za-z0-9_]+)\s*=') {
+        $key = "$section|$($Matches[1])"
+        if ($wanted.Contains($key) -and -not $seen.ContainsKey($key)) {
+            $lines[$i] = "$($Matches[1])=$($wanted[$key])"
+            $seen[$key] = 1
         }
     }
-    break
 }
+[IO.File]::WriteAllText($iniPath, ($lines -join $newline), [Text.UTF8Encoding]::new($false))
 
-if ($missing.Count -gt 0) {
-    $msg = "Missing upscaler dependency binaries:`n  " + ($missing -join "`n  ") + "`n" +
-           "These live in the git submodules (external/xess, external/FidelityFX-SDK*,`n" +
-           "and they are *.dll so they are not committed directly).`n" +
-           "Fix: git submodule update --init --recursive`n" +
-           "Or pass -DepsRoot pointing at a folder that has an OptiScaler\ subfolder."
-    if ($AllowMissingDeps) {
-        Write-Warning $msg
-    } else {
-        throw $msg
-    }
-}
-
-# Required license notices were checked before staging.
-Copy-Item -LiteralPath (Join-Path $source 'LICENSE') -Destination (Join-Path $stage 'Licenses/OptiScaler_LICENSE.txt') -Force
-Copy-Item -LiteralPath (Join-Path $root 'third_party/fsr-rr-1.2.1/license.md') -Destination (Join-Path $stage 'Licenses/FidelityFX_Denoiser_1.2.1_LICENSE.md') -Force
-Copy-Item -LiteralPath (Join-Path $root 'third_party/fsr-rr-1.2.1/3rdpartynotice.md') -Destination (Join-Path $stage 'Licenses/FidelityFX_Denoiser_1.2.1_3RDPARTYNOTICE.md') -Force
-Copy-Item -LiteralPath (Join-Path $root 'LICENSE'), (Join-Path $root 'NOTICE') -Destination $stage -Force
-if (Test-Path (Join-Path $source 'Licenses')) {
-    Get-ChildItem (Join-Path $source 'Licenses') -File | Copy-Item -Destination (Join-Path $stage 'Licenses') -Force
-}
-foreach ($pair in @(
-    @('external/xess/LICENSE.txt', 'XeSS_LICENSE.txt'),
-    @('external/FidelityFX-SDK/docs/license.md', 'FidelityFX_v1_LICENSE.md'),
-    @('external/FidelityFX-SDK-v2/docs/license.md', 'FidelityFX_v2_LICENSE.md'),
-    @('external/directx_agility_sdk/LICENSE.txt', 'DirectX_LICENSE.txt')
-)) {
-    $p = Join-Path $source $pair[0]
-    Copy-Item -LiteralPath $p -Destination (Join-Path $stage ('Licenses/' + $pair[1])) -Force
-}
-
-# INI
-$iniSrc = Join-Path $source 'OptiScaler.ini'
-if (!(Test-Path $iniSrc)) { throw "Missing $iniSrc" }
-$ini = Get-Content -LiteralPath $iniSrc -Raw -Encoding UTF8
-$mochizukiDefaults = ([regex]::Matches($ini, '(?m)(?:^;[^\r\n]*\r?\n)*^Mochizuki\w+=[^\r\n]*') | ForEach-Object { $_.Value }) -join "`n"
-if (-not $mochizukiDefaults) { throw 'Mochizuki defaults missing from the source ini template.' }
-$lmxxfHistoryDefaults = ([regex]::Matches($ini, '(?m)(?:^;[^\r\n]*\r?\n)*^(?:LmxxfModelHistory|DLSS5_TEMPORAL_MODE|DLSS5_TEMPORAL_ENHANCE_STRENGTH)=[^\r\n]*') | ForEach-Object { $_.Value }) -join "`n"
-if (-not $lmxxfHistoryDefaults) { throw 'Native history default/comments missing from the source ini template.' }
-$ini = $ini -replace '(?m)^Dx12Upscaler=.*$', 'Dx12Upscaler=ffx'
-$ini = $ini -replace '(?m)^LogToFile=.*$', 'LogToFile=true'
-$ini = $ini -replace '(?m)^LogLevel=.*$', 'LogLevel=2'
-$ini = [regex]::Replace($ini, '(?ms)(\[FrameGen\].*?^Enabled=)[^\r\n]*', '$1false')
-$ini = [regex]::Replace($ini, '(?ms)^\[DlssNr\].*?(?=^\[|\z)', @"
-[DlssNr]
-; OptScaler(NR) $Version - Three-backend AMD Neural Rendering (DLSS 5 on AMD), before or after SR.
-; Synthesizes detail and denoises ray-traced inputs at the selected processing stage.
-
-; Enables DLSS-NR at the selected processing stage
-; true or false - Program default is false. Setup turns this on.
-Enabled=false
-
-; Processing order (DX12 and DX11/Vulkan-to-DX12 bridges).
-; true = NR -> SR (default); false = SR -> NR (experimental, more GPU time/VRAM at display resolution).
-; Mochizuki keeps render-resolution motion and the runtime scales it. Daniel and lmxxf resample guides.
-; Program and package default: true. Daniel and lmxxf stay at 1..3 passes. Mochizuki uses a 1..3 slider, or a separate 30-layer mode.
-; SR runs once; all NR layers run at the selected stage, then the combined result is written once.
-; Save Settings and restart if command-list ownership was not armed. Native RR/Vulkan are not added.
-; Unsupported output/guide layouts leave the SR image unchanged; see Ins status. Switching clears history.
-RunBeforeSR=true
-
-; Optional XeFG override while NR is actually running. 0/auto = no override.
-; Generated-frame count: 1 = 2X, 2 = 3X, 3 = 4X, etc. Requires live multiplier support.
-; Never rewrites [XeFG] InterpolationCount. Capability limits affect only the applied value.
-XeFGInterpolationCount=auto
-
-; Selects the neural rendering backend
-; lmxxf  - Open-source AMD HIP neural rendering pipeline (using native-game-tiled-assets)
-; daniel - danielblnc 0.3.0-0.6.0 runtime (using dlssnr_amd_pass*.dll + weights.bin)
-; mochizuki - Native D3D12 / Vulkan bridge, RDNA4; see docs/mochizuki.md.
-; lmxxf, daniel or mochizuki. Turn the pass off with Enabled=false.
-; If the chosen host is missing its files, the other installed host runs instead.
-NrBackend=lmxxf
-
-; Independent Mochizuki controls (copied from the source template).
-$mochizukiDefaults
-
-; Hot-switch preparation (menu: Allow backend hot switching).
-; 0: start only the selected backend; changing backends needs a game restart.
-; 1 (package default): prepare command-list proxy so installed backends can switch in-session.
-; Hook/wrap policy is chosen at startup: restart the game after changing this.
-; NR off still releases session buffers after outstanding work; daniel keeps its model cache.
-NrConvenience=1
-
-; Optional asynchronous NR/codec/effects measurement; default off.
-; Ins: Measure NR performance. Page Up opens the FPS overlay; Page Down changes detail.
-; Logging also needs measurement and file logging; at most one summary per five seconds.
-NrTimingEnabled=false
-NrTimingLog=false
-; One-switch flicker capture: coverage details, frame trace, game-thread timing and file logging.
-; Save and restart after changing. Does not alter inline, barrier, wrapping or picture settings.
-NrFlickerDiag=false
-NrFrameDiag=false
-; Game-thread wait timing (needs NrFrameDiag): Present -> first submit and fence waits, gw_* fields. Timestamps only.
-NrGameWaitDiag=false
-; Shared final-output blend for either AMD backend. 0..2, default 1.
-; 0 shows the original but still runs NR; disable NR to save model computation.
-NrOverallIntensity=1.0
-; Experimental shared spatial residual shaping, after backend history, before overall intensity.
-; Low/detail gains: 0..2, default 1/1. Does not add network passes or blur original detail.
-; Skin/edge detail protection: 0..1, default 0/0 (off). Only constrains introduced fine detail.
-; Skin is a colour heuristic, NOT person detection; warm scenery may also be affected.
-; These are not temporal anti-flicker. Test HDR/fast motion before enabling by default.
-; Neutral 1/1/0/0 keeps the old output path. Pure-backend sessions may need a restart.
-NrResidualLowGain=1.0
-NrResidualDetailGain=1.0
-NrResidualSkinProtection=0.0
-NrResidualEdgeProtection=0.0
-; Shared temporal residual filtering; requires motion/depth. Off by default.
-; May soften moving detail or trail; adds GPU work and history memory.
-; Alpha 0..0.95; threshold 0..16 (compressed-colour units of 1/255). Either zero bypasses it.
-NrStabilizerEnabled=false
-NrStabilizerAlpha=0.8
-NrStabilizerThreshold=4.0
-
-; lmxxf network style: 0 / 1 / 2. Default 1; other upstream numeric changes can still change the image.
-; Separate from Daniel Style and shared NrOverallIntensity. Live change rebuilds the network.
-DLSS5_STYLE=1
-$lmxxfHistoryDefaults
-; 1080-tier processing rows: 1152 (default), or 1088 (Compact 1080 network).
-; 1088 changes the image, especially near the bottom edge. Live change rebuilds the network.
-DLSS5_NETWORK_1080_ROWS=1152
-; Additional supported colour formats use private FP16 output. Default true.
-; Save Settings and restart the game after changing this.
-DLSS5_FORMAT_FALLBACK=true
-; Native NR input resolution at the selected stage (render before SR, display after SR).
-; true by default; overrides tier/Compact 1080 within the supported budget.
-; Larger input costs more GPU time and VRAM (4K can be several times 1080p). Outside the budget, use the tier below.
-; Changing native resolution, fast numeric, passes or block skipping rebuilds the network on the next frame.
-DLSS5_NETWORK_FREE_RES=true
-; Fast approximate C32/C64/C128, ViT and C512 arithmetic (0.41). Default true; false uses normal numeric modules.
-DLSS5_FAST_NUMERIC=true
-; Requested network passes per frame: 1..3, default 1. More style and extra frame buffers. See third-pass prediction below.
-; Adaptive ViT reuse is disabled with 2/3 passes. GPU network timing includes all passes.
-; Original or Small model. Small runs once; Original pass preference is retained.
-; 0 = Original (default), 1 = Small (requires native-game-tiled-assets/small)
-LmxxfNetworkModel=0
-DLSS5_MULTI_PASS=1
-; Only at 3 passes: true runs two real network passes then predicts the third locally (lossy, default true).
-; false runs three real passes. No effect at 1/2 passes. Changing this rebuilds the network.
-DLSS5_MULTI_PASS_PREDICT=true
-; At 2/3 passes, keep first-pass skin tones using a color heuristic (not segmentation). Default false.
-DLSS5_MULTI_PASS_SKIN_PROTECT=false
-; Ins > Advanced Kernels: both skip lists are adjacent, with no extra subgroup.
-; Base skip list for all real network passes (lmxxf). Default none; 42,43,46 restores the old lossy skip.
-; Comma list of 1..38,40..69. Cannot skip 5..22 or 48..65 while MH byte stream is on.
-; Blocks 4/69 are also unsupported. Changing this rebuilds the network on the next frame.
-DLSS5_SKIP_BLOCKS=none
-
-; Added to the base list only in real network passes 2/3. Default none; ignored at 1 pass.
-; A predicted third pass has no extra network blocks. Gains are small and style changes (lossy).
-; CSV 1..38,40..69; blocks 4/69 and byte-stream blocks 5..22,48..65 are unsupported; invalid combinations use none.
-DLSS5_MULTI_PASS_SKIP_BLOCKS=none
-; Automatic network tier, or fixed 720 / 900 / 1080. Used with native resolution off, or outside its supported budget.
-DLSS5_NETWORK_HEIGHT=auto
-; Shared allocation / byte-stream paths; defaults match the product runtime.
-DLSS5_HIP_SHARED_POOL=true
-DLSS5_HIP_MH_BYTE_STREAM=true
-DLSS5_HIP_DECODER_BYTE=true
-
-; danielblnc math quality (0.4.2+). Not a menu-under-Display fold; Ins shows Quality near the top.
-; 0 = Reference (NVIDIA-exact arithmetic, default)
-; 1 = Fast (cheaper math; usually visually equivalent and faster)
-; RX 7000 always runs Reference inside the daniel runtime.
-Quality=0
-
-; Diagnostic mode for lmxxf backend (most modes skip NR)
-; off               - Normal neural rendering
-; original          - Pass through the game colour (no NR)
-; copy-current      - Copy current frame colour (diagnostic)
-; staging-current   - Staging isolation, current frame
-; staging-previous  - Staging isolation, previous frame
-; proxy-original    - Open-list proxy, original colour
-; split-original    - Split list then original colour
-; codec-passthrough - Encode to decode without the network (no HIP)
-; hip-passthrough   - RGB conversion and HIP shared-buffer round trip, no per-frame NR
-; Model initialization/warm-up still runs; hip-passthrough skips all neural passes afterwards.
-; Default is off. INI only; fully restart after changing, restore off after testing.
-; Invalid values do not enable NR.
-LmxxfDiagnostic=off
-
-; Fit Color inputs above 1920x1080 onto the 1080 network (same name as env/txt)
-; Live from the Ins menu (runtime re-reads the env whenever it checks FitLarge). true/false - Default is true
-DLSS5_FIT_LARGE=true
-
-; PDL chained launch. true by default. false sets DLSS5_HIP_PDL=0 so a driver
-; without hipExtModuleLaunchKernel can still start the network. Restart after changing.
-DLSS5_HIP_PDL=true
-
-; Wave-owned attention kernels (C32/C64/C128 + C256 attention). Default true (official 0.31+ template).
-; false restores the older multi-wave path. Applies on network rebuild.
-DLSS5_HIP_WAVE_OWNED=true
-
-; C512 QKV/mix at 32 tokens per wave. Default true. false restores the previous C512 path.
-DLSS5_HIP_C512_M32=true
-
-; ViT projection 64 columns per wave. Default true. false restores fragment projection.
-DLSS5_HIP_VIT_PROJ_N64=true
-
-; C256 persistent queue (swin-persistent module, 0.37). Default true.
-; Active only on 1920x1152 or 1600x960 processing with wave-owned compatible options.
-; false or missing module falls back to normal launches. DLSS5_HIP_SWIN_RUN=0/1 overrides.
-DLSS5_HIP_SWIN_RUN=true
-
-; Exact typed ViT edges (official 0.35+ template default 3).
-; 0=off (old f32 ViT path), 1=AV FP8, 2=contract F16, 3=Both.
-; Mutually exclusive with DLSS5_HIP_VIT_BYTE_STREAM. Applies on network rebuild.
-DLSS5_HIP_VIT_STREAM=3
-
-; ViT byte stream (experimental). Default 0. Only when VIT_STREAM is not an explicit non-zero value.
-; 1 also turns off adaptive reuse. Applies on network rebuild.
-DLSS5_HIP_VIT_BYTE_STREAM=0
-
-; Adaptive ViT reuse (lossy): when the picture is nearly still, reuse ViT across frames.
-; Configure reuse in the Ins menu. No F8 polling; motion returns to full ViT.
-; Default below is performance-oriented (looser than upstream 4 / 0.22 / 1 / 0.35):
-; higher FPS when nearly still, more risk of stale detail / ghosting on subtle motion.
-; Inactive while LmxxfModelHistory is enabled; the saved reuse preference is retained.
-DLSS5_VIT_ADAPTIVE=1
-DLSS5_VIT_REUSE_PERIOD=16
-DLSS5_VIT_REUSE_GLOBAL=1
-DLSS5_VIT_REUSE_LOCAL=50
-DLSS5_VIT_REUSE_IMAGE=1
-
-; Codec paper white for lmxxf encode and decode. Finite and in (0, 64]. Default is 1.
-; Not the HDR Paper White anchor.
-LmxxfPaperWhite=1
-
-; Auto exposure when the game sends no exposure texture (default true).
-; true = measure mean brightness each frame and smooth it over time (ignores LmxxfAutoExposureScale).
-; false = use the fixed scale below.
-LmxxfAutoExposure=true
-; Manual white scale only when Auto exposure is false and there is no game exposure. Default 8.
-LmxxfAutoExposureScale=8
-
-; Allow NR when the command list uses D3D12 enhanced barriers. auto uses these game rules:
-; on when the EXE name contains "forza" (Forza Horizon 6 needs it for Mochizuki), off otherwise.
-; Enhanced-barrier layout/access is not fully tracked and a split can cut a SYNC_SPLIT
-; group across two submits. true opts in; false rejects those lists. Menu changes apply immediately.
-LmxxfAllowEnhancedBarriers=auto
-
-; Early command-list wrap: shared by lmxxf and Mochizuki. auto uses the game rules below.
-; Auto: EXE calls in Unreal/Forza; UnityPlayer.dll calls in Aniimo.exe only.
-; true = EXE plus loaded UnityPlayer.dll callers, including other Unity games.
-; false = disable both early paths; normal post-swapchain wrapping is unchanged.
-; Ins > Compatibility & Scheduling > Early command-list wrap. Save and restart.
-; Other games are unvalidated; forced early wrap can crash (e.g. Yan Yun).
-LmxxfEarlyExeWrap=auto
-; Early wrap of command lists created by ANY module (Streamline, dxgi proxies, overlays), before the
-; swapchain only. auto: on only when the EXE name contains "forza". Independent of
-; LmxxfEarlyExeWrap. May crash other games; try true only if the log shows many 'missing recording proxy'.
-LmxxfEarlyAnyModuleWrap=auto
-
-; Resolution scale factor for neural rendering model input
-; 1.0 = native render resolution (e.g. 720p for 4K Super Performance)
-; float value - Default is 1
-AmdModelScale=1
-
-; Encoding format mode for model inputs/outputs
-; 0 = FP16 (standard), 1 = FP8 / compressed
-; Integer value - Default is 0
-AmdEncoding=0
-
-; Schedule neural rendering execution on every frame
-; When enabled, avoids skipping frames; multi-slot pipeline skips post-execute wait
-; true or false - Default is true
-AmdEveryFrame=true
-
-; Number of pipeline slots for asynchronous GPU execution (danielblnc backend)
-; Higher values reduce wait time at the cost of VRAM (each slot holds intermediate buffers)
-; Recommended: 3 slots (tested 0 wait on yysls)
-; 1 to 5 - Default is 3
-AmdSlots=3
-
-; GPU synchronization / wait mode between NR and game command queue (danielblnc backend)
-; 0 = Original wait (compute dispatch spin)
-; 1 = New wait mode (1-pixel graphics draw spin; prevents GPU watchdog resets)
-; 0 or 1 - Default is 1
-AmdGraphicsWait=1
-
-; Allow unsafe dirty command insertion when graphics state admission fails
-; 0 = Safe mode (fallback to original color on state conflict)
-; 1 = Unsafe mode (force injection; higher risk of visual glitch)
-; 0 or 1 - Default is 0
-AmdGraphicsUnsafe=0
-
-; Experimental neural lighting pass (Gather/Resolve shaders)
-; true or false - Default is true
-AmdNeuralLighting=true
-
-; Intensity of the neural lighting effect
-; float value (0.0 to 1.0) - Default is 0.5
-AmdNeuralLightingStrength=0.5
-
-; Number of neural rendering passes
-; 1 to 3 - Default is 1
-Passes=1
-
-; Weight for preserving local tone mapping
-; float value - Default is 1
-LocalTone=1
-
-; Weight for preserving fine local structure and edges
-; float value - Default is 1
-LocalStructure=1
-
-; Weight for preserving skin structure and texture
-; -1 follows local structure (the model's own default), not a strength of zero
-; float value - Default is -1
-SkinStructure=-1
-
-; Apply neural rendering adjustments after Ray Reconstruction
-; true or false - Default is false
-ApplyAfterRR=false
-
-"@)
-# These sections are only appended if they do not already exist in the source ini.
-# Unconditional appending would duplicate sections if source ini ever includes [AmdLook]/[AmdRtgi].
-# The appended block has Enabled=false to avoid overriding user values.
-$amdLookBlock = @"
-
-[AmdLook]
-Enabled=false
-Appearance=2
-Mix=1
-MaterialDetail=1.15
-ShapeDefinition=1.2
-LocalLighting=1.15
-SkinDetail=1.1
-SkinSoftness=0.486
-DetectSkin=true
-SpecularControl=0.58
-HighlightRollOff=0.9
-ColourSeparation=0
-ShadowDepth=0.2
-AntiHalo=0.901
-FlatAreaProtection=0
-Inspect=0
-Tone=0
-ExposureEV=1
-Contrast=1
-Saturation=1
-HighlightCompression=0
-"@
-
-$amdRtgiBlock = @"
-
-[AmdRtgi]
-Enabled=false
-Quality=2
-Denoiser=1
-Inspect=0
-Mix=1
-Lighting=5
-Occlusion=1
-Ambient=1
-Thickness=0.1
-Smoothness=0.5
-Fade=0.3
-Fov=60
-FarPlane=600
-Contact=0
-Saturation=1
-Radius=1
-"@
-
-if ($ini -notmatch '(?m)^\[AmdLook\]') { $ini += $amdLookBlock }
-if ($ini -notmatch '(?m)^\[AmdRtgi\]') { $ini += $amdRtgiBlock }
-$openNrRrBlock = @"
-
-[OpenNR-RR]
-; OpenRR: Ray Reconstruction (DLSS-RR) on AMD through OpenNrRrRuntime.dll (RX 9000, nvngx_dlssd.dll 310.9.1).
-; When enabled and usable, Ray Reconstruction uses OpenRR; otherwise falls back to FSR-RR.
-Enabled=auto
-Backend=auto
-"@
-if ($ini -notmatch '(?m)^\[OpenNR-RR\]') { $ini += $openNrRrBlock }
-[IO.File]::WriteAllText((Join-Path $stage 'OptiScaler.ini'), $ini, [Text.UTF8Encoding]::new($false))
-
-
-# Bundled plugins (OptiPatcher.asi: DLSS spoofing enhancement offline cache)
-# Always create plugins/ and OptiScaler/plugins/ with a project-named README so the folder exists
-# in the ZIP archive for users to drop custom .asi plugins (e.g. MFGUnlocker.asi / XeFGUnlock.asi).
-$pluginDst = Join-Path $stage 'plugins'
-$optiPluginDst = Join-Path $deps 'plugins'
-New-Item -ItemType Directory -Path $pluginDst, $optiPluginDst -Force | Out-Null
+# 5. Stage OptiScaler/plugins/ and OptiPatcher.asi
+$optiPluginDst = Join-Path $stage 'OptiScaler/plugins'
+New-Item -ItemType Directory -Path $optiPluginDst -Force | Out-Null
 $pluginReadme = @(
     'OptScaler(NR) - ASI Plugins Directory'
     '====================================='
     'Place custom .asi plugins (for example MFGUnlocker.asi or XeFGUnlock.asi) in this folder.'
-    '- Before running Setup.bat: any non-OptiPatcher .asi/.ini files placed in plugins\ will be'
-    '  copied to the game''s active plugins folder (<GameDir>\OptiScaler\plugins by default)'
-    '  Existing plugin configurations and explicit LoadAsiPlugins settings are preserved.'
-    '  A missing or auto LoadAsiPlugins setting is enabled when custom ASI files are copied.'
-    '- After installation: place .asi plugins directly into <GameDir>\OptiScaler\plugins\'
-    '  (or your configured [Plugins] Path in OptiScaler.ini) and set LoadAsiPlugins=true.'
 ) -join "`r`n"
-[IO.File]::WriteAllText((Join-Path $pluginDst 'OptScaler-NR-plugins-README.txt'), ($pluginReadme + "`r`n"), [Text.UTF8Encoding]::new($false))
 [IO.File]::WriteAllText((Join-Path $optiPluginDst 'OptScaler-NR-plugins-README.txt'), ($pluginReadme + "`r`n"), [Text.UTF8Encoding]::new($false))
-$pluginSrc = Join-Path $root 'assets/plugins'
-if (Test-Path -LiteralPath $pluginSrc -PathType Container) {
-    Get-ChildItem -LiteralPath $pluginSrc -Filter '*.asi' -File | Copy-Item -Destination $pluginDst -Force
-}
+Copy-Item -LiteralPath $optiPatcherAsiSrc -Destination (Join-Path $optiPluginDst 'OptiPatcher.asi') -Force
 
-# Neural Rendering: the vendor ASI runs NR itself. The plugin goes where the
-# host loads .asi files from; the shared dlssnr-amd folder holds only this
-# version's resources, never a mixture with the retired built-in runtime.
+# 6. Stage ASI 1: dlssnr-amd.asi + resources
 $mzAssets = Join-Path $stage 'dlssnr-amd'
-New-Item -ItemType Directory -Force $mzAssets, (Join-Path $stage 'OptiScaler/plugins'),
-    (Join-Path $stage 'model-tools'), (Join-Path $stage 'docs') | Out-Null
-Get-ChildItem -LiteralPath (Join-Path $asiPayload 'dlssnr-amd') -Recurse -File |
-    ForEach-Object {
-        $relative = $_.FullName.Substring((Join-Path $asiPayload 'dlssnr-amd').Length).TrimStart('\', '/')
-        $dest = Join-Path $mzAssets $relative
-        $destDir = Split-Path -Parent $dest
-        if ($destDir) { New-Item -ItemType Directory -Force $destDir | Out-Null }
-        Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
-    }
-Copy-Item -LiteralPath (Join-Path $asiPayload 'OptiScaler/plugins/dlssnr-amd.asi') `
-    -Destination (Join-Path $stage 'OptiScaler/plugins/dlssnr-amd.asi') -Force
+New-Item -ItemType Directory -Force $mzAssets, (Join-Path $stage 'model-tools'), (Join-Path $stage 'experimental') | Out-Null
+Get-ChildItem -LiteralPath (Join-Path $asiPayload 'dlssnr-amd') -Recurse -File | ForEach-Object {
+    $relative = $_.FullName.Substring((Join-Path $asiPayload 'dlssnr-amd').Length).TrimStart('\', '/')
+    $dest = Join-Path $mzAssets $relative
+    $destDir = Split-Path -Parent $dest
+    if ($destDir) { New-Item -ItemType Directory -Force $destDir | Out-Null }
+    Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
+}
+Copy-Item -LiteralPath (Join-Path $asiPayload 'OptiScaler/plugins/dlssnr-amd.asi') -Destination (Join-Path $optiPluginDst 'dlssnr-amd.asi') -Force
 Copy-Item -LiteralPath (Join-Path $asiPayload 'nr_present_probe.exe') -Destination $mzAssets -Force
 Copy-Item -LiteralPath (Join-Path $asiPayload 'ini/dlssnr-amd-optiscaler.ini') -Destination $stage -Force
 Copy-Item -LiteralPath (Join-Path $asiPayload 'ini/dlssnr-amd-optiscaler-renodx.ini') -Destination $stage -Force
-New-Item -ItemType Directory -Force (Join-Path $stage 'experimental') | Out-Null
-Get-ChildItem -LiteralPath (Join-Path $asiPayload 'experimental') -File |
-    Copy-Item -Destination (Join-Path $stage 'experimental') -Force
+Get-ChildItem -LiteralPath (Join-Path $asiPayload 'experimental') -File | Copy-Item -Destination (Join-Path $stage 'experimental') -Force
 if (Test-Path -LiteralPath (Join-Path $asiPayload 'optimized') -PathType Container) {
     New-Item -ItemType Directory -Force (Join-Path $stage 'optimized') | Out-Null
-    Get-ChildItem -LiteralPath (Join-Path $asiPayload 'optimized') -File |
-        Copy-Item -Destination (Join-Path $stage 'optimized') -Force
+    Get-ChildItem -LiteralPath (Join-Path $asiPayload 'optimized') -File | Copy-Item -Destination (Join-Path $stage 'optimized') -Force
 }
-foreach ($name in @('dlssnr_extract_model.exe', 'dlssnr-int4-weights.exe')) {
-    Copy-Item -LiteralPath (Join-Path $asiPayload "model-tools/$name") -Destination (Join-Path $stage 'model-tools') -Force
-}
-if (Test-Path -LiteralPath (Join-Path $asiPayload 'model-tools/dlssnr-int4.sha256') -PathType Leaf) {
-    Copy-Item -LiteralPath (Join-Path $asiPayload 'model-tools/dlssnr-int4.sha256') -Destination (Join-Path $stage 'model-tools') -Force
-}
-$mochizukiLicenseRoot = Join-Path $root 'third_party/mochizuki-asi'
-Copy-Item -LiteralPath (Join-Path $mochizukiLicenseRoot 'LICENSE') -Destination (Join-Path $stage 'Licenses/Mochizuki_MIT.txt') -Force
-Copy-Item -LiteralPath (Join-Path $mochizukiLicenseRoot 'RenoDX_MIT.txt') -Destination (Join-Path $stage 'Licenses/RenoDX_MIT.txt') -Force
-Copy-Item -LiteralPath (Join-Path $mochizukiLicenseRoot 'UPSTREAM.md') -Destination (Join-Path $stage 'Licenses/Mochizuki_SOURCES.md') -Force
-Copy-Item -LiteralPath (Join-Path $root 'third_party/mochizuki-asi/README.md') -Destination (Join-Path $stage 'Licenses/Mochizuki_ASI_SOURCES.md') -Force
-# Retired built-in runtime inventory: uninstall and upgrade use it to remove only
-# files that install owned. It is not a compatibility check.
-Copy-Item -LiteralPath (Join-Path $root 'tools/install/mochizuki-owned.txt') -Destination $stage -Force
+Get-ChildItem -LiteralPath (Join-Path $asiPayload 'model-tools') -File | Copy-Item -Destination (Join-Path $stage 'model-tools') -Force
 Get-ChildItem -LiteralPath (Join-Path $asiPayload 'Licenses') -File | Copy-Item -Destination (Join-Path $stage 'Licenses') -Force
+Copy-Item -LiteralPath (Join-Path $root 'tools/install/mochizuki-owned.txt') -Destination $stage -Force
 
-$mzDoc = [IO.File]::ReadAllText((Join-Path $root 'docs/mochizuki.md'))
-$mzDoc = $mzDoc.Replace('../third_party/mochizuki-asi/UPSTREAM.md', '../Licenses/Mochizuki_SOURCES.md').Replace('../third_party/mochizuki/UPSTREAM.md', '../Licenses/Mochizuki_SOURCES.md')
-[IO.File]::WriteAllText((Join-Path $stage 'docs/mochizuki.md'), $mzDoc, [Text.UTF8Encoding]::new($false))
-# Model preparation without the retired Python extractor: the official 0.0.8.3
-# tools write the models the ASI reads. No hash whitelist and no version gate.
 @'
 @echo off
 setlocal
@@ -702,76 +172,59 @@ pause
 exit /b %RC%
 '@ | Set-Content -LiteralPath (Join-Path $stage 'Mochizuki-Model.bat') -Encoding ASCII
 
-# Bundled open-source OpenRR runtime and SPIR-V compute shaders (MIT)
-$openRrDllSrc = Join-Path $root 'exports/openrr-runtime/OpenNrRrRuntime.dll'
-$openRrShaderSrc = Join-Path $root 'exports/openrr-runtime/opennr-rr/shaders'
-if (!(Test-Path -LiteralPath $openRrDllSrc -PathType Leaf) -or !(Test-Path -LiteralPath $openRrShaderSrc -PathType Container)) {
-    & cmd /d /c (Join-Path $root 'tools\build\build-openrr-runtime.cmd')
-    if ($LASTEXITCODE -ne 0) { throw 'Failed to build OpenNrRrRuntime.dll for packaging.' }
+# 7. Stage ASI 2: openrr-amd.asi (placeholder or PE) + openrr-amd/shaders/*.spv
+Copy-Item -LiteralPath $openRrAsiSrc -Destination (Join-Path $optiPluginDst 'openrr-amd.asi') -Force
+$openRrIniSrc = $null
+foreach ($cand in @('openrr-amd.ini', 'OptiScaler/openrr-amd.ini')) {
+    $p = Join-Path $openRrPayload $cand
+    if (Test-Path -LiteralPath $p -PathType Leaf) { $openRrIniSrc = $p; break }
 }
-Copy-Item -LiteralPath $openRrDllSrc -Destination (Join-Path $stage 'OpenNrRrRuntime.dll') -Force
-$openRrShaderDst = Join-Path $stage 'opennr-rr/shaders'
+if ($openRrIniSrc) { Copy-Item -LiteralPath $openRrIniSrc -Destination (Join-Path $stage 'openrr-amd.ini') -Force }
+$openRrShaderDst = Join-Path $stage 'openrr-amd/shaders'
 New-Item -ItemType Directory -Path $openRrShaderDst -Force | Out-Null
-Get-ChildItem -LiteralPath $openRrShaderSrc -Filter '*.spv' -File | Copy-Item -Destination $openRrShaderDst -Force
-Copy-Item -LiteralPath (Join-Path $root 'third_party/openrr/LICENSE') -Destination (Join-Path $stage 'Licenses/OpenRR_MIT.txt') -Force
+Get-ChildItem -LiteralPath (Join-Path $openRrPayload 'openrr-amd/shaders') -Filter '*.spv' -File | Copy-Item -Destination $openRrShaderDst -Force
+Get-ChildItem -LiteralPath (Join-Path $openRrPayload 'Licenses') -File | Copy-Item -Destination (Join-Path $stage 'Licenses') -Force
 
-if ((Get-Sha256 (Join-Path $stage 'OptiScaler.dll')) -ne $hostHash) {
-    throw 'Staged binaries differ from the selected host.'
-}
-# Installer + docs (CN + EN + ES). No duplicate 使用说明.txt.
-$readmeZh = Join-Path $root 'README.md'
-$readmeEn = Join-Path $root 'README.en.md'
-$readmeEs = Join-Path $root 'README.es.md'
-if (!(Test-Path $readmeZh)) { throw "Missing $readmeZh" }
-if (!(Test-Path $readmeEn)) { throw "Missing $readmeEn" }
-$installerSrc = Join-Path $root 'tools/install-amd-presr.ps1'
-if (!(Test-Path $installerSrc)) { throw "Missing $installerSrc" }
-Copy-Item $installerSrc (Join-Path $stage 'Setup.ps1') -Force
+# 8. Build & stage Launcher + Installer scripts
 & (Join-Path $root 'tools/build/build-launcher.ps1') -OutDir (Join-Path $root 'exports/launcher')
 $launcherExe = Join-Path $root 'exports/launcher/OptScalerNR.Launcher.exe'
-if (!(Test-Path -LiteralPath $launcherExe)) { throw "Launcher EXE was not produced" }
+if (-not (Test-Path -LiteralPath $launcherExe -PathType Leaf)) { throw 'Launcher EXE was not produced' }
 Copy-Item -LiteralPath $launcherExe -Destination (Join-Path $stage 'OptScalerNR.Launcher.exe') -Force
+foreach ($pair in @(
+    @('tools/install/install.ps1', 'Setup.ps1'),
+    @('tools/install/uninstall.ps1', 'Uninstall_OptiScaler_NR.ps1'),
+    @('tools/install/launcher-worker.ps1', 'launcher-worker.ps1'),
+    @('tools/install/install-capabilities.ps1', 'install-capabilities.ps1'),
+    @('tools/install/library-scan.ps1', 'library-scan.ps1'),
+    @('tools/install/proxy-probe.ps1', 'proxy-probe.ps1'),
+    @('tools/install/xess-compat.ps1', 'xess-compat.ps1')
+)) {
+    $srcPs1 = Join-Path $root $pair[0]
+    $dstPs1 = Join-Path $stage $pair[1]
+    $psContent = [IO.File]::ReadAllText($srcPs1, [Text.Encoding]::UTF8)
+    [IO.File]::WriteAllText($dstPs1, $psContent, [Text.UTF8Encoding]::new($true))
+}
+$installShSrc = Join-Path $root 'tools/install/install.sh'
+$installShContent = [IO.File]::ReadAllText($installShSrc, [Text.Encoding]::UTF8).Replace("`r`n", "`n")
+[IO.File]::WriteAllText((Join-Path $stage 'install.sh'), $installShContent, [Text.UTF8Encoding]::new($false))
 Copy-Item -LiteralPath (Join-Path $root 'assets/compatibility/proxy-profiles.json') -Destination $stage -Force
 Copy-Item -LiteralPath (Join-Path $root 'assets/compatibility/README.md') -Destination (Join-Path $stage 'Licenses/OptiScaler-wiki-profiles.md') -Force
-Copy-Item -LiteralPath (Join-Path $root 'tools/install/launcher-worker.ps1') -Destination $stage -Force
-Copy-Item -LiteralPath (Join-Path $root 'tools/install/xess-compat.ps1') -Destination $stage -Force
-Copy-Item -LiteralPath (Join-Path $root 'tools/install/proxy-probe.ps1') -Destination $stage -Force
-Copy-Item -LiteralPath (Join-Path $root 'tools/install/library-scan.ps1') -Destination $stage -Force
-Copy-Item -LiteralPath (Join-Path $root 'tools/install/install-capabilities.ps1') -Destination $stage -Force
-(@'
-@echo off
-setlocal
-title OptScaler(NR) @VERSION@ - Setup
-rem No args: open OptScalerNR.Launcher.exe. Args keep the CLI Setup.ps1 contract.
-rem Optional: Setup.bat "D:\GameFolder" [dxgi.dll]
-if "%~1"=="" (
-  if exist "%~dp0OptScalerNR.Launcher.exe" (
-    start "" "%~dp0OptScalerNR.Launcher.exe"
-    exit /b 0
-  )
-  echo Complete package required: OptScalerNR.Launcher.exe is missing. Unzip the full package again.
-  pause
-  exit /b 1
-)
-if "%~2"=="" (
-  powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Setup.ps1" -GameDir "%~1" -NoPause
-) else (
-  powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Setup.ps1" -GameDir "%~1" -Proxy "%~2" -NoPause
-)
-set "EC=%ERRORLEVEL%"
-if not "%EC%"=="0" echo Setup failed ^(exit code %EC%^). See the error above.
-pause
-exit /b %EC%
-'@).Replace('@VERSION@', $Version) | Set-Content -LiteralPath (Join-Path $stage 'Setup.bat') -Encoding ASCII
+Copy-Item -LiteralPath (Join-Path $root 'LICENSE'), (Join-Path $root 'NOTICE') -Destination $stage -Force
+foreach ($doc in @('README.md', 'README.en.md', 'README.es.md')) {
+    $p = Join-Path $root $doc
+    if (Test-Path -LiteralPath $p -PathType Leaf) { Copy-Item -LiteralPath $p -Destination $stage -Force }
+}
+if (Test-Path -LiteralPath (Join-Path $root 'docs/legacy-readme') -PathType Container) {
+    $legacyReadmeDst = Join-Path $stage 'docs/legacy-readme'
+    New-Item -ItemType Directory -Force -Path $legacyReadmeDst | Out-Null
+    Get-ChildItem -LiteralPath (Join-Path $root 'docs/legacy-readme') -File | Copy-Item -Destination $legacyReadmeDst -Force
+}
+Set-Content -LiteralPath (Join-Path $stage 'VERSION') -Value ($Version + "`n") -Encoding UTF8
 
-$uninstallSrc = Join-Path $root 'tools/uninstall-amd-presr.ps1'
-if (!(Test-Path $uninstallSrc)) { throw "Missing $uninstallSrc" }
-Copy-Item $uninstallSrc (Join-Path $stage 'Uninstall_OptiScaler_NR.ps1') -Force
 (@'
 @echo off
 setlocal
 title OptScaler(NR) @VERSION@ - Uninstall
-rem Double-click in the game folder. Optional: Uninstall_OptiScaler_NR.bat "D:\GameFolder"
 if "%~1"=="" (
   powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Uninstall_OptiScaler_NR.ps1" -NoPause
 ) else (
@@ -782,75 +235,40 @@ if not "%EC%"=="0" echo Uninstall failed ^(exit code %EC%^). See the error above
 pause
 exit /b %EC%
 '@).Replace('@VERSION@', $Version) | Set-Content -LiteralPath (Join-Path $stage 'Uninstall_OptiScaler_NR.bat') -Encoding ASCII
-Copy-Item $readmeZh (Join-Path $stage 'README.md') -Force
-Copy-Item $readmeEn (Join-Path $stage 'README.en.md') -Force
-if (Test-Path $readmeEs) {
-    Copy-Item $readmeEs (Join-Path $stage 'README.es.md') -Force
-}
-# Ship the version string so a package can be identified without running Setup.
-$versionFile = Join-Path $root 'VERSION'
-if (Test-Path -LiteralPath $versionFile -PathType Leaf) {
-    Copy-Item -LiteralPath $versionFile -Destination (Join-Path $stage 'VERSION') -Force
-} else {
-    Set-Content -LiteralPath (Join-Path $stage 'VERSION') -Value ($Version + "`n") -Encoding UTF8
+
+if ($LocalTest) {
+    [IO.File]::WriteAllText((Join-Path $stage 'LOCAL-TEST.txt'),
+        "Local test package $Version.`n",
+        [Text.UTF8Encoding]::new($false))
 }
 
-# 绊线：这些文件名一旦出现在 stage 里就拒绝打包（含子目录，例如 Agility 误扫入 version.dll）。
-# danielblnc pass（dlssnr_amd_pass*.dll）必须不在包内 —— README 明写「包里没有 danielblnc pass」。
-# Keep this filename-only and case-insensitive: the same expression validates the
-# staged tree and every entry in the finished archive.
-$forbidden = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr(?:-int4|-small)?\.bin|CC_(?:SMALL_FP8|SMALL_FP8_EXPERIMENTAL|SILVER_AARDWOLD|SILVER_AARDWOLD_OPTIMIZED|SILVER_AARDWOLD_OPTIMIZED_INT4)\.bin|version\.dll|dlssnr_on_amd_setup\.exe|.*\.generated\.hip|.*\.hsaco\.s)$'
-$badAll = Get-ChildItem -LiteralPath $stage -Recurse -File -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -match $forbidden }
+# 9. Forbidden proprietary/model file gate
+$forbidden = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr(?:-int4|-small)?\.bin|CC_(?:SMALL_FP8|SMALL_FP8_EXPERIMENTAL|SILVER_AARDWOLD|SILVER_AARDWOLD_OPTIMIZED|SILVER_AARDWOLD_OPTIMIZED_INT4)\.bin|version\.dll|dlssnr_on_amd_setup\.exe)$'
+$badAll = Get-ChildItem -LiteralPath $stage -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match $forbidden }
 if ($badAll) {
     throw "Refusing to package proprietary/user-supplied file: $(($badAll | ForEach-Object { $_.FullName.Substring($stage.Length+1) }) -join ', ')"
 }
 
-
-if ($LocalTest) {
-    [IO.File]::WriteAllText((Join-Path $stage 'LOCAL-TEST.txt'),
-        "Local test package $Version. Full release tests were not run for this package. Pending game validation and release validation.`n",
-        [Text.UTF8Encoding]::new($false))
-}
-foreach ($model in @('CC_SILVER_AARDWOLD.bin', 'CC_SMALL_FP8.bin', 'CC_SMALL_FP8_EXPERIMENTAL.bin', 'CC_SILVER_AARDWOLD_OPTIMIZED.bin', 'CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin', 'dlssnr.bin', 'dlssnr-small.bin', 'dlssnr-int4.bin')) {
-    if (Test-Path (Join-Path $stage "dlssnr-amd/$model")) { throw 'User model must never be packaged.' }
-}
-if (Test-Path (Join-Path $stage 'dlssnr-amd/pipeline.cache')) { throw 'Pipeline cache must never be packaged.' }
-if (Test-Path (Join-Path $stage 'dlssnr-amd/aco-cache')) { throw 'ACO driver cache must never be packaged.' }
-# Source identity/freshness gates above certify the original build. Only staged copies are signed.
-# The signing helper proves executable bytes are unchanged and records original -> signed hashes.
+# 10. Sign unstamped PE files (skips 0-byte placeholder openrr.asi automatically)
 . (Join-Path $PSScriptRoot 'package-signing.ps1')
 Invoke-PackageSigning -Stage $stage -Thumbprint $SigningThumbprint
+
+# 11. Generate SHA256SUMS.txt & ZIP
 $expectedEntries = @{}
 $hashes = Get-ChildItem -LiteralPath $stage -Recurse -File |
     Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |
     Sort-Object FullName |
     ForEach-Object {
-        # 正斜杠：清单是 coreutils 格式（`sha256sum -c` 用），反斜杠分隔符在 git-bash /
-        # Linux 上认不出来。Windows 侧 PowerShell 用正斜杠访问文件同样正常。
         $relative = $_.FullName.Substring($stage.Length + 1).Replace('\', '/')
         $digest = Get-Sha256 $_.FullName
         $expectedEntries[$relative] = $digest
         '{0} *{1}' -f $digest, $relative
     }
-# 不要用 Set-Content -Encoding UTF8：Windows PowerShell 5.1 的 -Encoding UTF8 会写 BOM，
-# BOM 直接粘在第一个哈希前面，用户跑 `sha256sum -c SHA256SUMS.txt` 会看到
-# "1 line is improperly formatted"，第一项永远验不过。走 .NET 的无 BOM UTF-8。
-# 行尾用 LF 而不是 CRLF：CRLF 会在文件名后留下 \r，`sha256sum -c` 把它当成文件名的一部分，
-# 23 项全部 "No such file or directory"。LF + 正斜杠才能让标准工具真的验得了。
-# 记事本（Win10 1809+）与 PowerShell 读 LF 都正常。
-[IO.File]::WriteAllText((Join-Path $stage 'SHA256SUMS.txt'),
-    (($hashes -join "`n") + "`n"),
-    [Text.UTF8Encoding]::new($false))
-
+[IO.File]::WriteAllText((Join-Path $stage 'SHA256SUMS.txt'), (($hashes -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
 $expectedEntries['SHA256SUMS.txt'] = Get-Sha256 (Join-Path $stage 'SHA256SUMS.txt')
 
 New-Item -ItemType Directory -Force -Path (Join-Path $root $OutDir) | Out-Null
-if (Test-Path $zip) { Remove-Item $zip -Force }
-
-# Validate the actual artifact, not only the staging tree. This catches a changed
-# archive command, a stale/wrapped staging directory, or anything injected between
-# the preflight above and Compress-Archive. An unreadable archive also fails closed.
+if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
 try {
     Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal -Force
     Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -870,7 +288,7 @@ try {
             finally { $stream.Dispose(); $sha.Dispose() }
             if ($actual -ne $expectedEntries[$relative]) { throw "Archive checksum mismatch: $relative" }
         }
-        foreach ($required in @('OptiScaler.dll', 'OptiScaler.ini', 'Setup.ps1', 'Setup.bat', 'OptScalerNR.Launcher.exe', 'launcher-worker.ps1', 'proxy-probe.ps1', 'library-scan.ps1', 'install-capabilities.ps1', 'xess-compat.ps1', 'proxy-profiles.json', 'Licenses/OptiScaler-wiki-profiles.md', 'OptiScaler/plugins/dlssnr-amd.asi', 'dlssnr-amd/nr_present_probe.exe', 'model-tools/dlssnr_extract_model.exe', 'experimental/dlssnr-small-experimental.delta', 'dlssnr-amd-optiscaler.ini', 'dlssnr-amd-optiscaler-renodx.ini', 'mochizuki-owned.txt') + @($expectedEntries.Keys)) {
+        foreach ($required in @('OptiScaler.dll', 'OptiScaler.ini', 'Setup.ps1', 'install.sh', 'OptScalerNR.Launcher.exe', 'launcher-worker.ps1', 'proxy-probe.ps1', 'library-scan.ps1', 'install-capabilities.ps1', 'xess-compat.ps1', 'proxy-profiles.json', 'OptiScaler/plugins/dlssnr-amd.asi', 'OptiScaler/plugins/openrr-amd.asi', 'dlssnr-amd/nr_present_probe.exe', 'model-tools/dlssnr_extract_model.exe', 'experimental/dlssnr-small-experimental.delta', 'dlssnr-amd-optiscaler.ini', 'dlssnr-amd-optiscaler-renodx.ini', 'mochizuki-owned.txt') + @($expectedEntries.Keys)) {
             if (-not $seen.ContainsKey($required)) { throw "Package archive missing required component: $required" }
         }
     } finally {
@@ -880,8 +298,7 @@ try {
     if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
     throw "Package archive validation failed; zip removed: $($_.Exception.Message)"
 }
-Write-Host "Product: $Version"
-Write-Host "Staged:  $stage"
-Write-Host "Zip:     $zip"
-Write-Host "Opti:    $OptiDll"
 
+Write-Host "Product: $Version" -ForegroundColor Green
+Write-Host "Staged:  $stage" -ForegroundColor Green
+Write-Host "Zip:     $zip" -ForegroundColor Green

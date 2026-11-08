@@ -396,7 +396,7 @@
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
           <Border Width="26" Height="26" CornerRadius="8" Margin="0,0,9,0"><Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#FF4D4D" Offset="0"/><GradientStop Color="#C40E1E" Offset="1"/></LinearGradientBrush></Border.Background><TextBlock Text="N" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
           <TextBlock Text="OptScaler NR" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
-          <Border x:Name="VersionBadge" Width="90" Height="26" VerticalAlignment="Center" Background="{DynamicResource ThemeSubtle}" CornerRadius="13" Padding="8,0" Margin="7,0,0,0"><TextBlock x:Name="VersionTag" FontSize="10" Foreground="{DynamicResource ThemeMuted}" Text="1.13.0" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"/></Border>
+          <Border x:Name="VersionBadge" Width="90" Height="26" VerticalAlignment="Center" Background="{DynamicResource ThemeSubtle}" CornerRadius="13" Padding="8,0" Margin="7,0,0,0"><TextBlock x:Name="VersionTag" FontSize="10" Foreground="{DynamicResource ThemeMuted}" Text="2.0.0-alpha" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"/></Border>
           <Border x:Name="TopWarning" Width="220" Height="26" VerticalAlignment="Center" Background="{DynamicResource ThemeWarningBg}" CornerRadius="13" Padding="9,0" Margin="8,0,0,0"><TextBlock x:Name="RefundWarning" FontSize="10" Foreground="{DynamicResource ThemeWarning}" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
           <TextBlock x:Name="PageTitle" Visibility="Collapsed"/>
         </StackPanel>
@@ -515,35 +515,19 @@
             </Border>
             <Border x:Name="BackendSection" Style="{StaticResource Surface}" Padding="15,12" Margin="0,12,0,0">
               <StackPanel>
-                <Grid Margin="0,0,0,6"><TextBlock x:Name="BackendsHeading" Foreground="{DynamicResource ThemeMuted}" FontSize="11.5" VerticalAlignment="Center"/><Button x:Name="RefreshBackendsButton" Style="{DynamicResource GhostButton}" Width="26" Height="26" Padding="0" Background="Transparent" BorderThickness="0" HorizontalAlignment="Right"><Path Width="13" Height="13" Stretch="Uniform" Stroke="{DynamicResource ThemeMuted}" StrokeThickness="1.5" Data="M 12 5 A 5 5 0 1 0 12 9 M 12 1 L 12 5 L 8 5"/></Button><ComboBox x:Name="ActiveCombo" Visibility="Collapsed"/></Grid>
+                <Grid Margin="0,0,0,6"><TextBlock x:Name="BackendsHeading" Foreground="{DynamicResource ThemeMuted}" FontSize="11.5" VerticalAlignment="Center"/><Button x:Name="RefreshBackendsButton" Style="{DynamicResource GhostButton}" Width="26" Height="26" Padding="0" Background="Transparent" BorderThickness="0" HorizontalAlignment="Right"><Path Width="13" Height="13" Stretch="Uniform" Stroke="{DynamicResource ThemeMuted}" StrokeThickness="1.5" Data="M 12 5 A 5 5 0 1 0 12 9 M 12 1 L 12 5 L 8 5"/></Button></Grid>
                 <Grid>
                   <Border Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="12" Padding="12,10" MinHeight="82">
                     <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                       <DockPanel>
                         <Button x:Name="MochiShareCodeButton" DockPanel.Dock="Right" Style="{DynamicResource GhostButton}" Height="22" FontSize="10" Padding="8,0" Margin="6,0,0,0" VerticalAlignment="Top"/>
-                        <CheckBox x:Name="MochiCheck" Content="mochizuki 0.0.8.3" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Top" IsChecked="True" IsEnabled="False"/>
+                        <CheckBox x:Name="MochiCheck" Content="mochizuki 0.0.8.4" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Top" IsChecked="True" IsEnabled="True"/>
                       </DockPanel>
                       <Grid Grid.Row="2" Margin="0,5,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <Border x:Name="MochiBadge" Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="10" Padding="7,2" HorizontalAlignment="Left" VerticalAlignment="Center"><TextBlock x:Name="MochiReason" FontSize="10" Foreground="{DynamicResource ThemeMuted}"/></Border>
-                        <Button x:Name="MochiActiveBtn" Grid.Column="1" Style="{DynamicResource GhostButton}" Height="23" FontSize="10" Padding="7,0" Margin="5,0,0,0" Visibility="Collapsed"/>
-                        <TextBlock x:Name="MochiActiveLabel" Grid.Column="1" Foreground="{DynamicResource ThemeAccent}" FontSize="10" VerticalAlignment="Center" Visibility="Collapsed" Margin="5,0,0,0"/>
                       </Grid>
                       <TextBlock x:Name="MochiDescription" Grid.Row="1" FontSize="10" Foreground="{DynamicResource ThemeMuted}" Margin="0,4,0,0" TextWrapping="Wrap"/>
                     </Grid>
-                  </Border>
-                  <Border Visibility="Collapsed">
-                    <StackPanel>
-                      <CheckBox x:Name="LmxxfCheck" Content="lmxxf 0.4.4"/>
-                      <Border x:Name="LmxxfBadge"><TextBlock x:Name="LmxxfReason"/></Border>
-                      <Button x:Name="LmxxfActiveBtn"/>
-                      <TextBlock x:Name="LmxxfActiveLabel"/>
-                      <TextBlock x:Name="LmxxfDescription"/>
-                      <CheckBox x:Name="DanielCheck" Content="daniel 0.6.0"/>
-                      <Border x:Name="DanielBadge"><TextBlock x:Name="DanielReason"/></Border>
-                      <Button x:Name="DanielActiveBtn"/>
-                      <TextBlock x:Name="DanielActiveLabel"/>
-                      <TextBlock x:Name="DanielDescription"/>
-                    </StackPanel>
                   </Border>
                 </Grid>
                 <Border x:Name="OpenRrCard" Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="12" Padding="11,9" Margin="0,9,0,0">
@@ -568,8 +552,6 @@
                 </Border>
                 <TextBlock x:Name="BackendPackagePath" Foreground="{DynamicResource ThemeMuted}" FontSize="10" Margin="0,8,0,0" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" Visibility="Collapsed"/>
                 <TextBlock x:Name="MochiHint" TextWrapping="Wrap" Foreground="{DynamicResource ThemeMuted}" FontSize="10.5" Margin="0,6,0,0" Visibility="Collapsed"/>
-                <TextBlock x:Name="LmxxfHint" TextWrapping="Wrap" Foreground="{DynamicResource ThemeMuted}" FontSize="10.5" Margin="0,3,0,0" Visibility="Collapsed"/>
-                <TextBlock x:Name="DanielHint" TextWrapping="Wrap" Foreground="{DynamicResource ThemeMuted}" FontSize="10.5" Margin="0,3,0,0" Visibility="Collapsed"/>
                 <Expander x:Name="BackendDetails" Margin="0,6,0,0" Foreground="{DynamicResource ThemeMuted}" FontSize="10.5" Visibility="Collapsed"><StackPanel><TextBlock x:Name="BackendDetailsHeading"/><TextBlock x:Name="BackendDetailsText" TextWrapping="Wrap" Margin="0,5,0,0"/></StackPanel></Expander>
               </StackPanel>
             </Border>

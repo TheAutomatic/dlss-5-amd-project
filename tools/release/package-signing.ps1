@@ -138,7 +138,7 @@ function Invoke-PackageSigning {
     if (@($items | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }).Count) {
         throw 'Refusing to sign through a reparse point.'
     }
-    $files = @($items | Where-Object { !$_.PSIsContainer -and $_.Extension -in @('.dll', '.exe', '.asi', '.ocx') } |
+    $files = @($items | Where-Object { !$_.PSIsContainer -and $_.Length -gt 0 -and $_.Extension -in @('.dll', '.exe', '.asi', '.ocx') } |
         Sort-Object FullName)
     if (!$files.Count) { throw 'No release binaries to sign.' }
     Initialize-PackageTrustVerifier

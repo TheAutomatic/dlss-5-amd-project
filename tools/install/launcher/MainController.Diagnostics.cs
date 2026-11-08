@@ -63,7 +63,6 @@ namespace OptScalerNR.Launcher
             _decisions.MochizukiModels = null;
             _decisions.MochizukiNetworks = null;
             _decisions.MochizukiActiveModel = null;
-            _decisions.LmxxfModels = null;
             _lastInspectResult = null;
             RefreshPackageComparisons(_packageRoot, true);
             RefreshDiagnosticModeUI();
@@ -105,7 +104,7 @@ namespace OptScalerNR.Launcher
                     File.Exists(Path.Combine(_packageRoot, "OptiScaler.dll")) &&
                     File.Exists(Path.Combine(_packageRoot, "launcher-worker.ps1")) &&
                     (File.Exists(Path.Combine(_packageRoot, "Setup.ps1")) ||
-                     File.Exists(Path.Combine(_packageRoot, "install-amd-presr.ps1")));
+                     File.Exists(Path.Combine(_packageRoot, "install.ps1")) || File.Exists(Path.Combine(_packageRoot, "install-amd-presr.ps1")));
             } catch (ArgumentException) { return false; }
               catch (NotSupportedException) { return false; }
               catch (PathTooLongException) { return false; }

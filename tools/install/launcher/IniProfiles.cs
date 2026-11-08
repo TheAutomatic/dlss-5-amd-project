@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -99,7 +99,9 @@ namespace OptScalerNR.Launcher
         public string Save(string sourceIni, string name)
         {
             if (!File.Exists(sourceIni)) throw new IniProfileException("noini");
-            return Add(File.ReadAllBytes(sourceIni), name);
+            var bytes = File.ReadAllBytes(sourceIni);
+            Validate(Document.Read(bytes).Text);
+            return Add(bytes, name);
         }
         public string Import(string sourceIni, string name)
         {
@@ -182,7 +184,7 @@ namespace OptScalerNR.Launcher
 
         static void Validate(string text)
         {
-            if (text.IndexOf('\0') >= 0 || !Regex.IsMatch(text, @"(?im)^\s*\[(OptiScaler|DlssNr)\][ \t]*(?:[;#][^\r\n]*)?\r?$") || !Regex.IsMatch(text, @"(?m)^\s*[^;#\[\r\n=]+=[^\r\n]*\r?$"))
+            if (text.IndexOf('\0') >= 0 || !Regex.IsMatch(text, @"(?im)^\s*\[(OptiScaler|DlssNr|Upscalers|FrameGen|Plugins|Menu|Spoofing|NvApi|Fsr|XeSS|DLSS|CAS|Sharpness|OutputScaling|InitFlags|Hotkeys|Log|Overlay)\][ \t]*(?:[;#][^\r\n]*)?\r?$") || !Regex.IsMatch(text, @"(?m)^\s*[^;#\[\r\n=]+=[^\r\n]*\r?$"))
                 throw new IniProfileException("invalid");
         }
         static void WriteNew(string path, byte[] bytes)

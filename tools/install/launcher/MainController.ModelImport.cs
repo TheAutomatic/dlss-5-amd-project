@@ -84,48 +84,189 @@ namespace OptScalerNR.Launcher
             catch { return false; }
         }
 
-        void EnsureSharedModelSources(string root)
+        static readonly Dictionary<string, Tuple<long, long, bool>> DlssnrHashCache =
+            new Dictionary<string, Tuple<long, long, bool>>(StringComparer.OrdinalIgnoreCase);
+        string _autoScannedRoot;
+        int _autoScanRunning;
+
+        // Only auto-copy 310.9.16 nvngx_dlssnr.dll (contains both Small and Original networks)
+        static bool IsDlssnr310_9_16(string path)
         {
-            if (string.IsNullOrEmpty(root) || !Directory.Exists(Path.Combine(root, "dlssnr-amd"))) return;
+            if (string.IsNullOrEmpty(path)) return false;
             try
             {
-                var searchDirs = new System.Collections.Generic.List<string>();
-                if (!string.IsNullOrEmpty(_settingsDir))
-                    searchDirs.Add(Path.Combine(_settingsDir, "models"));
-                var parent = Path.GetDirectoryName(root.TrimEnd('\\', '/'));
-                if (!string.IsNullOrEmpty(parent))
-                    searchDirs.Add(Path.Combine(parent, "weights"));
-                foreach (var dllName in new[] { "nvngx_dlssd.dll", "nvngx_dlssnr.dll" })
+                var fi = new FileInfo(path);
+                if (!fi.Exists || fi.Length < 65536) return false;
+                var full = fi.FullName;
+                var len = fi.Length;
+                var ticks = fi.LastWriteTimeUtc.Ticks;
+                lock (DlssnrHashCache)
                 {
-                    var dest = Path.Combine(root, dllName);
-                    if (File.Exists(dest)) continue;
-                    foreach (var dir in searchDirs)
-                    {
-                        if (string.IsNullOrEmpty(dir)) continue;
-                        var cand = Path.Combine(dir, dllName);
-                        if (!File.Exists(cand)) continue;
-                        if (dllName == "nvngx_dlssd.dll" && !IsDlssd310_9_1(cand)) continue;
-                        try { File.Copy(cand, dest, false); break; } catch { }
-                    }
+                    Tuple<long, long, bool> cached;
+                    if (DlssnrHashCache.TryGetValue(full, out cached) && cached.Item1 == len && cached.Item2 == ticks)
+                        return cached.Item3;
+                }
+                string hex;
+                using (var sha = SHA256.Create())
+                using (var fs = File.OpenRead(full))
+                    hex = BitConverter.ToString(sha.ComputeHash(fs)).Replace("-", "").ToLowerInvariant();
+                bool ok = hex == "2bc19bc09a7b89dd44f73e2ac0108fcc586e2154bdd0830f242f4f040e28789f";
+                lock (DlssnrHashCache)
+                {
+                    if (DlssnrHashCache.Count > 64) DlssnrHashCache.Clear();
+                    DlssnrHashCache[full] = Tuple.Create(len, ticks, ok);
+                }
+                return ok;
+            }
+            catch { return false; }
+        }
+
+        static bool IsValidMochizukiPack(string path, uint expectedEntries)
+        {
+            if (string.IsNullOrEmpty(path)) return false;
+            try
+            {
+                var fi = new FileInfo(path);
+                if (!fi.Exists || fi.Length <= 65536) return false;
+                using (var fs = File.OpenRead(fi.FullName))
+                {
+                    var hdr = new byte[16];
+                    if (fs.Read(hdr, 0, 16) != 16) return false;
+                    return System.Text.Encoding.ASCII.GetString(hdr, 0, 8) == "NRMODEL1" &&
+                           BitConverter.ToUInt32(hdr, 8) == expectedEntries &&
+                           BitConverter.ToUInt32(hdr, 12) == 0;
                 }
             }
-            catch { }
+            catch { return false; }
         }
 
-        void SaveToSharedModelStore(string sourcePath)
+        void EnsureSharedModelSources(string root)
         {
-            if (string.IsNullOrEmpty(sourcePath) || string.IsNullOrEmpty(_settingsDir)) return;
-            try
-            {
-                var modelsDir = Path.Combine(_settingsDir, "models");
-                Directory.CreateDirectory(modelsDir);
-                var dest = Path.Combine(modelsDir, Path.GetFileName(sourcePath));
-                if (!string.Equals(Path.GetFullPath(sourcePath), Path.GetFullPath(dest), StringComparison.OrdinalIgnoreCase))
-                    File.Copy(sourcePath, dest, true);
-            }
-            catch { }
-        }
+            if (string.IsNullOrEmpty(root) || _allGames == null || _allGames.Count == 0) return;
+            if (string.Equals(_autoScannedRoot, root, StringComparison.OrdinalIgnoreCase)) return;
+            if (System.Threading.Interlocked.CompareExchange(ref _autoScanRunning, 1, 0) != 0) return;
 
+            var searchDirs = new System.Collections.Generic.List<string>();
+            var parent = Path.GetDirectoryName(root.TrimEnd('\\', '/'));
+            if (!string.IsNullOrEmpty(parent))
+                searchDirs.Add(Path.Combine(parent, "weights"));
+            if (_selectedGame != null && !string.IsNullOrEmpty(_selectedGame.Exe))
+            {
+                var selDir = Path.GetDirectoryName(_selectedGame.Exe);
+                if (!string.IsNullOrEmpty(selDir)) searchDirs.Add(selDir);
+            }
+            foreach (var g in _allGames)
+            {
+                if (g == null || string.IsNullOrEmpty(g.Exe)) continue;
+                var gDir = Path.GetDirectoryName(g.Exe);
+                if (!string.IsNullOrEmpty(gDir)) searchDirs.Add(gDir);
+            }
+            var settingsDir = _settingsDir;
+
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                bool copiedAny = false;
+                try
+                {
+                    var localApp = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                    if (!string.IsNullOrEmpty(localApp))
+                    {
+                        var legacyStore = Path.Combine(localApp, "OptScalerNR", "ModelStore");
+                        if (Directory.Exists(legacyStore)) try { Directory.Delete(legacyStore, true); } catch { }
+                    }
+                    if (!string.IsNullOrEmpty(settingsDir))
+                    {
+                        var legacyModels = Path.Combine(settingsDir, "models");
+                        if (Directory.Exists(legacyModels)) try { Directory.Delete(legacyModels, true); } catch { }
+                    }
+                    if (!Directory.Exists(Path.Combine(root, "dlssnr-amd"))) return;
+
+                    var destDlssnr = Path.Combine(root, "nvngx_dlssnr.dll");
+                    bool hasNr = File.Exists(destDlssnr);
+                    var destSmallPack = Path.Combine(root, "dlssnr-amd", "CC_SMALL_FP8.bin");
+                    bool hasSmall = NonEmptyFile(destSmallPack);
+                    var destOrigPack = Path.Combine(root, "dlssnr-amd", "CC_SILVER_AARDWOLD.bin");
+                    bool hasOrig = NonEmptyFile(destOrigPack);
+                    var destDlssd = Path.Combine(root, "nvngx_dlssd.dll");
+                    var destDlssdSub = Path.Combine(root, "openrr-amd", "nvngx_dlssd.dll");
+                    bool hasDlssd = IsDlssd310_9_1(destDlssd) || IsDlssd310_9_1(destDlssdSub);
+
+                    if (hasNr && hasSmall && hasOrig && hasDlssd)
+                    {
+                        _autoScannedRoot = root;
+                        return;
+                    }
+
+                    if (!hasNr)
+                    {
+                        foreach (var dir in searchDirs)
+                        {
+                            var cand = Path.Combine(dir, "nvngx_dlssnr.dll");
+                            if (IsDlssnr310_9_16(cand))
+                            {
+                                try { File.Copy(cand, destDlssnr, false); copiedAny = true; break; } catch { }
+                            }
+                        }
+                    }
+
+                    if (!hasSmall)
+                    {
+                        foreach (var dir in searchDirs)
+                        {
+                            var cand = Path.Combine(dir, "dlssnr-amd", "CC_SMALL_FP8.bin");
+                            if (IsValidMochizukiPack(cand, 255))
+                            {
+                                try { File.Copy(cand, destSmallPack, false); copiedAny = true; break; } catch { }
+                            }
+                        }
+                    }
+
+                    if (!hasOrig)
+                    {
+                        foreach (var dir in searchDirs)
+                        {
+                            var cand = Path.Combine(dir, "dlssnr-amd", "CC_SILVER_AARDWOLD.bin");
+                            if (IsValidMochizukiPack(cand, 599))
+                            {
+                                try { File.Copy(cand, destOrigPack, false); copiedAny = true; break; } catch { }
+                            }
+                        }
+                    }
+
+                    if (!hasDlssd)
+                    {
+                        foreach (var dir in searchDirs)
+                        {
+                            foreach (var rel in new[] { "nvngx_dlssd.dll", @"openrr-amd\nvngx_dlssd.dll", @"opennr-rr\nvngx_dlssd.dll" })
+                            {
+                                var cand = Path.Combine(dir, rel);
+                                if (IsDlssd310_9_1(cand))
+                                {
+                                    try { File.Copy(cand, destDlssd, true); copiedAny = true; break; } catch { }
+                                }
+                            }
+                            if (IsDlssd310_9_1(destDlssd)) break;
+                        }
+                    }
+                    _autoScannedRoot = root;
+                }
+                catch { }
+                finally
+                {
+                    System.Threading.Interlocked.Exchange(ref _autoScanRunning, 0);
+                }
+
+                if (copiedAny && !_closed && !_window.Dispatcher.HasShutdownStarted)
+                {
+                    _window.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (_closed || _writeBusy) return;
+                        RefreshModelImportBar();
+                        if (_selectedGame != null && _selectedGame.HasExecutable) InspectGame(_selectedGame);
+                    }));
+                }
+            });
+        }
         bool HasValidOpenRrDlssd()
         {
             var root = ResolveImportRoot();
@@ -133,38 +274,19 @@ namespace OptScalerNR.Launcher
             {
                 EnsureSharedModelSources(root);
                 if (IsDlssd310_9_1(Path.Combine(root, "nvngx_dlssd.dll"))) return true;
-                if (IsDlssd310_9_1(Path.Combine(root, "opennr-rr", "nvngx_dlssd.dll"))) return true;
+                if (IsDlssd310_9_1(Path.Combine(root, "openrr-amd", "nvngx_dlssd.dll")) || IsDlssd310_9_1(Path.Combine(root, "opennr-rr", "nvngx_dlssd.dll"))) return true;
             }
             if (_selectedGame != null && !string.IsNullOrEmpty(_selectedGame.Exe))
             {
                 var gameDir = Path.GetDirectoryName(_selectedGame.Exe);
                 if (!string.IsNullOrEmpty(gameDir))
                 {
-                    if (IsDlssd310_9_1(Path.Combine(gameDir, "opennr-rr", "nvngx_dlssd.dll"))) return true;
+                    if (IsDlssd310_9_1(Path.Combine(gameDir, "openrr-amd", "nvngx_dlssd.dll")) || IsDlssd310_9_1(Path.Combine(gameDir, "opennr-rr", "nvngx_dlssd.dll"))) return true;
                     if (IsDlssd310_9_1(Path.Combine(gameDir, "nvngx_dlssd.dll"))) return true;
-                }
-            }
-            if (!string.IsNullOrEmpty(root) && Directory.Exists(Path.Combine(root, "opennr-rr")) && _allGames != null)
-            {
-                foreach (var g in _allGames)
-                {
-                    if (g == null || string.IsNullOrEmpty(g.Exe)) continue;
-                    var gDir = Path.GetDirectoryName(g.Exe);
-                    if (string.IsNullOrEmpty(gDir)) continue;
-                    foreach (var rel in new[] { "nvngx_dlssd.dll", @"opennr-rr\nvngx_dlssd.dll" })
-                    {
-                        var cand = Path.Combine(gDir, rel);
-                        if (IsDlssd310_9_1(cand))
-                        {
-                            try { File.Copy(cand, Path.Combine(root, "nvngx_dlssd.dll"), false); } catch { }
-                            return true;
-                        }
-                    }
                 }
             }
             return false;
         }
-
         bool SelectedBackendNeedsImport(out string message)
         {
             message = "";
@@ -193,23 +315,30 @@ namespace OptScalerNR.Launcher
             if (_openRrStatusText == null || _openRrBadge == null) return;
             var enabled = _openRrToggle != null && _openRrToggle.IsChecked == true;
             var hasDlssd = HasValidOpenRrDlssd();
+            bool isPlaceholderAsi = false;
+            try {
+                var root = ResolveImportRoot();
+                var asiPath = Path.Combine(root, "OptiScaler", "plugins", "openrr-amd.asi");
+                if (!File.Exists(asiPath)) asiPath = Path.Combine(root, "OptiScaler", "plugins", "openrr.asi");
+                if (File.Exists(asiPath) && new FileInfo(asiPath).Length == 0) isPlaceholderAsi = true;
+            } catch { }
             if (!enabled)
             {
-                _openRrStatusText.Text = L("已关闭 · 使用内置 FSR-RR", "Off · Uses built-in FSR-RR");
+                _openRrStatusText.Text = L("已关闭", "Off");
                 _openRrStatusText.Foreground = MissingBrush;
                 _openRrBadge.Background = MissingBg;
                 _openRrBadge.BorderBrush = MissingBorder;
             }
             else if (hasDlssd)
             {
-                _openRrStatusText.Text = L("已就绪 · nvngx_dlssd.dll 310.9.1", "Ready · nvngx_dlssd.dll 310.9.1");
+                _openRrStatusText.Text = isPlaceholderAsi ? L("占位符待替换 · nvngx_dlssd.dll 已就绪", "Placeholder ASI · nvngx_dlssd.dll Ready") : L("已就绪 · nvngx_dlssd.dll 310.9.1", "Ready · nvngx_dlssd.dll 310.9.1");
                 _openRrStatusText.Foreground = ReadyBrush;
                 _openRrBadge.Background = ReadyBg;
                 _openRrBadge.BorderBrush = ReadyBorder;
             }
             else
             {
-                _openRrStatusText.Text = L("待导入 nvngx_dlssd.dll (310.9.1.0)", "Needs nvngx_dlssd.dll (310.9.1.0)");
+                _openRrStatusText.Text = isPlaceholderAsi ? L("openrr.asi 占位符 · 待导入 nvngx_dlssd.dll", "Placeholder ASI · Needs nvngx_dlssd.dll") : L("待导入 nvngx_dlssd.dll (310.9.1.0)", "Needs nvngx_dlssd.dll (310.9.1.0)");
                 _openRrStatusText.Foreground = WarningBrush;
                 _openRrBadge.Background = MissingBg;
                 _openRrBadge.BorderBrush = WarningBrush;
@@ -220,14 +349,9 @@ namespace OptScalerNR.Launcher
                 _openRrImportButton.IsEnabled = PresentationIdle;
             }
             SetLabel("OpenRrDescription",
-                hasDlssd
-                    ? "在 RX 9000 (RDNA4) 显卡上原生运行 NVIDIA DLSS 光线重建网络（支持 D3D12 直录与 Vulkan）。已检测到 310.9.1.0 版 nvngx_dlssd.dll；取消勾选或非 RX 9000 显卡将自动使用内置 FSR 光线再生 (FSR-RR)。"
-                    : "在 RX 9000 (RDNA4) 显卡上原生运行 NVIDIA DLSS 光线重建网络（支持 D3D12 直录与 Vulkan）。需导入一次 310.9.1.0 版 nvngx_dlssd.dll；取消勾选或非 RX 9000 显卡将自动使用内置 FSR 光线再生 (FSR-RR)。",
-                hasDlssd
-                    ? "Runs NVIDIA's DLSS Ray Reconstruction network natively on RX 9000 (RDNA4) GPUs (D3D12 & Vulkan). nvngx_dlssd.dll (310.9.1.0) is ready; unchecking or non-RX 9000 GPUs automatically use built-in FSR Ray Regeneration (FSR-RR)."
-                    : "Runs NVIDIA's DLSS Ray Reconstruction network natively on RX 9000 (RDNA4) GPUs (D3D12 & Vulkan). Import nvngx_dlssd.dll (310.9.1.0) once; unchecking or non-RX 9000 GPUs automatically use built-in FSR Ray Regeneration (FSR-RR).");
+                "适合 RX 9000 系列（请仅在支持 NVIDIA 光线重建游戏中使用）",
+                "For RX 9000 series (Use only in games supporting NVIDIA Ray Reconstruction)");
         }
-
         void RefreshModelImportBar()
         {
             RefreshOpenRrCard();
@@ -262,7 +386,6 @@ namespace OptScalerNR.Launcher
                     Directory.CreateDirectory(root);
                     File.Copy(source, destination, true);
                 }
-                SaveToSharedModelStore(source);
                 if (_statusText != null) _statusText.Text = L("已导入 nvngx_dlssd.dll (310.9.1.0)，OpenRR 已就绪。", "Imported nvngx_dlssd.dll (310.9.1.0); OpenRR is ready.");
                 RefreshModelImportBar();
                 if (_selectedGame != null && _selectedGame.HasExecutable) InspectGame(_selectedGame);
@@ -301,7 +424,6 @@ namespace OptScalerNR.Launcher
                 }
                 Directory.CreateDirectory(root);
                 File.Copy(source, destination, true);
-                SaveToSharedModelStore(source);
                 if (_statusText != null) _statusText.Text = string.Format(L("已导入 {0}，正在重新检查后端…", "Imported {0}; rechecking backends…"), Path.GetFileName(source));
                 if (_selectedGame != null && _selectedGame.HasExecutable) InspectGame(_selectedGame);
             } catch (Exception ex) {
@@ -373,7 +495,7 @@ namespace OptScalerNR.Launcher
             new KeyValuePair<string, string[]>("fsr_fg", new[] { "amd_fidelityfx_framegeneration_dx12.dll" }),
             new KeyValuePair<string, string[]>("fsr_upscaler", new[] { "amd_fidelityfx_upscaler_dx12.dll" }),
             new KeyValuePair<string, string[]>("fsr_loader", new[] { "amd_fidelityfx_loader_dx12.dll" }),
-            new KeyValuePair<string, string[]>("fsr_vk", new[] { "amd_fidelityfx_vk.dll" })
+            new KeyValuePair<string, string[]>("fsr_vk", new[] { "amd_fidelityfx_loader_vk.dll", "amd_fidelityfx_upscaler_vk.dll", "amd_fidelityfx_framegeneration_vk.dll" })
         };
 
         static bool HasReparseAncestor(string path)

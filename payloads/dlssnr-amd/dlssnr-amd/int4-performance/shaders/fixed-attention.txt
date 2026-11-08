@@ -1,0 +1,11 @@
+fswin32
+fswin32d
+fswin32nh
+fswin32nhd
+fswindsp32
+fswindsp32nh
+fswinfusedup32
+fswinfusedup32nh
+fswinimagepost32
+fswinimagepreds32
+fswinimagepreds32nh
