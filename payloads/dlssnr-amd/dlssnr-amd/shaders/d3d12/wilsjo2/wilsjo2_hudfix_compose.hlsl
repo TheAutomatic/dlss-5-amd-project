@@ -10,16 +10,16 @@ bool4 nr_isinf(float4 x) { return (asuint(x) & 0x7fffffffu) == 0x7f800000u; }
 #define isnan nr_isnan
 #define isinf nr_isinf
 ByteAddressBuffer cb : register(t6);
+RWTexture2D<float4> u0 : register(u4);
+globallycoherent RWTexture2D<uint> u1 : register(u5);
 Texture2D<float4> t0 : register(t0);
 SamplerState _t0_sampler : register(s0);
 Texture2D<float4> t1 : register(t1);
 SamplerState _t1_sampler : register(s1);
 Texture2D<float4> t2 : register(t2);
 SamplerState _t2_sampler : register(s2);
-globallycoherent RWTexture2D<uint> u1 : register(u5);
 Texture2D<float4> t3 : register(t3);
 SamplerState _t3_sampler : register(s3);
-RWTexture2D<float4> u0 : register(u4);
 
 static uint3 gl_GlobalInvocationID;
 struct SPIRV_Cross_Input
@@ -29,56 +29,49 @@ struct SPIRV_Cross_Input
 
 groupshared uint s_hud;
 groupshared uint s_coarse;
-groupshared uint s_changed;
-groupshared uint s_structure;
 
 bool differs(float3 a, float3 b, float tolerance)
 {
     float3 scale = max(1.0f.xxx, abs(b));
-    float3 _80 = abs(a - b);
-    float3 _83 = scale * tolerance;
-    return any(bool3(_80.x > _83.x, _80.y > _83.y, _80.z > _83.z));
-}
-
-int2 tiles()
-{
-    return int2((int(cb.Load(8)) + 7) / 8, (int(cb.Load(12)) + 7) / 8);
-}
-
-int2 flag_at(int2 t, uint set)
-{
-    return int2(t.x, (1 + (int(set) * tiles().y)) + t.y);
+    float3 _26 = abs(a - b);
+    float3 _29 = scale * tolerance;
+    return any(bool3(_26.x > _29.x, _26.y > _29.y, _26.z > _29.z));
 }
 
 void comp_main()
 {
     int2 p = int2(gl_GlobalInvocationID.xy);
-    bool _104 = p.x < int(cb.Load(8));
-    bool _113;
-    if (_104)
+    bool _63 = p.x < int(cb.Load(8));
+    bool _74;
+    if (_63)
     {
-        _113 = p.y < int(cb.Load(12));
+        _74 = p.y < int(cb.Load(12));
     }
     else
     {
-        _113 = _104;
+        _74 = _63;
     }
-    bool inside = _113;
+    bool inside = _74;
     if (!inside)
     {
         return;
     }
+    if (cb.Load(52) == 5u)
+    {
+        float4 _107;
+        if (u1[int2(0, 0)].xxxx.x > cb.Load(44))
+        {
+            _107 = t0.Load(int3(p, 0));
+        }
+        else
+        {
+            _107 = t1.Load(int3(p, 0));
+        }
+        u0[p] = _107;
+        return;
+    }
     float4 back = t0.Load(int3(p, 0));
-    float4 _137;
-    if (cb.Load(52) == 3u)
-    {
-        _137 = back;
-    }
-    else
-    {
-        _137 = t1.Load(int3(p, 0));
-    }
-    float4 hudless = _137;
+    float4 hudless = t1.Load(int3(p, 0));
     float4 enhanced = t2.Load(int3(p, 0));
     float4 result;
     if (cb.Load(52) == 2u)
@@ -93,124 +86,99 @@ void comp_main()
         bool coarse = differs(param_3, param_4, param_5);
         if (u1[int2(0, 0)].xxxx.x > cb.Load(44))
         {
-            bool _199 = cb.Load(48) != 0u;
-            bool _209;
-            if (_199)
+            if (cb.Load(48) == 2u)
             {
-                _209 = u1[int2(1, 0)].xxxx.x <= cb.Load(44);
+                result = float4(enhanced.xyz, back.w);
             }
             else
             {
-                _209 = _199;
-            }
-            if (_209)
-            {
-                float4 _214;
-                if (coarse)
+                bool _197 = cb.Load(48) != 0u;
+                bool _208;
+                if (_197)
                 {
-                    _214 = back;
+                    _208 = u1[int2(1, 0)].xxxx.x <= cb.Load(44);
                 }
                 else
                 {
-                    _214 = float4(back.xyz + (enhanced.xyz - hudless.xyz), back.w);
+                    _208 = _197;
                 }
-                result = _214;
-            }
-            else
-            {
-                result = back;
+                if (_208)
+                {
+                    float4 _212;
+                    if (coarse)
+                    {
+                        _212 = back;
+                    }
+                    else
+                    {
+                        _212 = float4(back.xyz + (enhanced.xyz - hudless.xyz), back.w);
+                    }
+                    result = _212;
+                }
+                else
+                {
+                    result = back;
+                }
             }
         }
         else
         {
-            float4 _238;
+            float4 _236;
             if (hud)
             {
-                _238 = back;
+                _236 = back;
             }
             else
             {
-                _238 = float4(enhanced.xyz, back.w);
+                _236 = float4(enhanced.xyz, back.w);
             }
-            result = _238;
+            result = _236;
         }
     }
     else
     {
-        float alpha;
-        if (cb.Load(52) == 3u)
+        float4 ui = t3.Load(int3(p, 0));
+        float _261;
+        if (cb.Load(52) == 0u)
         {
-            alpha = 0.0f;
-            for (int y = -2; y <= 2; y++)
-            {
-                for (int x = -2; x <= 2; x++)
-                {
-                    int2 q = clamp(p + int2(x, y), int2(0, 0), int2(int(cb.Load(8)) - 1, int(cb.Load(12)) - 1));
-                    alpha = max(alpha, t3.Load(int3(q, 0)).x);
-                }
-            }
-            int2 param_6 = p / int2(8, 8);
-            uint param_7 = 1u - cb.Load(28);
-            bool _320 = (u1[flag_at(param_6, param_7)].xxxx.x & 64u) != 0u;
-            bool _330;
-            if (_320)
-            {
-                _330 = t3.Load(int3(p, 0)).z > 0.5f;
-            }
-            else
-            {
-                _330 = _320;
-            }
-            if (_330)
-            {
-                alpha = 1.0f;
-            }
+            _261 = ui.x;
         }
         else
         {
-            float4 ui = t3.Load(int3(p, 0));
-            float _342;
-            if (cb.Load(52) == 0u)
-            {
-                _342 = ui.x;
-            }
-            else
-            {
-                _342 = ui.w;
-            }
-            alpha = clamp(_342, 0.0f, 1.0f);
+            _261 = ui.w;
         }
-        float4 _354;
+        float alpha = clamp(_261, 0.0f, 1.0f);
+        float4 _274;
         if (alpha >= 1.0f)
         {
-            _354 = back;
+            _274 = back;
         }
         else
         {
-            _354 = float4(back.xyz + ((enhanced.xyz - hudless.xyz) * (1.0f - alpha)), back.w);
+            _274 = float4(back.xyz + ((enhanced.xyz - hudless.xyz) * (1.0f - alpha)), back.w);
         }
-        result = _354;
+        result = _274;
         if (cb.Load(24) != 0u)
         {
             result = float4(alpha.xxx, 1.0f);
         }
     }
-    bool _391 = cb.Load(24) != 0u;
-    bool _397;
-    if (_391)
+    bool _311 = cb.Load(24) != 0u;
+    bool _317;
+    if (_311)
     {
-        _397 = cb.Load(52) == 2u;
+        _317 = cb.Load(52) == 2u;
     }
     else
     {
-        _397 = _391;
+        _317 = _311;
     }
-    if (_397)
+    if (_317)
     {
-        float3 param_8 = back.xyz;
-        float3 param_9 = hudless.xyz;
-        float param_10 = asfloat(cb.Load(56));
-        result = differs(param_8, param_9, param_10) ? 1.0f.xxxx : float4(0.0f, 0.0f, 0.0f, 1.0f);
+        float3 param_6 = back.xyz;
+        float3 param_7 = hudless.xyz;
+        float param_8 = asfloat(cb.Load(56));
+        result = differs(param_6, param_7, param_8) ? 1.0f.xxxx : float4(0.0f, 0.0f, 0.0f, 1.0f);
     }
     u0[p] = result;
 }

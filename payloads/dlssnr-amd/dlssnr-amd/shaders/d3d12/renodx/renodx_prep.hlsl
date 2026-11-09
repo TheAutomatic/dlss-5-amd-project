@@ -76,17 +76,17 @@ float3x3 spvInverse(float3x3 m)
 
 bool finite(float3 v)
 {
-    bool _1185 = !any(isnan(v));
-    bool _1192;
-    if (_1185)
+    bool _1193 = !any(isnan(v));
+    bool _1200;
+    if (_1193)
     {
-        _1192 = !any(isinf(v));
+        _1200 = !any(isinf(v));
     }
     else
     {
-        _1192 = _1185;
+        _1200 = _1193;
     }
-    return _1192;
+    return _1200;
 }
 
 bool linear_frame()
@@ -102,18 +102,18 @@ float3 dec(inout float3 v)
 
 float3 light(float3 P)
 {
-    float3 _199;
+    float3 _207;
     if (linear_frame())
     {
-        _199 = max(P, 0.0f.xxx);
+        _207 = max(P, 0.0f.xxx);
     }
     else
     {
         float3 param = P;
-        float3 _208 = dec(param);
-        _199 = _208;
+        float3 _216 = dec(param);
+        _207 = _216;
     }
-    return _199;
+    return _207;
 }
 
 float3 light_at(float3 P, int2 xy)
@@ -146,8 +146,8 @@ void meter()
         float3 param_1 = P;
         int2 param_2 = xy;
         float l = max(dot(light_at(param_1, param_2), float3(0.2125999927520751953125f, 0.715200006961822509765625f, 0.072200000286102294921875f)), 1.4999999621068127453327178955078e-05f);
-        uint _1301;
-        InterlockedAdd(hist[uint(clamp((log2(l) + 16.0f) * 6.400000095367431640625f, 0.0f, 127.0f))], 1u, _1301);
+        uint _1309;
+        InterlockedAdd(hist[uint(clamp((log2(l) + 16.0f) * 6.400000095367431640625f, 0.0f, 127.0f))], 1u, _1309);
     }
     GroupMemoryBarrierWithGroupSync();
     if (t != 0u)
@@ -159,27 +159,27 @@ void meter()
     {
         n += hist[b_1];
     }
-    bool _1330 = asfloat(st.Load(4)) == 1.0f;
-    bool _1338;
-    if (_1330)
+    bool _1338 = asfloat(st.Load(4)) == 1.0f;
+    bool _1346;
+    if (_1338)
     {
-        _1338 = (pc_flags & 8u) == 0u;
+        _1346 = (pc_flags & 8u) == 0u;
     }
     else
     {
-        _1338 = _1330;
+        _1346 = _1338;
     }
-    bool valid = _1338;
-    float _1341;
+    bool valid = _1346;
+    float _1349;
     if (valid)
     {
-        _1341 = asfloat(st.Load(0));
+        _1349 = asfloat(st.Load(0));
     }
     else
     {
-        _1341 = 0.0f;
+        _1349 = 0.0f;
     }
-    float s = _1341;
+    float s = _1349;
     if (n >= 64u)
     {
         float lo = 0.100000001490116119384765625f * float(n);
@@ -202,16 +202,16 @@ void meter()
         float target = clamp((-2.4739000797271728515625f) - (sum / max(weight, 1.0f)), -4.0f, 8.0f);
         st.Store(12, asuint(target));
         float speed = (target < s) ? 3.0f : 1.0f;
-        float _1433;
+        float _1441;
         if (valid)
         {
-            _1433 = s + ((target - s) * (1.0f - exp((-clamp(pc_dt, 0.0f, 0.25f)) * speed)));
+            _1441 = s + ((target - s) * (1.0f - exp((-clamp(pc_dt, 0.0f, 0.25f)) * speed)));
         }
         else
         {
-            _1433 = target;
+            _1441 = target;
         }
-        s = _1433;
+        s = _1441;
     }
     s = clamp(s, -4.0f, 8.0f);
     st.Store(0, asuint(s));
@@ -221,16 +221,16 @@ void meter()
 
 float gain()
 {
-    float _1069;
+    float _1077;
     if ((pc_flags & 1u) != 0u)
     {
-        _1069 = asfloat(st.Load(8));
+        _1077 = asfloat(st.Load(8));
     }
     else
     {
-        _1069 = exp2(pc_bias);
+        _1077 = exp2(pc_bias);
     }
-    return _1069;
+    return _1077;
 }
 
 bool unknee()
@@ -326,8 +326,8 @@ float3 curve(float3 x)
         case 1u:
         {
             float3 param = x * pc_k;
-            float3 _944 = neutral(param);
-            return _944;
+            float3 _952 = neutral(param);
+            return _952;
         }
         case 2u:
         {
@@ -356,17 +356,17 @@ float3 curve(float3 x)
         }
         default:
         {
-            float3 _982;
+            float3 _990;
             if (unknee())
             {
                 float3 param_6 = x;
-                _982 = knee(param_6);
+                _990 = knee(param_6);
             }
             else
             {
-                _982 = x;
+                _990 = x;
             }
-            return _982;
+            return _990;
         }
     }
 }
@@ -395,11 +395,11 @@ float3 enc(inout float3 v)
 
 float3 half_rtz(float3 v)
 {
-    float3 _1471 = trunc(v * 16777216.0f) * 5.9604644775390625e-08f;
-    float3 _1478 = asfloat(asuint(v) & uint3(4294959104u, 4294959104u, 4294959104u));
-    float3 _1480 = abs(v);
-    bool3 _1483 = bool3(_1480.x >= 6.103515625e-05f.xxx.x, _1480.y >= 6.103515625e-05f.xxx.y, _1480.z >= 6.103515625e-05f.xxx.z);
-    return float3(_1483.x ? _1478.x : _1471.x, _1483.y ? _1478.y : _1471.y, _1483.z ? _1478.z : _1471.z);
+    float3 _1479 = trunc(v * 16777216.0f) * 5.9604644775390625e-08f;
+    float3 _1486 = asfloat(asuint(v) & uint3(4294959104u, 4294959104u, 4294959104u));
+    float3 _1488 = abs(v);
+    bool3 _1491 = bool3(_1488.x >= 6.103515625e-05f.xxx.x, _1488.y >= 6.103515625e-05f.xxx.y, _1488.z >= 6.103515625e-05f.xxx.z);
+    return float3(_1491.x ? _1486.x : _1479.x, _1491.y ? _1486.y : _1479.y, _1491.z ? _1486.z : _1479.z);
 }
 
 float3 knee_inv(float3 d)
@@ -529,12 +529,12 @@ float3 agx_inv(float3 y)
 {
     float3 v = mul(pow(max(y, 0.0f.xxx), 0.4545454680919647216796875f.xxx), spvInverse(float3x3(float3(1.19687902927398681640625f, -0.0528968535363674163818359375f, -0.0529716350138187408447265625f), float3(-0.0980208814144134521484375f, 1.1519031524658203125f, -0.098043449223041534423828125f), float3(-0.099029742181301116943359375f, -0.098961174488067626953125f, 1.1510736942291259765625f))));
     float param = v.x;
-    float _908 = agx_sig_inv(param);
+    float _916 = agx_sig_inv(param);
     float param_1 = v.y;
-    float _912 = agx_sig_inv(param_1);
+    float _920 = agx_sig_inv(param_1);
     float param_2 = v.z;
-    float _916 = agx_sig_inv(param_2);
-    v = float3(_908, _912, _916);
+    float _924 = agx_sig_inv(param_2);
+    v = float3(_916, _920, _924);
     v = exp2((v * 16.4999980926513671875f) + (-12.47393035888671875f).xxx);
     return mul(v, spvInverse(float3x3(float3(0.842479050159454345703125f, 0.0423282422125339508056640625f, 0.0423756539821624755859375f), float3(0.0784336030483245849609375f, 0.87846863269805908203125f, 0.0784336030483245849609375f), float3(0.079223744571208953857421875f, 0.07916612923145294189453125f, 0.8791429996490478515625f))));
 }
@@ -551,8 +551,8 @@ float3 curve_inv(float3 y)
         case 2u:
         {
             float3 param_1 = y;
-            float3 _1014 = reinhard_inv(param_1);
-            return _1014 / pc_k.xxx;
+            float3 _1022 = reinhard_inv(param_1);
+            return _1022 / pc_k.xxx;
         }
         case 3u:
         {
@@ -567,8 +567,8 @@ float3 curve_inv(float3 y)
         case 5u:
         {
             float3 param_4 = y;
-            float3 _1038 = aces_inv(param_4);
-            return _1038 / pc_k.xxx;
+            float3 _1046 = aces_inv(param_4);
+            return _1046 / pc_k.xxx;
         }
         case 6u:
         {
@@ -577,17 +577,17 @@ float3 curve_inv(float3 y)
         }
         default:
         {
-            float3 _1053;
+            float3 _1061;
             if (unknee())
             {
                 float3 param_6 = y;
-                _1053 = knee_inv(param_6);
+                _1061 = knee_inv(param_6);
             }
             else
             {
-                _1053 = y;
+                _1061 = y;
             }
-            return _1053;
+            return _1061;
         }
     }
 }
@@ -610,18 +610,37 @@ float3 backward(float3 y)
 
 float3 reencode(float3 v)
 {
-    float3 _213;
+    float3 _221;
     if (linear_frame())
     {
-        _213 = v;
+        _221 = v;
     }
     else
     {
         float3 param = v;
-        float3 _220 = enc(param);
-        _213 = _220;
+        float3 _228 = enc(param);
+        _221 = _228;
     }
-    return _213;
+    return _221;
+}
+
+float3 neutral_sdr_bound(float3 original, float3 resolved, float3 nin, float3 nout, float cap)
+{
+    float3 input_edit = abs(nout - nin);
+    float limit = cap * max(input_edit.x, max(input_edit.y, input_edit.z));
+    float3 residual = resolved - original;
+    float3 magnitude = abs(residual);
+    float peak = max(magnitude.x, max(magnitude.y, magnitude.z));
+    float3 _1530;
+    if (peak > limit)
+    {
+        _1530 = original + (residual * (limit / peak));
+    }
+    else
+    {
+        _1530 = resolved;
+    }
+    return _1530;
 }
 
 void comp_main()
@@ -632,17 +651,17 @@ void comp_main()
         return;
     }
     int2 xy = int2(gl_GlobalInvocationID.xy);
-    bool _1506 = xy.x >= int(pc_width);
-    bool _1516;
-    if (!_1506)
+    bool _1564 = xy.x >= int(pc_width);
+    bool _1574;
+    if (!_1564)
     {
-        _1516 = xy.y >= int(pc_height);
+        _1574 = xy.y >= int(pc_height);
     }
     else
     {
-        _1516 = _1506;
+        _1574 = _1564;
     }
-    if (_1516)
+    if (_1574)
     {
         return;
     }
@@ -655,50 +674,50 @@ void comp_main()
             float3 x = light(param);
             if ((pc_flags & 32u) != 0u)
             {
-                float _1549;
+                float _1607;
                 if (pc_divisor > 0.0f)
                 {
-                    _1549 = pc_divisor;
+                    _1607 = pc_divisor;
                 }
                 else
                 {
-                    _1549 = max(Scale.Load(int3(int2(0, 0), 0)).x, 9.9999999392252902907785028219223e-09f);
+                    _1607 = max(Scale.Load(int3(int2(0, 0), 0)).x, 9.9999999392252902907785028219223e-09f);
                 }
-                x /= _1549.xxx;
+                x /= _1607.xxx;
             }
             float3 param_1 = P.xyz;
-            float4 _1574;
+            float4 _1632;
             if (finite(param_1))
             {
                 float3 param_2 = x;
-                float3 _1579 = forward(param_2);
-                _1574 = float4(_1579, P.w);
+                float3 _1637 = forward(param_2);
+                _1632 = float4(_1637, P.w);
             }
             else
             {
-                _1574 = P;
+                _1632 = P;
             }
-            b[xy] = _1574;
+            b[xy] = _1632;
             return;
         }
         if ((pc_flags & 128u) != 0u)
         {
             float3 param_3 = P.xyz;
-            float4 _1603;
+            float4 _1661;
             if (finite(param_3))
             {
                 float3 param_4 = P.xyz;
                 float3 param_5 = light(param_4);
-                float3 _1611 = forward(param_5);
-                float3 param_6 = _1611;
-                float3 _1613 = enc(param_6);
-                _1603 = float4(_1613, P.w);
+                float3 _1669 = forward(param_5);
+                float3 param_6 = _1669;
+                float3 _1671 = enc(param_6);
+                _1661 = float4(_1671, P.w);
             }
             else
             {
-                _1603 = P;
+                _1661 = P;
             }
-            b[xy] = _1603;
+            b[xy] = _1661;
             return;
         }
         b[xy] = P;
@@ -709,10 +728,10 @@ void comp_main()
         }
         float3 param_8 = P.xyz;
         float3 param_9 = light(param_8);
-        float3 _1642 = forward(param_9);
-        float3 param_10 = _1642;
-        float3 _1644 = enc(param_10);
-        a[xy] = float4(_1644, P.w);
+        float3 _1700 = forward(param_9);
+        float3 param_10 = _1700;
+        float3 _1702 = enc(param_10);
+        a[xy] = float4(_1702, P.w);
         return;
     }
     float4 nout = c[xy];
@@ -721,57 +740,57 @@ void comp_main()
     if ((pc_flags & 256u) != 0u)
     {
         float3 param_11 = P_1.xyz;
-        float4 _1672;
+        float4 _1730;
         if (finite(param_11))
         {
             float3 param_12 = P_1.xyz;
             float3 param_13 = light(param_12);
-            float3 _1680 = forward(param_13);
-            float3 param_14 = _1680;
-            float3 _1682 = enc(param_14);
-            float3 param_15 = _1682;
-            _1672 = float4(half_rtz(param_15), P_1.w);
+            float3 _1738 = forward(param_13);
+            float3 param_14 = _1738;
+            float3 _1740 = enc(param_14);
+            float3 param_15 = _1740;
+            _1730 = float4(half_rtz(param_15), P_1.w);
         }
         else
         {
-            _1672 = P_1;
+            _1730 = P_1;
         }
-        nin = _1672;
+        nin = _1730;
     }
     else
     {
         nin = a[xy];
     }
     float3 M = P_1.xyz;
-    bool _1706 = any(bool3(nout.xyz.x != nin.xyz.x, nout.xyz.y != nin.xyz.y, nout.xyz.z != nin.xyz.z));
-    bool _1713;
-    if (_1706)
+    bool _1764 = any(bool3(nout.xyz.x != nin.xyz.x, nout.xyz.y != nin.xyz.y, nout.xyz.z != nin.xyz.z));
+    bool _1771;
+    if (_1764)
     {
         float3 param_16 = nout.xyz;
-        _1713 = finite(param_16);
+        _1771 = finite(param_16);
     }
     else
     {
-        _1713 = _1706;
+        _1771 = _1764;
     }
-    bool _1720;
-    if (_1713)
+    bool _1778;
+    if (_1771)
     {
         float3 param_17 = P_1.xyz;
-        _1720 = finite(param_17);
+        _1778 = finite(param_17);
     }
     else
     {
-        _1720 = _1713;
+        _1778 = _1771;
     }
-    if (_1720)
+    if (_1778)
     {
         float3 param_18 = nin.xyz;
-        float3 _1727 = dec(param_18);
-        float3 din = _1727;
+        float3 _1785 = dec(param_18);
+        float3 din = _1785;
         float3 param_19 = nout.xyz;
-        float3 _1732 = dec(param_19);
-        float3 dout = _1732;
+        float3 _1790 = dec(param_19);
+        float3 dout = _1790;
         float3 param_20 = P_1.xyz;
         float3 p = light(param_20);
         float3 d;
@@ -781,17 +800,39 @@ void comp_main()
         }
         else
         {
-            float3 param_21 = dout;
-            float3 param_22 = din;
-            d = backward(param_21) - backward(param_22);
+            float3 param_21 = 1.0f.xxx;
+            float3 _1821 = forward(param_21);
+            float3 w = _1821;
+            float3 param_22 = min(dout, max(w.x, max(w.y, w.z)).xxx);
+            float3 param_23 = din;
+            d = backward(param_22) - backward(param_23);
             float3 lim = (abs(dout - din) * pc_cap) / gain().xxx;
             d = clamp(d, -lim, lim);
         }
-        float3 param_23 = max(p + d, 0.0f.xxx);
-        float3 param_24 = p;
-        M = max((P_1.xyz + reencode(param_23)) - reencode(param_24), 0.0f.xxx);
-        float3 param_25 = M;
-        if (!finite(param_25))
+        float3 param_24 = max(p + d, 0.0f.xxx);
+        float3 param_25 = p;
+        M = max((P_1.xyz + reencode(param_24)) - reencode(param_25), 0.0f.xxx);
+        bool _1872 = pc_curve == 1u;
+        bool _1879;
+        if (_1872)
+        {
+            _1879 = (pc_flags & 64u) == 0u;
+        }
+        else
+        {
+            _1879 = _1872;
+        }
+        if (_1879)
+        {
+            float3 param_26 = P_1.xyz;
+            float3 param_27 = M;
+            float3 param_28 = nin.xyz;
+            float3 param_29 = nout.xyz;
+            float param_30 = pc_cap;
+            M = neutral_sdr_bound(param_26, param_27, param_28, param_29, param_30);
+        }
+        float3 param_31 = M;
+        if (!finite(param_31))
         {
             M = P_1.xyz;
         }

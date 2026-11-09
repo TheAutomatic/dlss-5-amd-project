@@ -1,5 +1,5 @@
 # DLSSNR-AMD: the menus' texts in 中文（简体）, for NR Control (OptiScaler route) and ReShade's Add-ons page,
-# Linux and Windows (0.0.8.4). Copy it with the fonts folder into dlssnr-amd\lang in the game's folder.
+# Linux and Windows (0.0.9). Copy it with the fonts folder into dlssnr-amd\lang in the game's folder.
 
 msgid "@language"
 msgstr "中文（简体）"
@@ -9,7 +9,7 @@ msgid "@font"
 msgstr "fonts/NotoSansCJKsc-Regular.ttf"
 
 msgid "Each layer is an NR pass of its own: its processing (RenoDX or wilsjo2), its network ([Network] Model, or one of its own), where it runs, and its own settings (click its name: its page). Layers at one place run in layer order; before the upscaler, then after it, then at Present. Each layer costs a network run, and a layer with another network or size its own memory."
-msgstr "每个层都是一次独立的 NR 处理：它的处理方式（RenoDX 或 wilsjo2）、它的网络（[Network] Model，或它自己的）、运行位置以及它自己的设置（点击层名打开它的页面）。同一位置的层按层号顺序运行：先是超分前（更高帧数），然后超分后，最后在最终画面（Present）。每个层都要多跑一次网络，使用其他网络或尺寸的层还要占用自己的显存。"
+msgstr "每个层都是一次独立的 NR 处理：它的处理方式（RenoDX 或 wilsjo2）、它的网络（[Network] Model，或它自己的）、运行位置以及它自己的设置（点击层名打开它的页面）。同一位置的层按层号顺序运行：先是超分前，然后超分后，最后在最终画面（Present）。每个层都要多跑一次网络，使用其他网络或尺寸的层还要占用自己的显存。"
 
 msgid "The OptiScaler-NR fork's processing around the network, ported."
 msgstr "移植自 OptiScaler-NR 分支的网络前后处理。"
@@ -203,9 +203,6 @@ msgstr "改动强度"
 msgid "Method"
 msgstr "方式"
 
-msgid "No motion vectors: Feedback / Hybrid use Extrapolation."
-msgstr "没有运动矢量：反馈 / 混合改用外推。"
-
 msgid "RenoDX style is off in this run: check it above and restart the game."
 msgstr "本次运行中 RenoDX 风格处于关闭状态：请在上面勾选并重启游戏。"
 
@@ -366,10 +363,10 @@ msgid "after upscaler"
 msgstr "超分后"
 
 msgid "before upscaler"
-msgstr "超分前（更高帧数）"
+msgstr "超分前"
 
 msgid "Present"
-msgstr "最终画面（Present）"
+msgstr "最终画面（Present，强烈效果）"
 
 msgid "Layer"
 msgstr "层"
@@ -812,9 +809,6 @@ msgstr "估计"
 msgid " (cannot run here)"
 msgstr "（此处无法运行）"
 
-msgid "[HudFix] Mode. HUD FIX keeps the game's HUD (crosshair, bars, subtitles, menus) as the game drew it while NR changes the rest; for the layers placed at Present. Off (default): the HUD goes through NR like the rest. Auto: the best method that can run, each frame. Frame generation's HUD-less frame: the frame without its HUD that the game hands its frame generation (FSR 3.1, XeSS, DLSS-G through Streamline or NGX; D3D12 games); NR runs on it and the HUD is put back as it was; where the game keeps it until the present, frame generation is given NR's answer in its place. OptiScaler's own frame generation gets no such frame from the game: Captured serves those games. Captured before the HUD: the frame copied where the game starts drawing its HUD; NR runs on it and the HUD is put back as it was. Estimated: pixels that stay put while the picture moves are taken for the HUD and kept (NR still sees the HUD). A method that cannot run here is greyed out with its reason."
-msgstr "[HudFix] Mode。HUD FIX 让游戏的 HUD（准星、血条、字幕、菜单）保持游戏原本画出的样子，NR 只改变其余部分；适用于放在最终画面（Present）的层。Off（默认）：HUD 和其他部分一样经过 NR。Auto：每帧使用能运行的最佳方法。帧生成的无 HUD 画面：游戏交给帧生成的不带 HUD 的画面（FSR 3.1、XeSS、经 Streamline 或 NGX 的 DLSS-G；D3D12 游戏）；NR 在它上面运行，HUD 原样放回；游戏一直保留到呈现的情况下，会把 NR 的结果交给帧生成代替它。OptiScaler 自己的帧生成拿不到游戏给的这种画面：这些游戏用 Captured。HUD 之前截取：在游戏开始画 HUD 的地方复制画面；NR 在它上面运行，HUD 原样放回。Estimated：画面在动而保持不动的像素被当作 HUD 保留（NR 仍然看到 HUD）。在这里无法运行的方法会变灰并显示原因。"
-
 msgid "%s cannot run here: %s"
 msgstr "%s 在这里无法运行：%s"
 
@@ -933,7 +927,7 @@ msgid "After the upscaler"
 msgstr "超分后"
 
 msgid "Before the upscaler"
-msgstr "超分前（更高帧数）"
+msgstr "超分前（最佳性能）"
 
 msgid "Processing"
 msgstr "处理方式"
@@ -954,7 +948,7 @@ msgid "Set: %s. Runs %s now%s%s%s"
 msgstr "设置：%s。现在运行 %s%s%s%s"
 
 msgid "before the upscaler"
-msgstr "超分前（更高帧数）"
+msgstr "超分前"
 
 msgid "at Present"
 msgstr "最终画面（Present）"
@@ -969,7 +963,7 @@ msgid "Place. On this route NR runs at Present, on the picture ReShade hands ove
 msgstr "位置。这条路线上 NR 在最终画面（Present）运行，处理 ReShade 交过来的画面。"
 
 msgid "Place. Before or after the upscaler, or at Present (the finished picture)."
-msgstr "位置。超分前（更高帧数）、超分后，或最终画面（Present）。"
+msgstr "位置。超分前、超分后，或最终画面（Present）。"
 
 msgid "NR is off for this run (the switch at the top, or its key): no layer runs. The boxes below are what the file says."
 msgstr "本次运行中 NR 已关闭（顶部的开关或它的按键）：没有层在运行。下面的勾选框是文件中的状态。"
@@ -997,9 +991,6 @@ msgstr "限制颜色变化（RenoDX 的方式）"
 
 msgid "ColourLimit. On (default): the colour of the network's change is bounded each pass as RenoDX bounds it, and where the highlight guard brightens a pixel it keeps the pixel's own colour, so dark face edges do not turn red or orange (worse when stacking). Off: the original wilsjo2 composition."
 msgstr "ColourLimit。开（默认）：每次 Pass 都像 RenoDX 那样限制网络改动的颜色，高光保护提亮像素时保持像素自身的颜色，这样暗的脸部边缘不会变红或变橙（叠加时更明显）。关：原版 wilsjo2 的合成。"
-
-msgid "FastMethod. Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Each method keeps its own settings."
-msgstr "FastMethod。Extrapolation 把本帧单次的改动沿它自己的方向再推进一步；不需要运动向量，从第一帧起就生效。Feedback 把上一帧的改动按运动向量移动后送回网络输入；需要运动向量，最初几帧逐渐建立。Hybrid 在历史可靠处用 Feedback，在新表面、切镜和边缘处用 Extrapolation。改动强度（Edit strength）以档位缩放网络的改动，同“调整 NR 的效果”中的改动强度。每种方法各自保存设置。"
 
 msgid "FastEditStrength. The network's edit in stops times this (1 as made, 0 none), as Adjust NR's look's Edit strength with a wider range."
 msgstr "FastEditStrength。网络改动（以档位计）乘以此值（1 原样，0 无），同“调整 NR 的效果”中的改动强度，但范围更大。"
@@ -1745,9 +1736,6 @@ msgstr "快速"
 msgid "NRFastExtrapolationPasses. Extrapolation's strength, referred to legacy pass counts."
 msgstr "NRFastExtrapolationPasses。Extrapolation 的强度，以 legacy Pass 次数为参照。"
 
-msgid "NRFastMethod. Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Each method keeps its own settings."
-msgstr "NRFastMethod。Extrapolation 把本帧单次的改动沿它自己的方向再推进一步；不需要运动向量，从第一帧起就生效。Feedback 把上一帧的改动按运动向量移动后送回网络输入；需要运动向量，最初几帧逐渐建立。Hybrid 在历史可靠处用 Feedback，在新表面、切镜和边缘处用 Extrapolation。改动强度（Edit strength）以档位缩放网络的改动，同“调整 NR 的效果”中的改动强度。每种方法各自保存设置。"
-
 msgid "NRFastExtrapolationHaloLimit. Limits the halos Extrapolation adds."
 msgstr "NRFastExtrapolationHaloLimit。限制 Extrapolation 增加的光晕。"
 
@@ -2125,9 +2113,6 @@ msgstr "在这个游戏中没有找到 HUD 之前的画面"
 
 msgid "not run this frame"
 msgstr "本帧未运行"
-
-msgid "Extrapolation: no motion vectors"
-msgstr "Extrapolation：没有运动向量"
 
 msgid "Each layer is an NR run of its own on the frame, in layer order: its processing (RenoDX, or wilsjo2 - this route's own composition under OptiScaler DLSS-NR's settings), its network ([Network] Model, or one of its own) and its own settings below. On this route every layer runs at Present, on the picture ReShade hands over. Each layer costs a network run, and a layer with another network or size its own memory. Removing every layer goes back to [DlssNr] / [RenoDX]."
 msgstr "每个层都是对画面的一次独立 NR 运行，按层号顺序：它的处理方式（RenoDX，或 wilsjo2——本路线自己的合成，使用 OptiScaler DLSS-NR 的设置）、它的网络（[Network] Model，或它自己的）以及下面它自己的设置。在本路线上每个层都在最终画面（Present）运行，处理 ReShade 交出的画面。每个层都要多跑一次网络，使用其他网络或尺寸的层还要占用自己的显存。删除所有层会回到 [DlssNr] / [RenoDX]。"
@@ -3291,21 +3276,6 @@ msgstr "放行 OptiScaler 的菜单键"
 msgid "[NRControl] PassOptiScalerKey. On: while NR Control is open, OptiScaler's menu key (Insert, or the key its OptiScaler.ini sets) still reaches OptiScaler, so its menu opens and closes without closing this one first. Off (default): NR Control keeps every key from the game while it is open. Applied within a second."
 msgstr "[NRControl] PassOptiScalerKey。开：NR Control 打开时，OptiScaler 的菜单键（Insert，或 OptiScaler.ini 设定的键）仍然传给 OptiScaler，不用先关掉本菜单就能开关它的菜单。关（默认）：NR Control 打开时拦下所有按键。一秒内生效。"
 
-msgid "Steadiness"
-msgstr "稳定"
-
-msgid "NRFastExtrapolationSteady. Holds Extrapolation's edit over time, so it flickers and pumps less; uses the game's motion vectors where they fit. Standard and Strong hold the large areas everywhere (they can trail a moving camera when there are no motion vectors); Adaptive lets them follow wherever the last frame does not fit."
-msgstr "NRFastExtrapolationSteady。让外推的修饰在时间上保持连贯，减少闪烁和明暗起伏；运动矢量对得上的地方会用游戏的运动矢量。标准和强在所有地方都保持大面积修饰（游戏没有运动矢量时，镜头移动可能会拖慢半拍）；自适应在上一帧对不上的地方让大面积修饰跟上画面。"
-
-msgid "Strong"
-msgstr "强"
-
-msgid "Adaptive"
-msgstr "自适应"
-
-msgid "Adaptive strong"
-msgstr "自适应（强）"
-
 msgid "Passthrough"
 msgstr "直通"
 
@@ -3314,3 +3284,94 @@ msgstr "OptiScaler 路线、D3D12 游戏、RX 9000 或 RX 7000：NR 的网络直
 
 msgid "Frames: %llu on the game's D3D12 device, %llu through the Vulkan bridge, %llu waiting (no NR)"
 msgstr "帧数：%llu 帧在游戏自己的 D3D12 设备上，%llu 帧经由 Vulkan 桥接，%llu 帧在等待中（无 NR）"
+
+msgid "Interleaved"
+msgstr "交错"
+
+msgid "NRFastMethod. Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Interleaved runs the legacy passes one per frame in turn, each with its own history; a still picture looks as legacy's, moving pictures follow the motion vectors (needed: without them it does not run, one network pass). Each method keeps its own settings."
+msgstr "NRFastMethod。Extrapolation 把本帧单次的改动沿它自己的方向再推进一步；不需要运动向量，从第一帧起就生效。Feedback 把上一帧的改动按运动向量移动后送回网络输入；需要运动向量，最初几帧逐渐建立。Hybrid 在历史可靠处用 Feedback，在新表面、切镜和边缘处用 Extrapolation。改动强度（Edit strength）以档位缩放网络的改动，同“调整 NR 的效果”中的改动强度。Interleaved（交错）把 legacy 的几遍轮流分到每一帧各跑一遍，每遍有自己的历史；静止画面和 legacy 一样，运动画面按运动向量跟随（需要运动向量：没有时它不运行，只跑一遍网络）。每种方法各自保存设置。"
+
+msgid "NRFastInterleavedPasses. Interleaved: how many legacy passes (2 to 8) take turns, one each frame. Each pass more needs more video memory."
+msgstr "NRFastInterleavedPasses。交错：轮流运行几遍 legacy（2 到 8），每帧跑其中一遍。每多一遍会多占一些显存。"
+
+msgid "No motion vectors: Interleaved cannot run (one network pass)."
+msgstr "没有运动矢量：交错无法运行（只跑一遍网络）。"
+
+msgid "Interleaved / Feedback / Hybrid cannot run with peripheral compression (one network pass)."
+msgstr "开启周边压缩时交错 / Feedback / Hybrid 无法运行（只跑一遍网络）。"
+
+msgid "Interleaved cannot run: no motion vectors"
+msgstr "交错无法运行：没有运动矢量"
+
+msgid "Interleaved cannot run: peripheral compression is on"
+msgstr "交错无法运行：周边压缩已开启"
+
+msgid "Interleaved cannot run: its shaders are missing"
+msgstr "交错无法运行：缺少它的着色器"
+
+msgid "Feedback / Hybrid cannot run: peripheral compression is on"
+msgstr "Feedback / Hybrid 无法运行：周边压缩已开启"
+
+msgid "Feedback / Hybrid cannot run: no motion vectors"
+msgstr "Feedback / Hybrid 无法运行：没有运动矢量"
+
+msgid "No motion vectors: Feedback / Hybrid cannot run (one network pass)."
+msgstr "没有运动矢量：Feedback / Hybrid 无法运行（只跑一遍网络）。"
+
+msgid "present"
+msgstr "最终画面（Present）"
+
+msgid "FastInterleavedPasses. Interleaved: how many legacy passes (2 to 8) take turns, one each frame. Each pass more needs more video memory."
+msgstr "FastInterleavedPasses。交错：轮流运行几遍 legacy（2 到 8），每帧跑其中一遍。每多一遍会多占一些显存。"
+
+msgid "FastMethod. Interleaved runs the legacy passes one a frame in turn, each with its own history, and keeps each pass's change moved along the motion vectors: close to Passes (legacy) at one pass's cost; needs motion vectors and does not run with peripheral compression (then one network pass). Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Each method keeps its own settings."
+msgstr "FastMethod。交错（Interleaved）把 legacy 的几遍轮流分到每一帧各跑一遍，每遍有自己的历史，并把每遍的改动按运动向量移动保留：以一遍的开销接近 Passes (legacy)；需要运动向量，开启周边压缩时不运行（此时只跑一遍网络）。Extrapolation 把本帧单次的改动沿它自己的方向再推进一步；不需要运动向量，从第一帧起就生效。Feedback 把上一帧的改动按运动向量移动后送回网络输入；需要运动向量，最初几帧逐渐建立。Hybrid 在历史可靠处用 Feedback，在新表面、切镜和边缘处用 Extrapolation。改动强度（Edit strength）以档位缩放网络的改动，同“调整 NR 的效果”中的改动强度。每种方法各自保存设置。"
+
+msgid "[HudFix] Mode. HUD FIX keeps the game's HUD (crosshair, bars, subtitles, menus) as the game drew it while NR changes the rest; for the layers placed at Present. Off (default): the HUD goes through NR like the rest. Auto: the best method that can run, each frame. Frame generation's HUD-less frame: the frame without its HUD that the game hands its frame generation (FSR 3.1, XeSS, DLSS-G through Streamline or NGX; D3D12 games); NR runs on it and the HUD is put back as it was; where the game keeps it until the present, frame generation is given NR's answer in its place. OptiScaler's own frame generation gets no such frame from the game: Captured serves those games. Captured before the HUD: the frame copied where the game starts drawing its HUD; NR runs on it and the HUD is put back as it was. Where the game composes its HUD in its final pass, the picture that pass reads is taken instead, once it is checked against the presented frame. A method that cannot run here is greyed out with its reason."
+msgstr "[HudFix] Mode。HUD FIX 让游戏的 HUD（准星、血条、字幕、菜单）保持游戏原本画出的样子，NR 只改变其余部分；适用于放在最终画面（Present）的层。Off（默认）：HUD 和其他部分一样经过 NR。Auto：每帧使用能运行的最佳方法。帧生成的无 HUD 画面：游戏交给帧生成的不带 HUD 的画面（FSR 3.1、XeSS、经 Streamline 或 NGX 的 DLSS-G；D3D12 游戏）；NR 在它上面运行，HUD 原样放回；游戏一直保留到呈现的情况下，会把 NR 的结果交给帧生成代替它。OptiScaler 自己的帧生成拿不到游戏给的这种画面：这些游戏用 Captured。HUD 之前截取：在游戏开始画 HUD 的地方复制画面；NR 在它上面运行，HUD 原样放回。游戏在最后一个 pass 里合成 HUD 时，改用该 pass 读取的画面（先与最终画面核对通过后才使用）。在这里无法运行的方法会变灰并显示原因。"
+
+msgid "off: Estimated is switched off in this version"
+msgstr "关：本版本已停用 Estimated（估计）"
+
+msgid " (switched off in this version)"
+msgstr "（本版本已停用）"
+
+msgid "Estimated is switched off in this version: HUD FIX is off."
+msgstr "本版本已停用 Estimated（估计）：HUD FIX 关闭。"
+
+msgid "captured: the final pass's input"
+msgstr "HUD 之前截取：最终 pass 的输入"
+msgid "the final pass's input: "
+msgstr "最终 pass 的输入："
+msgid "on the ReShade route the capture is set up as the game starts: start it with HUD FIX on"
+msgstr "ReShade 路线的截取在游戏启动时建立：请开着 HUD FIX 启动游戏"
+
+msgid "NR has no network for this GPU ("
+msgstr "NR 没有适用于此 GPU 的网络 ("
+
+msgid ": NR has no network for this GPU ("
+msgstr "：NR 没有适用于此 GPU 的网络 ("
+
+msgid "GPU architecture (restart the game)"
+msgstr "GPU 架构（重启游戏后生效）"
+
+msgid "Auto (AMD's driver tells)"
+msgstr "自动（由 AMD 驱动判断）"
+
+msgid "[GPU] Architecture. Auto (default): AMD's driver names the GPU NR's code is for - a renamed or spoofed GPU (OptiScaler's GPU spoofing) does not change that. Set it by hand only where NR says it cannot tell this GPU: it is then used as set, whatever the driver or the GPU's IDs say (a wrong one runs another GPU's machine code and the game may stop - set it back to Auto). Takes effect when the game restarts."
+msgstr "[GPU] Architecture。自动（默认）：由 AMD 驱动说明 NR 的代码是为哪种 GPU 编译的，显卡被改名或伪装（OptiScaler 的 GPU 伪装）不影响判断。只有 NR 提示无法识别这张显卡时才手动选择：手动选择后会照选择使用，不管驱动或显卡 ID 怎么说（选错会在显卡上运行别的 GPU 的机器码，游戏可能停止，请改回自动）。重启游戏后生效。"
+
+msgid "Interleaved preset"
+msgstr "交错预设"
+
+msgid "NRFastInterleavedPreset. Interleaved's processing method."
+msgstr "NRFastInterleavedPreset。交错的处理方式。"
+
+msgid "FastInterleavedPreset. Interleaved's processing method."
+msgstr "FastInterleavedPreset。交错的处理方式。"
+
+msgid "Preset 1"
+msgstr "预设 1"
+
+msgid "Preset 2"
+msgstr "预设 2"

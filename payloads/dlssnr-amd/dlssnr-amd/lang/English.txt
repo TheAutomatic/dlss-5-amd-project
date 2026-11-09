@@ -197,6 +197,9 @@ msgstr "Passes (fast)"
 msgid "If the picture flickers with passes, turn on Detail stability (Composition > Detail stability: Auto or Always)."
 msgstr "If the picture flickers with passes, turn on Detail stability (Composition > Detail stability: Auto or Always)."
 
+msgid "Interleaved"
+msgstr "Interleaved"
+
 msgid "Extrapolation"
 msgstr "Extrapolation"
 
@@ -212,8 +215,11 @@ msgstr "Edit strength"
 msgid "Method"
 msgstr "Method"
 
-msgid "No motion vectors: Feedback / Hybrid use Extrapolation."
-msgstr "No motion vectors: Feedback / Hybrid use Extrapolation."
+msgid "No motion vectors: Feedback / Hybrid cannot run (one network pass)."
+msgstr "No motion vectors: Feedback / Hybrid cannot run (one network pass)."
+
+msgid "No motion vectors: Interleaved cannot run (one network pass)."
+msgstr "No motion vectors: Interleaved cannot run (one network pass)."
 
 msgid "RenoDX style is off in this run: check it above and restart the game."
 msgstr "RenoDX style is off in this run: check it above and restart the game."
@@ -442,8 +448,8 @@ msgstr "after upscaler"
 msgid "before upscaler"
 msgstr "before upscaler"
 
-msgid "Present"
-msgstr "Present"
+msgid "present"
+msgstr "present"
 
 msgid "Layer"
 msgstr "Layer"
@@ -751,6 +757,15 @@ msgstr "ACO Mode: not known until NR first runs"
 msgid "ACO Mode: the network runs as machine code made in advance by the ACO compiler (the one the Linux version uses), loaded by the AMD driver. It is not a setting; when the driver cannot take it, the line above and dlssnr-amd.log say why."
 msgstr "ACO Mode: the network runs as machine code made in advance by the ACO compiler (the one the Linux version uses), loaded by the AMD driver. It is not a setting; when the driver cannot take it, the line above and dlssnr-amd.log say why."
 
+msgid "Auto (AMD's driver tells)"
+msgstr "Auto (AMD's driver tells)"
+
+msgid "GPU architecture (restart the game)"
+msgstr "GPU architecture (restart the game)"
+
+msgid "[GPU] Architecture. Auto (default): AMD's driver names the GPU NR's code is for - a renamed or spoofed GPU (OptiScaler's GPU spoofing) does not change that. Set it by hand only where NR says it cannot tell this GPU: it is then used as set, whatever the driver or the GPU's IDs say (a wrong one runs another GPU's machine code and the game may stop - set it back to Auto). Takes effect when the game restarts."
+msgstr "[GPU] Architecture. Auto (default): AMD's driver names the GPU NR's code is for - a renamed or spoofed GPU (OptiScaler's GPU spoofing) does not change that. Set it by hand only where NR says it cannot tell this GPU: it is then used as set, whatever the driver or the GPU's IDs say (a wrong one runs another GPU's machine code and the game may stop - set it back to Auto). Takes effect when the game restarts."
+
 msgid "Next network: %s (see Hotkeys)"
 msgstr "Next network: %s (see Hotkeys)"
 
@@ -940,8 +955,14 @@ msgstr "Estimated"
 msgid " (cannot run here)"
 msgstr " (cannot run here)"
 
-msgid "[HudFix] Mode. HUD FIX keeps the game's HUD (crosshair, bars, subtitles, menus) as the game drew it while NR changes the rest; for the layers placed at Present. Off (default): the HUD goes through NR like the rest. Auto: the best method that can run, each frame. Frame generation's HUD-less frame: the frame without its HUD that the game hands its frame generation (FSR 3.1, XeSS, DLSS-G through Streamline or NGX; D3D12 games); NR runs on it and the HUD is put back as it was; where the game keeps it until the present, frame generation is given NR's answer in its place. OptiScaler's own frame generation gets no such frame from the game: Captured serves those games. Captured before the HUD: the frame copied where the game starts drawing its HUD; NR runs on it and the HUD is put back as it was. Estimated: pixels that stay put while the picture moves are taken for the HUD and kept (NR still sees the HUD). A method that cannot run here is greyed out with its reason."
-msgstr "[HudFix] Mode. HUD FIX keeps the game's HUD (crosshair, bars, subtitles, menus) as the game drew it while NR changes the rest; for the layers placed at Present. Off (default): the HUD goes through NR like the rest. Auto: the best method that can run, each frame. Frame generation's HUD-less frame: the frame without its HUD that the game hands its frame generation (FSR 3.1, XeSS, DLSS-G through Streamline or NGX; D3D12 games); NR runs on it and the HUD is put back as it was; where the game keeps it until the present, frame generation is given NR's answer in its place. OptiScaler's own frame generation gets no such frame from the game: Captured serves those games. Captured before the HUD: the frame copied where the game starts drawing its HUD; NR runs on it and the HUD is put back as it was. Estimated: pixels that stay put while the picture moves are taken for the HUD and kept (NR still sees the HUD). A method that cannot run here is greyed out with its reason."
+msgid " (switched off in this version)"
+msgstr " (switched off in this version)"
+
+msgid "[HudFix] Mode. HUD FIX keeps the game's HUD (crosshair, bars, subtitles, menus) as the game drew it while NR changes the rest; for the layers placed at Present. Off (default): the HUD goes through NR like the rest. Auto: the best method that can run, each frame. Frame generation's HUD-less frame: the frame without its HUD that the game hands its frame generation (FSR 3.1, XeSS, DLSS-G through Streamline or NGX; D3D12 games); NR runs on it and the HUD is put back as it was; where the game keeps it until the present, frame generation is given NR's answer in its place. OptiScaler's own frame generation gets no such frame from the game: Captured serves those games. Captured before the HUD: the frame copied where the game starts drawing its HUD; NR runs on it and the HUD is put back as it was. Where the game composes its HUD in its final pass, the picture that pass reads is taken instead, once it is checked against the presented frame. A method that cannot run here is greyed out with its reason."
+msgstr "[HudFix] Mode. HUD FIX keeps the game's HUD (crosshair, bars, subtitles, menus) as the game drew it while NR changes the rest; for the layers placed at Present. Off (default): the HUD goes through NR like the rest. Auto: the best method that can run, each frame. Frame generation's HUD-less frame: the frame without its HUD that the game hands its frame generation (FSR 3.1, XeSS, DLSS-G through Streamline or NGX; D3D12 games); NR runs on it and the HUD is put back as it was; where the game keeps it until the present, frame generation is given NR's answer in its place. OptiScaler's own frame generation gets no such frame from the game: Captured serves those games. Captured before the HUD: the frame copied where the game starts drawing its HUD; NR runs on it and the HUD is put back as it was. Where the game composes its HUD in its final pass, the picture that pass reads is taken instead, once it is checked against the presented frame. A method that cannot run here is greyed out with its reason."
+
+msgid "Estimated is switched off in this version: HUD FIX is off."
+msgstr "Estimated is switched off in this version: HUD FIX is off."
 
 msgid "%s cannot run here: %s"
 msgstr "%s cannot run here: %s"
@@ -1063,6 +1084,9 @@ msgstr "After the upscaler"
 msgid "Before the upscaler"
 msgstr "Before the upscaler"
 
+msgid "Present"
+msgstr "Present"
+
 msgid "Processing"
 msgstr "Processing"
 
@@ -1126,8 +1150,26 @@ msgstr "Limit colour change (RenoDX's way)"
 msgid "ColourLimit. On (default): the colour of the network's change is bounded each pass as RenoDX bounds it, and where the highlight guard brightens a pixel it keeps the pixel's own colour, so dark face edges do not turn red or orange (worse when stacking). Off: the original wilsjo2 composition."
 msgstr "ColourLimit. On (default): the colour of the network's change is bounded each pass as RenoDX bounds it, and where the highlight guard brightens a pixel it keeps the pixel's own colour, so dark face edges do not turn red or orange (worse when stacking). Off: the original wilsjo2 composition."
 
-msgid "FastMethod. Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Each method keeps its own settings."
-msgstr "FastMethod. Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Each method keeps its own settings."
+msgid "FastMethod. Interleaved runs the legacy passes one a frame in turn, each with its own history, and keeps each pass's change moved along the motion vectors: close to Passes (legacy) at one pass's cost; needs motion vectors and does not run with peripheral compression (then one network pass). Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Each method keeps its own settings."
+msgstr "FastMethod. Interleaved runs the legacy passes one a frame in turn, each with its own history, and keeps each pass's change moved along the motion vectors: close to Passes (legacy) at one pass's cost; needs motion vectors and does not run with peripheral compression (then one network pass). Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Each method keeps its own settings."
+
+msgid "Interleaved / Feedback / Hybrid cannot run with peripheral compression (one network pass)."
+msgstr "Interleaved / Feedback / Hybrid cannot run with peripheral compression (one network pass)."
+
+msgid "Preset 1"
+msgstr "Preset 1"
+
+msgid "Preset 2"
+msgstr "Preset 2"
+
+msgid "Interleaved preset"
+msgstr "Interleaved preset"
+
+msgid "FastInterleavedPreset. Interleaved's processing method."
+msgstr "FastInterleavedPreset. Interleaved's processing method."
+
+msgid "FastInterleavedPasses. Interleaved: how many legacy passes (2 to 8) take turns, one each frame. Each pass more needs more video memory."
+msgstr "FastInterleavedPasses. Interleaved: how many legacy passes (2 to 8) take turns, one each frame. Each pass more needs more video memory."
 
 msgid "FastEditStrength. The network's edit in stops times this (1 as made, 0 none), as Adjust NR's look's Edit strength with a wider range."
 msgstr "FastEditStrength. The network's edit in stops times this (1 as made, 0 none), as Adjust NR's look's Edit strength with a wider range."
@@ -1881,8 +1923,8 @@ msgstr "fast"
 msgid "NRFastExtrapolationPasses. Extrapolation's strength, referred to legacy pass counts."
 msgstr "NRFastExtrapolationPasses. Extrapolation's strength, referred to legacy pass counts."
 
-msgid "NRFastMethod. Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Each method keeps its own settings."
-msgstr "NRFastMethod. Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Each method keeps its own settings."
+msgid "NRFastMethod. Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Interleaved runs the legacy passes one per frame in turn, each with its own history; a still picture looks as legacy's, moving pictures follow the motion vectors (needed: without them it does not run, one network pass). Each method keeps its own settings."
+msgstr "NRFastMethod. Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Interleaved runs the legacy passes one per frame in turn, each with its own history; a still picture looks as legacy's, moving pictures follow the motion vectors (needed: without them it does not run, one network pass). Each method keeps its own settings."
 
 msgid "NRFastExtrapolationHaloLimit. Limits the halos Extrapolation adds."
 msgstr "NRFastExtrapolationHaloLimit. Limits the halos Extrapolation adds."
@@ -1910,6 +1952,15 @@ msgstr "NRFastHybridHaloLimit. Limits the halos Hybrid adds."
 
 msgid "NRFastHybridFine. How much of the network's fine detail change Hybrid adds: 1 as made (default), 0 none, 2 twice."
 msgstr "NRFastHybridFine. How much of the network's fine detail change Hybrid adds: 1 as made (default), 0 none, 2 twice."
+
+msgid "NRFastInterleavedPasses. Interleaved: how many legacy passes (2 to 8) take turns, one each frame. Each pass more needs more video memory."
+msgstr "NRFastInterleavedPasses. Interleaved: how many legacy passes (2 to 8) take turns, one each frame. Each pass more needs more video memory."
+
+msgid "NRFastInterleavedPreset. Interleaved's processing method."
+msgstr "NRFastInterleavedPreset. Interleaved's processing method."
+
+msgid "~Preset 1"
+msgstr "~Preset 1"
 
 # ---- nr_wilsjo2_keys.hpp
 
@@ -2258,6 +2309,9 @@ msgstr "settings"
 
 # ---- nr_reshade_addon.cpp
 
+msgid "on the ReShade route the capture is set up as the game starts: start it with HUD FIX on"
+msgstr "on the ReShade route the capture is set up as the game starts: start it with HUD FIX on"
+
 msgid "it starts with the next frame"
 msgstr "it starts with the next frame"
 
@@ -2269,9 +2323,6 @@ msgstr "no frame before the HUD was found in this game"
 
 msgid "not run this frame"
 msgstr "not run this frame"
-
-msgid "Extrapolation: no motion vectors"
-msgstr "Extrapolation: no motion vectors"
 
 msgid "Each layer is an NR run of its own on the frame, in layer order: its processing (RenoDX, or wilsjo2 - this route's own composition under OptiScaler DLSS-NR's settings), its network ([Network] Model, or one of its own) and its own settings below. On this route every layer runs at Present, on the picture ReShade hands over. Each layer costs a network run, and a layer with another network or size its own memory. Removing every layer goes back to [DlssNr] / [RenoDX]."
 msgstr "Each layer is an NR run of its own on the frame, in layer order: its processing (RenoDX, or wilsjo2 - this route's own composition under OptiScaler DLSS-NR's settings), its network ([Network] Model, or one of its own) and its own settings below. On this route every layer runs at Present, on the picture ReShade hands over. Each layer costs a network run, and a layer with another network or size its own memory. Removing every layer goes back to [DlssNr] / [RenoDX]."
@@ -2373,11 +2424,11 @@ msgstr "Backend: %s"
 msgid "frame generation's HUD-less frame is read for D3D12 games only"
 msgstr "frame generation's HUD-less frame is read for D3D12 games only"
 
+msgid "off: Estimated is switched off in this version"
+msgstr "off: Estimated is switched off in this version"
+
 msgid "nothing: no layer runs at Present"
 msgstr "nothing: no layer runs at Present"
-
-msgid "estimated"
-msgstr "estimated"
 
 msgid "frame generation's HUD-less frame ("
 msgstr "frame generation's HUD-less frame ("
@@ -2391,9 +2442,6 @@ msgstr "nothing: "
 msgid "captured before the HUD"
 msgstr "captured before the HUD"
 
-msgid "estimated (captured: "
-msgstr "estimated (captured: "
-
 msgid "the game hands its frame generation no HUD-less frame"
 msgstr "the game hands its frame generation no HUD-less frame"
 
@@ -2402,6 +2450,9 @@ msgstr "Present cannot serve this swap chain's colour format (wilsjo2)"
 
 msgid "Present cannot serve this swap chain's colour format"
 msgstr "Present cannot serve this swap chain's colour format"
+
+msgid "captured: the final pass's input"
+msgstr "captured: the final pass's input"
 
 msgid "NR is off (toggle key)"
 msgstr "NR is off (toggle key)"
@@ -2500,6 +2551,9 @@ msgstr "its image is being made"
 
 msgid "the game's command lists could not be followed (see the log)"
 msgstr "the game's command lists could not be followed (see the log)"
+
+msgid "the final pass's input: "
+msgstr "the final pass's input: "
 
 msgid " (HUD FIX was switched on after the game made its pipelines and views: restart the game with it on)"
 msgstr " (HUD FIX was switched on after the game made its pipelines and views: restart the game with it on)"
@@ -2630,6 +2684,9 @@ msgstr "the frame's size is changing; the network is built once it holds"
 
 msgid "freeing the previous network before building another"
 msgstr "freeing the previous network before building another"
+
+msgid "NR has no network for this GPU ("
+msgstr "NR has no network for this GPU ("
 
 msgid "needs the model of the 310.9.16 nvngx_dlssnr.dll (install.ps1 -Dll)"
 msgstr "needs the model of the 310.9.16 nvngx_dlssnr.dll (install.ps1 -Dll)"
@@ -3040,9 +3097,6 @@ msgstr "the HUD followed scene draws without a capturable render-pass boundary"
 msgid " runs before DLSS5_Feed (it changes the frame after the copy): move DLSS5_Feed above it"
 msgstr " runs before DLSS5_Feed (it changes the frame after the copy): move DLSS5_Feed above it"
 
-msgid "estimated (Captured: unsupported graphics API)"
-msgstr "estimated (Captured: unsupported graphics API)"
-
 msgid "nothing: Captured does not run on this graphics API"
 msgstr "nothing: Captured does not run on this graphics API"
 
@@ -3099,11 +3153,11 @@ msgstr "no Vulkan device has the game's adapter LUID"
 msgid " offers Vulkan below 1.3"
 msgstr " offers Vulkan below 1.3"
 
-msgid " is not an RDNA4 or RDNA3 GPU ("
-msgstr " is not an RDNA4 or RDNA3 GPU ("
-
 msgid "RDNA3 GPUs run NR as ACO's machine code only, and "
 msgstr "RDNA3 GPUs run NR as ACO's machine code only, and "
+
+msgid ": NR has no network for this GPU ("
+msgstr ": NR has no network for this GPU ("
 
 msgid " has no "
 msgstr " has no "
@@ -3301,3 +3355,20 @@ msgstr "could not reset a continuation command list"
 
 msgid "could not create a continuation command list"
 msgstr "could not create a continuation command list"
+
+# ---- nr_control_shared.hpp (shown as it comes: notes, states, status lines)
+
+msgid "Feedback / Hybrid cannot run: peripheral compression is on"
+msgstr "Feedback / Hybrid cannot run: peripheral compression is on"
+
+msgid "Feedback / Hybrid cannot run: no motion vectors"
+msgstr "Feedback / Hybrid cannot run: no motion vectors"
+
+msgid "Interleaved cannot run: peripheral compression is on"
+msgstr "Interleaved cannot run: peripheral compression is on"
+
+msgid "Interleaved cannot run: its shaders are missing"
+msgstr "Interleaved cannot run: its shaders are missing"
+
+msgid "Interleaved cannot run: no motion vectors"
+msgstr "Interleaved cannot run: no motion vectors"

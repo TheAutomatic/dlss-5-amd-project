@@ -1,5 +1,5 @@
 # DLSSNR-AMD: the menus' texts in 한국어, for NR Control (OptiScaler route) and ReShade's Add-ons page,
-# Linux and Windows (0.0.8.4). Copy it with the fonts folder into dlssnr-amd\lang in the game's folder.
+# Linux and Windows (0.0.9). Copy it with the fonts folder into dlssnr-amd\lang in the game's folder.
 
 msgid "@language"
 msgstr "한국어"
@@ -202,9 +202,6 @@ msgstr "편집 강도"
 
 msgid "Method"
 msgstr "방식"
-
-msgid "No motion vectors: Feedback / Hybrid use Extrapolation."
-msgstr "모션 벡터 없음: Feedback / Hybrid는 Extrapolation을 사용합니다."
 
 msgid "RenoDX style is off in this run: check it above and restart the game."
 msgstr "이번 실행에서는 RenoDX 스타일이 꺼져 있습니다. 위에서 확인한 뒤 게임을 다시 시작하세요."
@@ -812,9 +809,6 @@ msgstr "추정"
 msgid " (cannot run here)"
 msgstr " (여기서는 실행할 수 없음)"
 
-msgid "[HudFix] Mode. HUD FIX keeps the game's HUD (crosshair, bars, subtitles, menus) as the game drew it while NR changes the rest; for the layers placed at Present. Off (default): the HUD goes through NR like the rest. Auto: the best method that can run, each frame. Frame generation's HUD-less frame: the frame without its HUD that the game hands its frame generation (FSR 3.1, XeSS, DLSS-G through Streamline or NGX; D3D12 games); NR runs on it and the HUD is put back as it was; where the game keeps it until the present, frame generation is given NR's answer in its place. OptiScaler's own frame generation gets no such frame from the game: Captured serves those games. Captured before the HUD: the frame copied where the game starts drawing its HUD; NR runs on it and the HUD is put back as it was. Estimated: pixels that stay put while the picture moves are taken for the HUD and kept (NR still sees the HUD). A method that cannot run here is greyed out with its reason."
-msgstr "[HudFix] Mode. HUD FIX는 NR이 나머지를 바꾸는 동안 게임의 HUD(조준점, 바, 자막, 메뉴)를 게임이 그린 그대로 유지합니다. Present에 배치된 레이어에 적용됩니다. Off(기본값): HUD도 나머지와 같이 NR을 거칩니다. Auto: 매 프레임 실행 가능한 최선의 방식을 사용합니다. 프레임 생성의 HUD 없는 프레임: 게임이 프레임 생성(FSR 3.1, XeSS, Streamline 또는 NGX를 통한 DLSS-G, D3D12 게임)에 넘겨주는 HUD가 없는 프레임에 NR을 실행하고 HUD를 원래대로 되돌립니다. 게임이 그 프레임을 present 때까지 보관하는 경우에는 프레임 생성에 NR의 결과가 대신 전달됩니다. OptiScaler 자체 프레임 생성에는 게임이 이런 프레임을 주지 않으므로 해당 게임에는 Captured를 사용합니다. HUD 이전에 캡처: 게임이 HUD를 그리기 시작하는 지점에서 복사한 프레임에 NR을 실행하고 HUD를 원래대로 되돌립니다. 추정: 화면이 움직여도 제자리에 있는 픽셀을 HUD로 간주해 유지합니다(NR은 여전히 HUD를 봅니다). 여기서 실행할 수 없는 방식은 이유와 함께 회색으로 표시됩니다."
-
 msgid "%s cannot run here: %s"
 msgstr "%s을(를) 여기서 실행할 수 없음: %s"
 
@@ -997,9 +991,6 @@ msgstr "색 변화 제한 (RenoDX 방식)"
 
 msgid "ColourLimit. On (default): the colour of the network's change is bounded each pass as RenoDX bounds it, and where the highlight guard brightens a pixel it keeps the pixel's own colour, so dark face edges do not turn red or orange (worse when stacking). Off: the original wilsjo2 composition."
 msgstr "ColourLimit. 켜기(기본값): RenoDX처럼 패스마다 네트워크가 바꾸는 색의 변화량을 제한하고, 하이라이트 가드가 픽셀을 밝게 할 때도 그 픽셀 고유의 색을 유지하여 어두운 얼굴 윤곽이 붉거나 주황색으로 변하지 않게 합니다(중첩 시 더 심해짐). 끄기: 원래의 wilsjo2 합성 방식."
-
-msgid "FastMethod. Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Each method keeps its own settings."
-msgstr "FastMethod. Extrapolation: 이번 프레임의 1패스 편집을 같은 방향으로 더 밀어 줍니다. 모션 벡터가 필요 없으며 첫 프레임부터 동작합니다. Feedback: 이전 프레임의 편집을 모션 벡터로 이동해 네트워크 입력에 다시 넣습니다. 모션 벡터가 필요하며 처음 몇 프레임에 걸쳐 쌓입니다. Hybrid: 히스토리가 유효한 곳에서는 Feedback, 새로운 표면, 장면 전환, 가장자리에서는 Extrapolation을 사용합니다. 편집 강도는 Adjust NR's look의 편집 강도처럼 네트워크의 편집량을 스톱 단위로 조절합니다. 각 방식은 자체 설정을 유지합니다."
 
 msgid "FastEditStrength. The network's edit in stops times this (1 as made, 0 none), as Adjust NR's look's Edit strength with a wider range."
 msgstr "FastEditStrength. 네트워크의 편집량(스톱 단위)에 이 값을 곱합니다(1은 그대로, 0은 없음). Adjust NR's look의 편집 강도와 같지만 범위가 더 넓습니다."
@@ -1745,9 +1736,6 @@ msgstr "fast"
 msgid "NRFastExtrapolationPasses. Extrapolation's strength, referred to legacy pass counts."
 msgstr "NRFastExtrapolationPasses. Extrapolation의 강도이며 legacy 패스 수로 환산한 값입니다."
 
-msgid "NRFastMethod. Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Each method keeps its own settings."
-msgstr "NRFastMethod. Extrapolation: 이번 프레임의 1패스 편집을 같은 방향으로 더 밀어 줍니다. 모션 벡터가 필요 없으며 첫 프레임부터 동작합니다. Feedback: 이전 프레임의 편집을 모션 벡터로 이동해 네트워크 입력에 다시 넣습니다. 모션 벡터가 필요하며 처음 몇 프레임에 걸쳐 쌓입니다. Hybrid: 히스토리가 유효한 곳에서는 Feedback, 새로운 표면, 장면 전환, 가장자리에서는 Extrapolation을 사용합니다. 편집 강도는 Adjust NR's look의 편집 강도처럼 네트워크의 편집량을 스톱 단위로 조절합니다. 각 방식은 자체 설정을 유지합니다."
-
 msgid "NRFastExtrapolationHaloLimit. Limits the halos Extrapolation adds."
 msgstr "NRFastExtrapolationHaloLimit. Extrapolation이 추가하는 헤일로를 제한합니다."
 
@@ -2125,9 +2113,6 @@ msgstr "이 게임에서 HUD 이전 프레임을 찾지 못했습니다"
 
 msgid "not run this frame"
 msgstr "이번 프레임에는 실행되지 않음"
-
-msgid "Extrapolation: no motion vectors"
-msgstr "Extrapolation: 모션 벡터 없음"
 
 msgid "Each layer is an NR run of its own on the frame, in layer order: its processing (RenoDX, or wilsjo2 - this route's own composition under OptiScaler DLSS-NR's settings), its network ([Network] Model, or one of its own) and its own settings below. On this route every layer runs at Present, on the picture ReShade hands over. Each layer costs a network run, and a layer with another network or size its own memory. Removing every layer goes back to [DlssNr] / [RenoDX]."
 msgstr "각 레이어는 프레임에 대한 독립된 NR 실행이며 레이어 번호 순서로 실행됩니다. 처리 방식(RenoDX 또는 wilsjo2 - OptiScaler DLSS-NR의 설정에 따른 이 경로 자체 합성), 네트워크([Network] Model 또는 레이어 자체 네트워크), 아래의 개별 설정을 가집니다. 이 경로에서는 모든 레이어가 Present에서 ReShade가 넘겨주는 화면에 대해 실행됩니다. 레이어마다 네트워크를 한 번 더 실행하며, 다른 네트워크나 크기를 쓰는 레이어는 자체 메모리를 사용합니다. 모든 레이어를 삭제하면 [DlssNr] / [RenoDX]로 돌아갑니다."
@@ -3291,21 +3276,6 @@ msgstr "OptiScaler 메뉴 키 통과"
 msgid "[NRControl] PassOptiScalerKey. On: while NR Control is open, OptiScaler's menu key (Insert, or the key its OptiScaler.ini sets) still reaches OptiScaler, so its menu opens and closes without closing this one first. Off (default): NR Control keeps every key from the game while it is open. Applied within a second."
 msgstr "[NRControl] PassOptiScalerKey. 켜기: NR Control이 열려 있어도 OptiScaler의 메뉴 키(Insert 또는 OptiScaler.ini에서 정한 키)가 OptiScaler에 전달되어, 이 메뉴를 닫지 않고도 OptiScaler 메뉴를 열고 닫을 수 있습니다. 끄기(기본값): NR Control이 열려 있는 동안 모든 키를 게임에서 가로챕니다. 1초 안에 적용됩니다."
 
-msgid "Steadiness"
-msgstr "안정화"
-
-msgid "NRFastExtrapolationSteady. Holds Extrapolation's edit over time, so it flickers and pumps less; uses the game's motion vectors where they fit. Standard and Strong hold the large areas everywhere (they can trail a moving camera when there are no motion vectors); Adaptive lets them follow wherever the last frame does not fit."
-msgstr "NRFastExtrapolationSteady. 외삽의 보정을 시간에 걸쳐 유지해 깜빡임과 밝기 출렁임을 줄입니다. 맞는 곳에서는 게임의 모션 벡터를 사용합니다. 표준과 강은 넓은 영역의 보정을 어디서나 유지합니다(모션 벡터가 없는 게임에서는 카메라 움직임을 조금 늦게 따라갈 수 있습니다). 적응형은 이전 프레임이 맞지 않는 곳에서 넓은 영역의 보정이 화면을 따라가게 합니다."
-
-msgid "Strong"
-msgstr "강"
-
-msgid "Adaptive"
-msgstr "적응형"
-
-msgid "Adaptive strong"
-msgstr "적응형 (강)"
-
 msgid "Passthrough"
 msgstr "패스스루"
 
@@ -3314,3 +3284,94 @@ msgstr "OptiScaler 경로의 D3D12 게임과 RX 9000 / RX 7000에서: NR 네트�
 
 msgid "Frames: %llu on the game's D3D12 device, %llu through the Vulkan bridge, %llu waiting (no NR)"
 msgstr "프레임: 게임의 D3D12 장치에서 %llu, Vulkan 브리지를 통해 %llu, 대기 중(NR 없음) %llu"
+
+msgid "Interleaved"
+msgstr "Interleaved"
+
+msgid "NRFastMethod. Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Interleaved runs the legacy passes one per frame in turn, each with its own history; a still picture looks as legacy's, moving pictures follow the motion vectors (needed: without them it does not run, one network pass). Each method keeps its own settings."
+msgstr "NRFastMethod. Extrapolation: 이번 프레임의 1패스 편집을 같은 방향으로 더 밀어 줍니다. 모션 벡터가 필요 없으며 첫 프레임부터 동작합니다. Feedback: 이전 프레임의 편집을 모션 벡터로 이동해 네트워크 입력에 다시 넣습니다. 모션 벡터가 필요하며 처음 몇 프레임에 걸쳐 쌓입니다. Hybrid: 히스토리가 유효한 곳에서는 Feedback, 새로운 표면, 장면 전환, 가장자리에서는 Extrapolation을 사용합니다. 편집 강도는 Adjust NR's look의 편집 강도처럼 네트워크의 편집량을 스톱 단위로 조절합니다. Interleaved: legacy 패스들을 프레임마다 하나씩 번갈아 실행하며 패스마다 자체 히스토리를 가집니다. 정지 화면은 legacy와 같게 보이고, 움직이는 화면은 모션 벡터를 따릅니다(필요: 없으면 실행되지 않고 네트워크를 한 번만 실행). 각 방식은 자체 설정을 유지합니다."
+
+msgid "NRFastInterleavedPasses. Interleaved: how many legacy passes (2 to 8) take turns, one each frame. Each pass more needs more video memory."
+msgstr "NRFastInterleavedPasses. Interleaved: 번갈아 실행할 legacy 패스 수(2~8), 프레임마다 하나씩. 패스가 늘수록 비디오 메모리를 더 사용합니다."
+
+msgid "No motion vectors: Interleaved cannot run (one network pass)."
+msgstr "모션 벡터 없음: Interleaved를 실행할 수 없습니다(네트워크 1회만 실행)."
+
+msgid "Interleaved / Feedback / Hybrid cannot run with peripheral compression (one network pass)."
+msgstr "주변부 압축이 켜져 있으면 Interleaved / Feedback / Hybrid를 실행할 수 없습니다(네트워크 1회만 실행)."
+
+msgid "Interleaved cannot run: no motion vectors"
+msgstr "Interleaved를 실행할 수 없음: 모션 벡터 없음"
+
+msgid "Interleaved cannot run: peripheral compression is on"
+msgstr "Interleaved를 실행할 수 없음: 주변부 압축이 켜져 있음"
+
+msgid "Interleaved cannot run: its shaders are missing"
+msgstr "Interleaved를 실행할 수 없음: 셰이더가 없음"
+
+msgid "Feedback / Hybrid cannot run: peripheral compression is on"
+msgstr "Feedback / Hybrid를 실행할 수 없음: 주변부 압축이 켜져 있음"
+
+msgid "Feedback / Hybrid cannot run: no motion vectors"
+msgstr "Feedback / Hybrid를 실행할 수 없음: 모션 벡터 없음"
+
+msgid "No motion vectors: Feedback / Hybrid cannot run (one network pass)."
+msgstr "모션 벡터 없음: Feedback / Hybrid를 실행할 수 없습니다(네트워크 1회만 실행)."
+
+msgid "present"
+msgstr "Present"
+
+msgid "FastInterleavedPasses. Interleaved: how many legacy passes (2 to 8) take turns, one each frame. Each pass more needs more video memory."
+msgstr "FastInterleavedPasses. Interleaved: 번갈아 실행할 legacy 패스 수(2~8), 프레임마다 하나씩. 패스가 늘수록 비디오 메모리를 더 사용합니다."
+
+msgid "FastMethod. Interleaved runs the legacy passes one a frame in turn, each with its own history, and keeps each pass's change moved along the motion vectors: close to Passes (legacy) at one pass's cost; needs motion vectors and does not run with peripheral compression (then one network pass). Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Each method keeps its own settings."
+msgstr "FastMethod. Interleaved: legacy 패스들을 프레임마다 하나씩 번갈아 실행하며 패스마다 자체 히스토리를 가지고, 각 패스의 변화를 모션 벡터를 따라 이동해 유지합니다: 1패스 비용으로 Passes (legacy)에 가깝습니다. 모션 벡터가 필요하며 주변부 압축이 켜져 있으면 실행되지 않습니다(그때는 네트워크 1회만 실행). Extrapolation: 이번 프레임의 1패스 편집을 같은 방향으로 더 밀어 줍니다. 모션 벡터가 필요 없으며 첫 프레임부터 동작합니다. Feedback: 이전 프레임의 편집을 모션 벡터로 이동해 네트워크 입력에 다시 넣습니다. 모션 벡터가 필요하며 처음 몇 프레임에 걸쳐 쌓입니다. Hybrid: 히스토리가 유효한 곳에서는 Feedback, 새로운 표면, 장면 전환, 가장자리에서는 Extrapolation을 사용합니다. 편집 강도는 Adjust NR's look의 편집 강도처럼 네트워크의 편집량을 스톱 단위로 조절합니다. 각 방식은 자체 설정을 유지합니다."
+
+msgid "[HudFix] Mode. HUD FIX keeps the game's HUD (crosshair, bars, subtitles, menus) as the game drew it while NR changes the rest; for the layers placed at Present. Off (default): the HUD goes through NR like the rest. Auto: the best method that can run, each frame. Frame generation's HUD-less frame: the frame without its HUD that the game hands its frame generation (FSR 3.1, XeSS, DLSS-G through Streamline or NGX; D3D12 games); NR runs on it and the HUD is put back as it was; where the game keeps it until the present, frame generation is given NR's answer in its place. OptiScaler's own frame generation gets no such frame from the game: Captured serves those games. Captured before the HUD: the frame copied where the game starts drawing its HUD; NR runs on it and the HUD is put back as it was. Where the game composes its HUD in its final pass, the picture that pass reads is taken instead, once it is checked against the presented frame. A method that cannot run here is greyed out with its reason."
+msgstr "[HudFix] Mode. HUD FIX는 NR이 나머지를 바꾸는 동안 게임의 HUD(조준점, 바, 자막, 메뉴)를 게임이 그린 그대로 유지합니다. Present에 배치된 레이어에 적용됩니다. Off(기본값): HUD도 나머지와 같이 NR을 거칩니다. Auto: 매 프레임 실행 가능한 최선의 방식을 사용합니다. 프레임 생성의 HUD 없는 프레임: 게임이 프레임 생성(FSR 3.1, XeSS, Streamline 또는 NGX를 통한 DLSS-G, D3D12 게임)에 넘겨주는 HUD가 없는 프레임에 NR을 실행하고 HUD를 원래대로 되돌립니다. 게임이 그 프레임을 present 때까지 보관하는 경우에는 프레임 생성에 NR의 결과가 대신 전달됩니다. OptiScaler 자체 프레임 생성에는 게임이 이런 프레임을 주지 않으므로 해당 게임에는 Captured를 사용합니다. HUD 이전에 캡처: 게임이 HUD를 그리기 시작하는 지점에서 복사한 프레임에 NR을 실행하고 HUD를 원래대로 되돌립니다. 게임이 최종 패스에서 HUD를 합성하는 경우에는 그 패스가 읽는 화면을 대신 사용합니다(표시되는 프레임과 대조한 뒤에). 여기서 실행할 수 없는 방식은 이유와 함께 회색으로 표시됩니다."
+
+msgid "off: Estimated is switched off in this version"
+msgstr "끔: 이 버전에서는 추정(Estimated)이 비활성화되어 있습니다"
+
+msgid " (switched off in this version)"
+msgstr " (이 버전에서 비활성화됨)"
+
+msgid "Estimated is switched off in this version: HUD FIX is off."
+msgstr "이 버전에서는 추정(Estimated)이 비활성화되어 있습니다: HUD FIX 꺼짐."
+
+msgid "captured: the final pass's input"
+msgstr "HUD 이전에 캡처: 최종 패스의 입력"
+msgid "the final pass's input: "
+msgstr "최종 패스의 입력: "
+msgid "on the ReShade route the capture is set up as the game starts: start it with HUD FIX on"
+msgstr "ReShade 경로에서는 캡처가 게임 시작 시 준비됩니다: HUD FIX를 켠 상태로 게임을 시작하세요"
+
+msgid "NR has no network for this GPU ("
+msgstr "NR에 이 GPU용 네트워크가 없습니다 ("
+
+msgid ": NR has no network for this GPU ("
+msgstr ": NR에 이 GPU용 네트워크가 없습니다 ("
+
+msgid "GPU architecture (restart the game)"
+msgstr "GPU 아키텍처 (게임 재시작 시 적용)"
+
+msgid "Auto (AMD's driver tells)"
+msgstr "자동 (AMD 드라이버가 판단)"
+
+msgid "[GPU] Architecture. Auto (default): AMD's driver names the GPU NR's code is for - a renamed or spoofed GPU (OptiScaler's GPU spoofing) does not change that. Set it by hand only where NR says it cannot tell this GPU: it is then used as set, whatever the driver or the GPU's IDs say (a wrong one runs another GPU's machine code and the game may stop - set it back to Auto). Takes effect when the game restarts."
+msgstr "[GPU] Architecture. 자동(기본값): NR 코드가 어떤 GPU용인지 AMD 드라이버가 알려 줍니다. GPU 이름 변경이나 위장(OptiScaler의 GPU 위장)은 판단에 영향을 주지 않습니다. NR이 이 GPU를 식별할 수 없다고 할 때만 직접 선택하세요. 직접 선택하면 드라이버나 GPU ID와 관계없이 선택한 대로 사용됩니다(잘못 선택하면 다른 GPU용 기계어가 실행되어 게임이 멈출 수 있으니 자동으로 되돌리세요). 게임을 다시 시작하면 적용됩니다."
+
+msgid "Interleaved preset"
+msgstr "Interleaved 프리셋"
+
+msgid "NRFastInterleavedPreset. Interleaved's processing method."
+msgstr "NRFastInterleavedPreset. Interleaved의 처리 방식."
+
+msgid "FastInterleavedPreset. Interleaved's processing method."
+msgstr "FastInterleavedPreset. Interleaved의 처리 방식."
+
+msgid "Preset 1"
+msgstr "프리셋 1"
+
+msgid "Preset 2"
+msgstr "프리셋 2"

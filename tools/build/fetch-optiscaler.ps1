@@ -18,9 +18,9 @@ $releaseDir = Join-Path $CacheRoot 'optiscaler\release'
 $licenseOut = Join-Path $CacheRoot 'optiscaler\OptiScaler_LICENSE.txt'
 New-Item -ItemType Directory -Force -Path $downloadsDir, (Split-Path -Parent $releaseDir) | Out-Null
 
-$PinnedArchiveName = 'OptiScaler_v10.0.0-pre1_20261107.7z'
-$PinnedArchiveUrl  = 'https://github.com/optiscaler/OptiScaler-nightly/releases/download/nightly-20261107/OptiScaler_v10.0.0-pre1_20261107.7z'
-$PinnedArchiveSha  = '7d185f8eb707fdb4ae22304ce4c1c8db6600b079df6e9c04e17d37d7a6727b85'
+$PinnedArchiveName = 'OptiScaler_v10.0.0-pre1_20261109.7z'
+$PinnedArchiveUrl  = 'https://github.com/optiscaler/OptiScaler-nightly/releases/download/nightly-20261109/OptiScaler_v10.0.0-pre1_20261109.7z'
+$PinnedArchiveSha  = 'e65cfc7092840cde79b24467bf0b3404bc358e56866478f46811eed06ffaa150'
 $PinnedLicenseUrl  = 'https://raw.githubusercontent.com/optiscaler/OptiScaler/e7e3872d410f704479d94d318d68d163b6b58947/LICENSE'
 $PinnedLicenseSha  = '3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986'
 
@@ -28,8 +28,8 @@ $PinnedReleaseManifest = [ordered]@{
     'Licenses/DirectX_LICENSE.txt'                      = '5239850894610071566f7ecee0b751fde43c862032d92b99d7d0f596b3433ebd'
     'Licenses/FidelityFX_v2_LICENSE.md'                 = 'faeb8ef30681785235183e6393c920ad070955c2d2cae6c4b3a91b6a712767b7'
     'Licenses/XeSS_LICENSE.txt'                         = '784be42c39a4a4d03cf85d88e15e59d75828fca773ce45b8dbfffbd7eaf208df'
-    'OptiScaler.dll'                                    = 'e4f8773e05ba754e1e8ce8e67b459bf414ed0726fb68784a0fa8ce435ea1f7bd'
-    'OptiScaler.ini'                                    = '2020ab3e14fcc77ec8e32b396c00eafd2a55b0d8f7336e6e1eb884292f322a62'
+    'OptiScaler.dll'                                    = 'bfe12271f76452c4bfd6cb2d66bb504cac792afd2c2e7a0d1e38cba14f17f53b'
+    'OptiScaler.ini'                                    = '2a3ff78b38f486021a65e90ec4b2ad0b9bac878f9ecc50162988f81f808666b4'
     'OptiScaler/amd_fidelityfx_framegeneration_dx12.dll'= 'e6843252f58b0341a0d80f6a20bc0d840643ee95bc48c22cac08745344577bb6'
     'OptiScaler/amd_fidelityfx_framegeneration_vk.dll'  = 'd002dabff8c5e71eaa715fc99438cd4dc81230262a7897b16bc402efec3498b4'
     'OptiScaler/amd_fidelityfx_loader_dx12.dll'         = 'e2191d3c0828be45eb8affd4e3ec0378f2293adc345b772a7170edcf3b021ecb'
@@ -159,11 +159,21 @@ if ($OptiDir) {
 } elseif (-not (Test-PinnedOptiRelease $releaseDir)) {
     $pinnedArchivePath = Join-Path $downloadsDir $PinnedArchiveName
     $repoPinnedArchive = Join-Path $repoRoot "cache\downloads\$PinnedArchiveName"
-    $siblingMochiArchive = Join-Path (Split-Path -Parent $repoRoot) "DLSSNR-AMD-mochizuki\artifacts\ref\downloads\$PinnedArchiveName"
-    $siblingMochiLocal7z = Join-Path (Split-Path -Parent $repoRoot) 'DLSSNR-AMD-mochizuki\artifacts\ref\downloads\OptiScaler-nightly-local.7z'
-    $siblingMochiRelease = Join-Path (Split-Path -Parent $repoRoot) 'DLSSNR-AMD-mochizuki\artifacts\ref\opti-release\optiscaler\release'
+    $parentDir = Split-Path -Parent $repoRoot
+    $parentPinnedArchive = Join-Path $parentDir $PinnedArchiveName
+    $parentPinnedDir = Join-Path $parentDir ([IO.Path]::GetFileNameWithoutExtension($PinnedArchiveName))
+    $siblingMochiArchive = Join-Path $parentDir "DLSSNR-AMD-mochizuki\artifacts\ref\downloads\$PinnedArchiveName"
+    $siblingMochiLocal7z = Join-Path $parentDir 'DLSSNR-AMD-mochizuki\artifacts\ref\downloads\OptiScaler-nightly-local.7z'
+    $siblingMochiRelease = Join-Path $parentDir 'DLSSNR-AMD-mochizuki\artifacts\ref\opti-release\optiscaler\release'
 
     if ((Test-Path -LiteralPath $pinnedArchivePath -PathType Leaf) -and (Get-Sha256Hex $pinnedArchivePath) -eq $PinnedArchiveSha) {
+        Expand-ArchiveWith7zOrNet $pinnedArchivePath $releaseDir
+    } elseif (Test-PinnedOptiRelease $parentPinnedDir) {
+        Write-Host "Reusing verified official OptiScaler directory from $parentPinnedDir" -ForegroundColor Green
+        if (Test-Path -LiteralPath $releaseDir) { Remove-Item -LiteralPath $releaseDir -Recurse -Force }
+        Copy-Item -LiteralPath $parentPinnedDir -Destination $releaseDir -Recurse -Force
+    } elseif ((Test-Path -LiteralPath $parentPinnedArchive -PathType Leaf) -and (Get-Sha256Hex $parentPinnedArchive) -eq $PinnedArchiveSha) {
+        Copy-Item -LiteralPath $parentPinnedArchive -Destination $pinnedArchivePath -Force
         Expand-ArchiveWith7zOrNet $pinnedArchivePath $releaseDir
     } elseif ((Test-Path -LiteralPath $repoPinnedArchive -PathType Leaf) -and (Get-Sha256Hex $repoPinnedArchive) -eq $PinnedArchiveSha) {
         Copy-Item -LiteralPath $repoPinnedArchive -Destination $pinnedArchivePath -Force

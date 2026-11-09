@@ -31,8 +31,6 @@ struct SPIRV_Cross_Input
 
 groupshared uint s_hud;
 groupshared uint s_coarse;
-groupshared uint s_changed;
-groupshared uint s_structure;
 
 bool differs(float3 a, float3 b, float tolerance)
 {
@@ -60,42 +58,27 @@ void comp_main()
     {
         s_hud = 0u;
         s_coarse = 0u;
-        s_changed = 0u;
     }
     GroupMemoryBarrierWithGroupSync();
     if (inside)
     {
         float3 a = t0.Load(int3(p, 0)).xyz;
         float3 b = t1.Load(int3(p, 0)).xyz;
-        if (cb.Load(52) == 3u)
+        float3 param = a;
+        float3 param_1 = b;
+        float param_2 = asfloat(cb.Load(56));
+        if (differs(param, param_1, param_2))
         {
-            float3 param = a;
-            float3 param_1 = b;
-            float param_2 = asfloat(cb.Load(56));
-            if (differs(param, param_1, param_2))
-            {
-                uint _127;
-                InterlockedAdd(s_changed, 1u, _127);
-            }
+            uint _119;
+            InterlockedAdd(s_hud, 1u, _119);
         }
-        else
+        float3 param_3 = a;
+        float3 param_4 = b;
+        float param_5 = 0.0625f;
+        if (differs(param_3, param_4, param_5))
         {
-            float3 param_3 = a;
-            float3 param_4 = b;
-            float param_5 = asfloat(cb.Load(56));
-            if (differs(param_3, param_4, param_5))
-            {
-                uint _139;
-                InterlockedAdd(s_hud, 1u, _139);
-            }
-            float3 param_6 = a;
-            float3 param_7 = b;
-            float param_8 = 0.0625f;
-            if (differs(param_6, param_7, param_8))
-            {
-                uint _149;
-                InterlockedAdd(s_coarse, 1u, _149);
-            }
+            uint _129;
+            InterlockedAdd(s_coarse, 1u, _129);
         }
     }
     GroupMemoryBarrierWithGroupSync();
@@ -103,18 +86,13 @@ void comp_main()
     {
         if (s_hud != 0u)
         {
-            uint _165;
-            InterlockedAdd(u1[int2(0, 0)], s_hud, _165);
+            uint _145;
+            InterlockedAdd(u1[int2(0, 0)], s_hud, _145);
         }
         if (s_coarse != 0u)
         {
-            uint _174;
-            InterlockedAdd(u1[int2(1, 0)], s_coarse, _174);
-        }
-        if (s_changed != 0u)
-        {
-            uint _182;
-            InterlockedAdd(u1[int2(2, 0)], s_changed, _182);
+            uint _154;
+            InterlockedAdd(u1[int2(1, 0)], s_coarse, _154);
         }
     }
 }

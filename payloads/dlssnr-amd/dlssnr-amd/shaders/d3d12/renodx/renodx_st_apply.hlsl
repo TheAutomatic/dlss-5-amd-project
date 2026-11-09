@@ -490,10 +490,11 @@ float3 st_edit(float3 nE, float3 pE)
     float3 param_1 = clamp(nE, 0.0f.xxx, 1.0f.xxx);
     float3 n = st_dec(param_1);
     float3 e = log2(max(n, 0.0009765625f.xxx)) - log2(max(p, 0.0009765625f.xxx));
-    float t = smoothstep(0.0009765625f, 0.015625f, max(p.x, max(p.y, p.z)));
-    float3 param_2 = n * exp2(e * (t * (pc_k - 1.0f)));
-    float3 _2213 = st_enc(param_2);
-    return _2213;
+    float pm = max(p.x, max(p.y, p.z));
+    float3 t = smoothstep((pm / 256.0f).xxx, (pm / 64.0f).xxx, p) * smoothstep(0.0009765625f, 0.015625f, pm);
+    float3 param_2 = n * exp2((t * (pc_k - 1.0f)) * e);
+    float3 _2226 = st_enc(param_2);
+    return _2226;
 }
 
 float3 ocap_tail(uint2 px, float3 p, inout float3 o)
@@ -933,21 +934,21 @@ void comp_main()
         }
         else
         {
-            float3 _2286;
+            float3 _2299;
             if (pc_mode == 10u)
             {
                 float3 param_6 = n.xyz;
                 float3 param_7 = p.xyz;
-                _2286 = st_edit(param_6, param_7);
+                _2299 = st_edit(param_6, param_7);
             }
             else
             {
                 uint2 param_8 = px;
                 float4 param_9 = n;
                 float3 param_10 = p.xyz;
-                _2286 = strengthened(param_8, param_9, param_10);
+                _2299 = strengthened(param_8, param_9, param_10);
             }
-            o = _2286;
+            o = _2299;
         }
     }
     if (hybrid)
@@ -982,17 +983,17 @@ void comp_main()
     }
     GroupMemoryBarrierWithGroupSync();
     uint2 lid = gl_LocalInvocationID.xy;
-    bool _2401 = lid.x >= 4u;
-    bool _2408;
-    if (!_2401)
+    bool _2414 = lid.x >= 4u;
+    bool _2421;
+    if (!_2414)
     {
-        _2408 = lid.y >= 4u;
+        _2421 = lid.y >= 4u;
     }
     else
     {
-        _2408 = _2401;
+        _2421 = _2414;
     }
-    if (_2408)
+    if (_2421)
     {
         return;
     }

@@ -1,5 +1,5 @@
 # DLSSNR-AMD: the menus' texts in 日本語, for NR Control (OptiScaler route) and ReShade's Add-ons page,
-# Linux and Windows (0.0.8.4). Copy it with the fonts folder into dlssnr-amd\lang in the game's folder.
+# Linux and Windows (0.0.9). Copy it with the fonts folder into dlssnr-amd\lang in the game's folder.
 
 msgid "@language"
 msgstr "日本語"
@@ -202,9 +202,6 @@ msgstr "編集の強さ"
 
 msgid "Method"
 msgstr "方式"
-
-msgid "No motion vectors: Feedback / Hybrid use Extrapolation."
-msgstr "モーションベクトルなし：フィードバック / ハイブリッドは外挿を使います。"
 
 msgid "RenoDX style is off in this run: check it above and restart the game."
 msgstr "今回の実行では RenoDX スタイルはオフです：上でチェックしてゲームを再起動してください。"
@@ -812,9 +809,6 @@ msgstr "推定"
 msgid " (cannot run here)"
 msgstr "（ここでは使えません）"
 
-msgid "[HudFix] Mode. HUD FIX keeps the game's HUD (crosshair, bars, subtitles, menus) as the game drew it while NR changes the rest; for the layers placed at Present. Off (default): the HUD goes through NR like the rest. Auto: the best method that can run, each frame. Frame generation's HUD-less frame: the frame without its HUD that the game hands its frame generation (FSR 3.1, XeSS, DLSS-G through Streamline or NGX; D3D12 games); NR runs on it and the HUD is put back as it was; where the game keeps it until the present, frame generation is given NR's answer in its place. OptiScaler's own frame generation gets no such frame from the game: Captured serves those games. Captured before the HUD: the frame copied where the game starts drawing its HUD; NR runs on it and the HUD is put back as it was. Estimated: pixels that stay put while the picture moves are taken for the HUD and kept (NR still sees the HUD). A method that cannot run here is greyed out with its reason."
-msgstr "[HudFix] Mode。HUD FIX はゲームの HUD（照準、バー、字幕、メニュー）をゲームが描いたままに保ち、NR は残りを変えます。Present に置いたレイヤーが対象。Off（既定）：HUD も他と同じく NR を通ります。Auto：毎フレーム、実行できる最良の方法。フレーム生成の HUD なしフレーム：ゲームがフレーム生成に渡す HUD のないフレーム（FSR 3.1、XeSS、Streamline または NGX 経由の DLSS-G。D3D12 ゲーム）。NR はそれに実行し、HUD は元どおり戻します。ゲームが提示まで保持する場合は、その代わりに NR の結果をフレーム生成に渡します。OptiScaler 自身のフレーム生成はゲームからそのフレームを受け取らないので、そのようなゲームは Captured で。HUD の前にキャプチャ：ゲームが HUD を描き始める所でフレームをコピー。NR はそれに実行し、HUD は元どおり戻します。Estimated：画像が動いているのに動かないピクセルを HUD とみなして残します（NR には HUD も見えています）。ここで実行できない方法は理由とともにグレー表示になります。"
-
 msgid "%s cannot run here: %s"
 msgstr "%s はここでは実行できません：%s"
 
@@ -997,9 +991,6 @@ msgstr "色の変化を制限（RenoDX の方式）"
 
 msgid "ColourLimit. On (default): the colour of the network's change is bounded each pass as RenoDX bounds it, and where the highlight guard brightens a pixel it keeps the pixel's own colour, so dark face edges do not turn red or orange (worse when stacking). Off: the original wilsjo2 composition."
 msgstr "ColourLimit。オン（既定）：ネットワークの変化の色を各パスで RenoDX と同じように制限し、ハイライトガードがピクセルを明るくする所ではピクセル自身の色を保つので、暗い顔の縁が赤やオレンジにならない（重ねると悪化）。オフ：元の wilsjo2 の合成。"
-
-msgid "FastMethod. Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Each method keeps its own settings."
-msgstr "FastMethod。Extrapolation はこのフレームの 1 パスの変化をその方向にさらに進めます。モーションベクトル不要、最初のフレームから効きます。Feedback は前フレームの変化をモーションベクトルで動かしてネットワーク入力に戻します。モーションベクトルが必要で、最初の数フレームで積み上がります。Hybrid は履歴が保てる所で Feedback、新しい面・カット・エッジで Extrapolation。Edit strength はネットワークの変化を段数で拡縮します（Adjust NR's look の Edit strength と同じ）。方法ごとに設定を保持します。"
 
 msgid "FastEditStrength. The network's edit in stops times this (1 as made, 0 none), as Adjust NR's look's Edit strength with a wider range."
 msgstr "FastEditStrength。ネットワークの変化（段数）にこれを掛けます（1 そのまま、0 なし）。Adjust NR's look の Edit strength と同じで、範囲が広いもの。"
@@ -1745,9 +1736,6 @@ msgstr "高速"
 msgid "NRFastExtrapolationPasses. Extrapolation's strength, referred to legacy pass counts."
 msgstr "NRFastExtrapolationPasses。Extrapolation の強さ、legacy のパス数基準。"
 
-msgid "NRFastMethod. Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Each method keeps its own settings."
-msgstr "NRFastMethod。Extrapolation はこのフレームの 1 パスの変化をその方向にさらに進めます。モーションベクトル不要、最初のフレームから効きます。Feedback は前フレームの変化をモーションベクトルで動かしてネットワーク入力に戻します。モーションベクトルが必要で、最初の数フレームで積み上がります。Hybrid は履歴が保てる所で Feedback、新しい面・カット・エッジで Extrapolation。Edit strength はネットワークの変化を段数で拡縮します（Adjust NR's look の Edit strength と同じ）。方法ごとに設定を保持します。"
-
 msgid "NRFastExtrapolationHaloLimit. Limits the halos Extrapolation adds."
 msgstr "NRFastExtrapolationHaloLimit。Extrapolation が加えるハローを抑えます。"
 
@@ -2125,9 +2113,6 @@ msgstr "このゲームでは HUD の前のフレームが見つかりません�
 
 msgid "not run this frame"
 msgstr "このフレームでは実行していません"
-
-msgid "Extrapolation: no motion vectors"
-msgstr "Extrapolation：モーションベクトルなし"
 
 msgid "Each layer is an NR run of its own on the frame, in layer order: its processing (RenoDX, or wilsjo2 - this route's own composition under OptiScaler DLSS-NR's settings), its network ([Network] Model, or one of its own) and its own settings below. On this route every layer runs at Present, on the picture ReShade hands over. Each layer costs a network run, and a layer with another network or size its own memory. Removing every layer goes back to [DlssNr] / [RenoDX]."
 msgstr "各レイヤーはフレームに対する独立した NR 実行で、レイヤー番号順：処理方式（RenoDX、または wilsjo2——OptiScaler DLSS-NR の設定によるこのルート独自の合成）、ネットワーク（[Network] Model、または独自のもの）、下にある独自の設定。このルートではすべてのレイヤーが Present で、ReShade が渡す画像に対して実行されます。レイヤーごとにネットワークを 1 回多く実行し、別のネットワークやサイズのレイヤーは自分のメモリも使います。すべてのレイヤーを削除すると [DlssNr] / [RenoDX] に戻ります。"
@@ -3291,21 +3276,6 @@ msgstr "OptiScaler のメニューキーを通す"
 msgid "[NRControl] PassOptiScalerKey. On: while NR Control is open, OptiScaler's menu key (Insert, or the key its OptiScaler.ini sets) still reaches OptiScaler, so its menu opens and closes without closing this one first. Off (default): NR Control keeps every key from the game while it is open. Applied within a second."
 msgstr "[NRControl] PassOptiScalerKey。オン：NR Control を開いている間も OptiScaler のメニューキー（Insert、または OptiScaler.ini で設定したキー）を OptiScaler に渡すので、このメニューを閉じずに OptiScaler のメニューを開閉できます。オフ（既定）：NR Control を開いている間はすべてのキーをゲームに渡しません。1 秒以内に反映されます。"
 
-msgid "Steadiness"
-msgstr "安定化"
-
-msgid "NRFastExtrapolationSteady. Holds Extrapolation's edit over time, so it flickers and pumps less; uses the game's motion vectors where they fit. Standard and Strong hold the large areas everywhere (they can trail a moving camera when there are no motion vectors); Adaptive lets them follow wherever the last frame does not fit."
-msgstr "NRFastExtrapolationSteady。外挿の補正を時間方向に保ち、ちらつきと明暗の揺れを抑えます。合う所ではゲームのモーションベクトルを使います。標準と強は広い範囲の補正をどこでも保ちます（モーションベクトルがないゲームではカメラの動きに少し遅れることがあります）。アダプティブは前のフレームが合わない所で広い範囲の補正を画面に追従させます。"
-
-msgid "Strong"
-msgstr "強"
-
-msgid "Adaptive"
-msgstr "アダプティブ"
-
-msgid "Adaptive strong"
-msgstr "アダプティブ（強）"
-
 msgid "Passthrough"
 msgstr "パススルー"
 
@@ -3314,3 +3284,94 @@ msgstr "OptiScaler 経路の D3D12 ゲームと RX 9000 / RX 7000 で：NR の�
 
 msgid "Frames: %llu on the game's D3D12 device, %llu through the Vulkan bridge, %llu waiting (no NR)"
 msgstr "フレーム数：ゲームの D3D12 デバイスで %llu、Vulkan ブリッジ経由で %llu、待機中（NR なし）%llu"
+
+msgid "Interleaved"
+msgstr "インターリーブ"
+
+msgid "NRFastMethod. Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Interleaved runs the legacy passes one per frame in turn, each with its own history; a still picture looks as legacy's, moving pictures follow the motion vectors (needed: without them it does not run, one network pass). Each method keeps its own settings."
+msgstr "NRFastMethod。Extrapolation はこのフレームの 1 パスの変化をその方向にさらに進めます。モーションベクトル不要、最初のフレームから効きます。Feedback は前フレームの変化をモーションベクトルで動かしてネットワーク入力に戻します。モーションベクトルが必要で、最初の数フレームで積み上がります。Hybrid は履歴が保てる所で Feedback、新しい面・カット・エッジで Extrapolation。Edit strength はネットワークの変化を段数で拡縮します（Adjust NR's look の Edit strength と同じ）。Interleaved は legacy の各パスを 1 フレームに 1 つずつ順番に実行し、パスごとに独自の履歴を持ちます。静止画は legacy と同じに見え、動く画面はモーションベクトルに沿います（必要：ない場合は実行されず、ネットワークを 1 回だけ実行）。方法ごとに設定を保持します。"
+
+msgid "NRFastInterleavedPasses. Interleaved: how many legacy passes (2 to 8) take turns, one each frame. Each pass more needs more video memory."
+msgstr "NRFastInterleavedPasses。インターリーブ：順番に回す legacy パスの数（2〜8）。1 フレームに 1 つずつ実行します。パスが増えるほどビデオメモリを多く使います。"
+
+msgid "No motion vectors: Interleaved cannot run (one network pass)."
+msgstr "モーションベクトルなし：インターリーブは実行できません（ネットワークを 1 回だけ実行）。"
+
+msgid "Interleaved / Feedback / Hybrid cannot run with peripheral compression (one network pass)."
+msgstr "周辺圧縮がオンのときインターリーブ / Feedback / Hybrid は実行できません（ネットワークを 1 回だけ実行）。"
+
+msgid "Interleaved cannot run: no motion vectors"
+msgstr "インターリーブを実行できません：モーションベクトルなし"
+
+msgid "Interleaved cannot run: peripheral compression is on"
+msgstr "インターリーブを実行できません：周辺圧縮がオン"
+
+msgid "Interleaved cannot run: its shaders are missing"
+msgstr "インターリーブを実行できません：シェーダーがありません"
+
+msgid "Feedback / Hybrid cannot run: peripheral compression is on"
+msgstr "Feedback / Hybrid を実行できません：周辺圧縮がオン"
+
+msgid "Feedback / Hybrid cannot run: no motion vectors"
+msgstr "Feedback / Hybrid を実行できません：モーションベクトルなし"
+
+msgid "No motion vectors: Feedback / Hybrid cannot run (one network pass)."
+msgstr "モーションベクトルなし：Feedback / Hybrid は実行できません（ネットワークを 1 回だけ実行）。"
+
+msgid "present"
+msgstr "Present"
+
+msgid "FastInterleavedPasses. Interleaved: how many legacy passes (2 to 8) take turns, one each frame. Each pass more needs more video memory."
+msgstr "FastInterleavedPasses。インターリーブ：順番に回す legacy パスの数（2〜8）。1 フレームに 1 つずつ実行します。パスが増えるほどビデオメモリを多く使います。"
+
+msgid "FastMethod. Interleaved runs the legacy passes one a frame in turn, each with its own history, and keeps each pass's change moved along the motion vectors: close to Passes (legacy) at one pass's cost; needs motion vectors and does not run with peripheral compression (then one network pass). Extrapolation pushes this frame's one-pass edit further along its own direction; no motion vectors needed, works from the first frame. Feedback feeds the previous frame's edit, moved by the motion vectors, back into the network input; needs motion vectors and builds up over the first frames. Hybrid uses Feedback where history holds and Extrapolation on new surfaces, cuts and edges. Edit strength scales the network's edit in stops, as Adjust NR's look's Edit strength does. Each method keeps its own settings."
+msgstr "FastMethod。インターリーブは legacy の各パスを 1 フレームに 1 つずつ順番に実行し、パスごとに独自の履歴を持ち、各パスの変化をモーションベクトルに沿って動かして保持します：1 パス分のコストで Passes (legacy) に近くなります。モーションベクトルが必要で、周辺圧縮がオンのときは実行されません（そのときはネットワークを 1 回だけ実行）。Extrapolation はこのフレームの 1 パスの変化をその方向にさらに進めます。モーションベクトル不要、最初のフレームから効きます。Feedback は前フレームの変化をモーションベクトルで動かしてネットワーク入力に戻します。モーションベクトルが必要で、最初の数フレームで積み上がります。Hybrid は履歴が保てる所で Feedback、新しい面・カット・エッジで Extrapolation。Edit strength はネットワークの変化を段数で拡縮します（Adjust NR's look の Edit strength と同じ）。方法ごとに設定を保持します。"
+
+msgid "[HudFix] Mode. HUD FIX keeps the game's HUD (crosshair, bars, subtitles, menus) as the game drew it while NR changes the rest; for the layers placed at Present. Off (default): the HUD goes through NR like the rest. Auto: the best method that can run, each frame. Frame generation's HUD-less frame: the frame without its HUD that the game hands its frame generation (FSR 3.1, XeSS, DLSS-G through Streamline or NGX; D3D12 games); NR runs on it and the HUD is put back as it was; where the game keeps it until the present, frame generation is given NR's answer in its place. OptiScaler's own frame generation gets no such frame from the game: Captured serves those games. Captured before the HUD: the frame copied where the game starts drawing its HUD; NR runs on it and the HUD is put back as it was. Where the game composes its HUD in its final pass, the picture that pass reads is taken instead, once it is checked against the presented frame. A method that cannot run here is greyed out with its reason."
+msgstr "[HudFix] Mode。HUD FIX はゲームの HUD（照準、バー、字幕、メニュー）をゲームが描いたままに保ち、NR は残りを変えます。Present に置いたレイヤーが対象。Off（既定）：HUD も他と同じく NR を通ります。Auto：毎フレーム、実行できる最良の方法。フレーム生成の HUD なしフレーム：ゲームがフレーム生成に渡す HUD のないフレーム（FSR 3.1、XeSS、Streamline または NGX 経由の DLSS-G。D3D12 ゲーム）。NR はそれに実行し、HUD は元どおり戻します。ゲームが提示まで保持する場合は、その代わりに NR の結果をフレーム生成に渡します。OptiScaler 自身のフレーム生成はゲームからそのフレームを受け取らないので、そのようなゲームは Captured で。HUD の前にキャプチャ：ゲームが HUD を描き始める所でフレームをコピー。NR はそれに実行し、HUD は元どおり戻します。ゲームが最終パスで HUD を合成する場合は、そのパスが読む画面を代わりに使います（表示されるフレームと照合してから）。ここで実行できない方法は理由とともにグレー表示になります。"
+
+msgid "off: Estimated is switched off in this version"
+msgstr "オフ：このバージョンでは Estimated（推定）は無効です"
+
+msgid " (switched off in this version)"
+msgstr "（このバージョンでは無効）"
+
+msgid "Estimated is switched off in this version: HUD FIX is off."
+msgstr "このバージョンでは Estimated（推定）は無効です：HUD FIX はオフです。"
+
+msgid "captured: the final pass's input"
+msgstr "HUD の前にキャプチャ：最終パスの入力"
+msgid "the final pass's input: "
+msgstr "最終パスの入力："
+msgid "on the ReShade route the capture is set up as the game starts: start it with HUD FIX on"
+msgstr "ReShade ルートではキャプチャはゲーム起動時に準備されます：HUD FIX をオンにしてゲームを起動してください"
+
+msgid "NR has no network for this GPU ("
+msgstr "NR にはこの GPU 用のネットワークがありません ("
+
+msgid ": NR has no network for this GPU ("
+msgstr "：NR にはこの GPU 用のネットワークがありません ("
+
+msgid "GPU architecture (restart the game)"
+msgstr "GPU アーキテクチャ（ゲーム再起動で反映）"
+
+msgid "Auto (AMD's driver tells)"
+msgstr "自動（AMD ドライバーが判断）"
+
+msgid "[GPU] Architecture. Auto (default): AMD's driver names the GPU NR's code is for - a renamed or spoofed GPU (OptiScaler's GPU spoofing) does not change that. Set it by hand only where NR says it cannot tell this GPU: it is then used as set, whatever the driver or the GPU's IDs say (a wrong one runs another GPU's machine code and the game may stop - set it back to Auto). Takes effect when the game restarts."
+msgstr "[GPU] Architecture。自動（既定）：NR のコードがどの GPU 向けかを AMD ドライバーが示します。GPU の名前の変更や偽装（OptiScaler の GPU 偽装）は判断に影響しません。NR がこの GPU を識別できないと表示した場合だけ手動で選んでください。手動で選ぶと、ドライバーや GPU の ID が何を示しても選んだとおりに使われます（誤って選ぶと別の GPU 用のマシンコードが動き、ゲームが停止することがあります。自動に戻してください）。ゲーム再起動で反映されます。"
+
+msgid "Interleaved preset"
+msgstr "インターリーブのプリセット"
+
+msgid "NRFastInterleavedPreset. Interleaved's processing method."
+msgstr "NRFastInterleavedPreset。インターリーブの処理方式。"
+
+msgid "FastInterleavedPreset. Interleaved's processing method."
+msgstr "FastInterleavedPreset。インターリーブの処理方式。"
+
+msgid "Preset 1"
+msgstr "プリセット 1"
+
+msgid "Preset 2"
+msgstr "プリセット 2"

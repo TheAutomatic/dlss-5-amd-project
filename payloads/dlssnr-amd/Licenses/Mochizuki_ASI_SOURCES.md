@@ -1,10 +1,11 @@
-# Official Mochizuki NR ASI payload (0.0.8.3)
+# Mochizuki NR ASI payload (0.0.9)
 
 Vendored payload for `dlssnr-amd.asi`:
 
-- Base: `DLSSNR-AMD 0.0.8.3` (`931c50f`) + Direct ELF D3D12 passthrough (`6a9249f`)
-- Plugin: `OptiScaler/plugins/dlssnr-amd.asi`
-- Probe: `nr_present_probe.exe`
+- Base resources: DLSSNR-AMD Windows 0.0.9 Preview (`9503f6b`), with the 0.0.9 CJK language pack.
+- Plugin and Present probe: built from the DLSSNR-AMD fork at `6439b6d` (`fix/re9-crash-watch`).
+- Plugin path: `OptiScaler/plugins/dlssnr-amd.asi`
+- Probe path in the release: `dlssnr-amd/nr_present_probe.exe`
 - Resources: `dlssnr-amd/` (shaders, ACO records/shaders, INT4 / performance / ultra data, language files)
 - Extraction tools: `model-tools/dlssnr_extract_model.exe`, `model-tools/dlssnr-int4-weights.exe`
 - Weight deltas: `experimental/dlssnr-small-experimental.delta`, `optimized/dlssnr-optimized.delta`
@@ -22,5 +23,6 @@ success are checked. There is deliberately no hash or version whitelist, so a
 newer official plugin or resource set can replace these files.
 
 Do not mix this resource tree with the retired built-in runtime's `dlssnr-amd`
-shaders or ACO files. Upgrade and uninstall operate on the installed file
-inventory, never on pattern guesses.
+shaders or ACO files. In-place upgrades use the installed file inventory to
+retire stale assets. A full Windows uninstall removes the dedicated
+dlssnr-amd resource directory, including generated models and caches.

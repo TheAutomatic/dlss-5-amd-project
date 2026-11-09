@@ -29,8 +29,6 @@ struct SPIRV_Cross_Input
 
 groupshared uint s_hud;
 groupshared uint s_coarse;
-groupshared uint s_changed;
-groupshared uint s_structure;
 
 void comp_main()
 {
