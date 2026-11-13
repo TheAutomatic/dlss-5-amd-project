@@ -89,8 +89,8 @@ namespace OptScalerNR.Launcher
             switch (code.Reason) {
                 case "old": return L("旧版风格码不适用于 ASI 版本，请在当前版本重新导出。",
                                       "Old style codes do not apply to the ASI version. Export again with this version.");
-                case "prefix": return L("没认出画面分享码。确认复制了完整的分享内容（里面会有一段 MZ4 开头的字符）。",
-                                        "No share code found. Make sure you copied the full share text (including the MZ4 part).");
+                case "prefix": return L("没认出画面分享码。确认复制了完整的分享内容（里面会有一段 MZ5 开头的字符）。",
+                                        "No share code found. Make sure you copied the full share text (including the MZ5 part).");
                 case "crc": return L("内容好像没复制全，少了一截。把整段分享内容重新复制一遍试试？",
                                      "Looks like part of the text was cut off. Try copying the whole thing again.");
                 case "index": return L("这段分享码来自更新的版本，更新启动器后再试。", "This share code needs a newer launcher. Update first.");
@@ -140,6 +140,7 @@ namespace OptScalerNR.Launcher
             if (key.StartsWith("NRLook", StringComparison.OrdinalIgnoreCase)) return "Look";
             if (key.StartsWith("NRPass", StringComparison.OrdinalIgnoreCase) ||
                 key.StartsWith("NRFast", StringComparison.OrdinalIgnoreCase) ||
+                key.StartsWith("Fast", StringComparison.OrdinalIgnoreCase) ||
                 key.StartsWith("Pass", StringComparison.OrdinalIgnoreCase) ||
                 key == "NRUnlockPasses" || key == "NRChainedHistory" || key == "NRNoiseEveryFrame" ||
                 key == "Passes" || key == "UnlockPasses" || key == "NoiseEveryFrame" || key == "PRESET" ||

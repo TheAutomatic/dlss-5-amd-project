@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
 using System.Windows.Media;
@@ -19,9 +20,9 @@ namespace OptScalerNR.Launcher
         int _packageComparisonGeneration;
         string _comparisonPackageRoot;
         string[] _comparisonGamePaths;
-        bool _comparisonWorkerRunning, _comparisonWriteBusy;
+        bool _comparisonWorkerRunning;
         PackageComparisonRequest _pendingPackageComparison;
-        readonly Dictionary<string, bool> _packageDifferences = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<string, bool?> _packageDifferences = new Dictionary<string, bool?>(StringComparer.OrdinalIgnoreCase);
         ComboBox _themeCombo;
         Button _themeToggle;
         static readonly Brush HeroMutedBrush = new SolidColorBrush(Color.FromRgb(204, 213, 228));
@@ -219,14 +220,6 @@ namespace OptScalerNR.Launcher
         {
             if (_heroKicker == null) return;
             ((TextBlock)_window.FindName("HeroMonogram")).Text = _selectedGame == null || string.IsNullOrEmpty(_selectedGame.DisplayName) ? "N" : _selectedGame.DisplayName.Substring(0, 1).ToUpperInvariant();
-            if (_writeBusy && !_comparisonWriteBusy) {
-                ++_packageComparisonGeneration;
-                _comparisonGamePaths = null;
-                _pendingPackageComparison = null;
-                _packageDifferences.Clear();
-                RefreshGameListView();
-            }
-            _comparisonWriteBusy = _writeBusy;
             UpdatePrimaryActionText();
             _heroKicker.Foreground = PackageDiffers(_selectedGame) ? LauncherTheme.Brush("ThemeWarning") : HeroMutedBrush;
             _heroKicker.ToolTip = PackageDiffers(_selectedGame) && _primaryButton != null ? _primaryButton.ToolTip : null;
@@ -248,7 +241,7 @@ namespace OptScalerNR.Launcher
             if (missing) { _heroKicker.Text = L("安装包不完整 · 请检查设置", "Package incomplete · Check settings"); return; }
             _heroKicker.Text = _selectedGame.Installed ? (PackageDiffers(_selectedGame)
                 ? L("已安装 · 版本不同", "Installed · Version differs")
-                : L("已安装", "Installed")) : L("准备就绪 · 可安装", "Ready to install");
+                : PackageStatusText(_selectedGame)) : L("准备就绪 · 可安装", "Ready to install");
         }
         bool PresentationIdle
         {
@@ -260,6 +253,10 @@ namespace OptScalerNR.Launcher
             public string PackageRoot;
             public string[] GamePaths;
         }
+        sealed class PackageComparisonResult
+        {
+            public readonly Dictionary<string, bool> Differences = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        }
         static string ComparisonPath(string path)
         {
             if (string.IsNullOrWhiteSpace(path)) return null;
@@ -270,47 +267,114 @@ namespace OptScalerNR.Launcher
             }
             catch { return null; }
         }
+        bool TryGetPackageDifference(GameInfo game, out bool? different)
+        {
+            different = null;
+            if (game == null || !game.Installed) return false;
+            string path = ComparisonPath(game.Exe);
+            return path != null && _packageDifferences.TryGetValue(path, out different);
+        }
         public bool PackageDiffers(GameInfo game)
         {
-            if (game == null || !game.Installed || string.IsNullOrEmpty(game.Exe)) return false;
-            string path = ComparisonPath(game.Exe);
-            bool different;
-            return path != null && _packageDifferences.TryGetValue(path, out different) && different;
+            bool? different;
+            return TryGetPackageDifference(game, out different) && different == true;
         }
-        void DetectPackageUpdate(GameInfo game, LauncherResult result, string requestedPackageRoot)
+        string PackageStatusText(GameInfo game)
+        {
+            bool? different;
+            if (!TryGetPackageDifference(game, out different)) return L("正在核对版本…", "Checking version…");
+            if (!different.HasValue) return L("已安装 · 版本未知", "Installed · Version unknown");
+            return different.Value ? L("版本不同", "Version differs") : L("已安装", "Installed");
+        }
+        void DetectPackageUpdate(LauncherResult result, string requestedPackageRoot)
         {
             // Only the package selection captured by this inspection may resolve its root.
             if (!string.Equals(ComparisonPath(requestedPackageRoot ?? NormalPackageRoot), ComparisonPath(_packageRoot), StringComparison.OrdinalIgnoreCase)) return;
-            RefreshPackageComparisons(result == null ? null : result.PackageRoot, true);
+            RefreshPackageComparisons(result == null ? null : result.PackageRoot);
         }
         public void RefreshPackageComparisons(string packageRoot, bool force = false)
         {
             if (_closed || _window.Dispatcher.HasShutdownStarted || _writeBusy) return;
             string root = ComparisonPath(packageRoot);
+            string[] capturedPaths = ComparisonGamePaths();
+            bool samePackage = string.Equals(root, _comparisonPackageRoot, StringComparison.OrdinalIgnoreCase);
+            if (samePackage && !force && SameComparisonPaths(capturedPaths, _comparisonGamePaths)) return;
+            if (!samePackage) _packageDifferences.Clear();
+            if (!samePackage || force) {
+                ++_packageComparisonGeneration;
+                _pendingPackageComparison = null;
+            }
+            var current = new HashSet<string>(capturedPaths, StringComparer.OrdinalIgnoreCase);
+            foreach (var path in _packageDifferences.Keys.Where(path => !current.Contains(path)).ToArray())
+                _packageDifferences.Remove(path);
+            _comparisonPackageRoot = root;
+            _comparisonGamePaths = capturedPaths;
+            if (root != null) {
+                QueuePackageComparison(root, force ? capturedPaths : capturedPaths.Where(path => !_packageDifferences.ContainsKey(path)).ToArray());
+            } else {
+                foreach (var path in capturedPaths) _packageDifferences[path] = null;
+            }
+            RefreshGameListView();
+            UpdatePrimaryButtonState();
+            if (!_comparisonWorkerRunning) RunPackageComparisons();
+        }
+        // Re-hashes a single game after a write (install / update / uninstall / unlocker import) and keeps every other
+        // game's verdict, so the rest of the library never falls back to "no result".
+        public void RecheckPackageComparison(GameInfo game)
+        {
+            if (_closed || _window.Dispatcher.HasShutdownStarted || _writeBusy) return;
+            if (game == null || string.IsNullOrEmpty(game.Exe)) return;
+            string path = ComparisonPath(game.Exe);
+            if (path == null) return;
+            _comparisonGamePaths = ComparisonGamePaths();
+            if (!game.Installed) {
+                if (_packageDifferences.Remove(path)) { RefreshGameListView(); UpdatePrimaryButtonState(); }
+                return;
+            }
+            if (_comparisonPackageRoot == null) { if (_packageRoot != null) RefreshPackageComparisons(_packageRoot, true); return; }
+            _packageDifferences.Remove(path);
+            QueuePackageComparison(_comparisonPackageRoot, new string[] { path });
+            RefreshGameListView();
+            UpdatePrimaryButtonState();
+            if (!_comparisonWorkerRunning) RunPackageComparisons();
+        }
+        string[] ComparisonGamePaths()
+        {
             var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var game in _allGames) {
                 if (game == null || !game.Installed) continue;
                 string path = ComparisonPath(game.Exe);
                 if (path != null) paths.Add(path);
             }
-            var capturedPaths = new string[paths.Count];
-            paths.CopyTo(capturedPaths);
-            Array.Sort(capturedPaths, StringComparer.OrdinalIgnoreCase);
-            bool unchanged = string.Equals(root, _comparisonPackageRoot, StringComparison.OrdinalIgnoreCase) &&
-                _comparisonGamePaths != null && _comparisonGamePaths.Length == capturedPaths.Length;
-            if (unchanged) for (int i = 0; i < capturedPaths.Length; ++i)
-                if (!string.Equals(capturedPaths[i], _comparisonGamePaths[i], StringComparison.OrdinalIgnoreCase)) { unchanged = false; break; }
-            if (unchanged && !force) return;
-            _comparisonPackageRoot = root;
-            _comparisonGamePaths = capturedPaths;
-            int generation = ++_packageComparisonGeneration;
-            _packageDifferences.Clear();
-            _pendingPackageComparison = root == null ? null : new PackageComparisonRequest {
-                Generation = generation, PackageRoot = root, GamePaths = capturedPaths
+            var captured = new string[paths.Count];
+            paths.CopyTo(captured);
+            Array.Sort(captured, StringComparer.OrdinalIgnoreCase);
+            return captured;
+        }
+        static bool SameComparisonPaths(string[] left, string[] right)
+        {
+            if (left == null || right == null || left.Length != right.Length) return false;
+            for (int i = 0; i < left.Length; ++i)
+                if (!string.Equals(left[i], right[i], StringComparison.OrdinalIgnoreCase)) return false;
+            return true;
+        }
+        void QueuePackageComparison(string root, string[] gamePaths)
+        {
+            if (root == null || gamePaths == null || gamePaths.Length == 0) return;
+            var pending = _pendingPackageComparison;
+            if (pending != null && string.Equals(pending.PackageRoot, root, StringComparison.OrdinalIgnoreCase)) {
+                var union = new HashSet<string>(pending.GamePaths, StringComparer.OrdinalIgnoreCase);
+                union.UnionWith(gamePaths);
+                var merged = new string[union.Count];
+                union.CopyTo(merged);
+                Array.Sort(merged, StringComparer.OrdinalIgnoreCase);
+                pending.GamePaths = merged;
+                pending.Generation = _packageComparisonGeneration;
+                return;
+            }
+            _pendingPackageComparison = new PackageComparisonRequest {
+                Generation = _packageComparisonGeneration, PackageRoot = root, GamePaths = gamePaths
             };
-            RefreshGameListView();
-            UpdatePrimaryButtonState();
-            if (!_comparisonWorkerRunning && _pendingPackageComparison != null) RunPackageComparisons();
         }
         void RunPackageComparisons()
         {
@@ -319,7 +383,7 @@ namespace OptScalerNR.Launcher
             _pendingPackageComparison = null;
             _comparisonWorkerRunning = true;
             Task.Run(delegate {
-                var compared = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                var compared = new PackageComparisonResult();
                 try {
                     using (var hash = SHA256.Create()) {
                         byte[] packageHash;
@@ -335,38 +399,49 @@ namespace OptScalerNR.Launcher
                         foreach (var exe in request.GamePaths) {
                             if (System.Threading.Thread.VolatileRead(ref _packageComparisonGeneration) != request.Generation) break;
                             try {
-                                string directory = Path.GetDirectoryName(exe), proxy = null;
+                                string directory = Path.GetDirectoryName(exe), proxy = null, pluginDir = null;
+                                bool expectsMochi = false, expectsOpenRr = false;
                                 using (var marker = new StreamReader(Path.Combine(directory, "amd-presr-install.txt"))) {
                                     string line;
-                                    while ((line = marker.ReadLine()) != null)
-                                        if (line.StartsWith("proxy=", StringComparison.OrdinalIgnoreCase)) { proxy = line.Substring(6).Trim(); break; }
+                                    while ((line = marker.ReadLine()) != null) {
+                                        if (line.StartsWith("proxy=", StringComparison.OrdinalIgnoreCase)) proxy = line.Substring(6).Trim();
+                                        else if (line.StartsWith("pluginDir=", StringComparison.OrdinalIgnoreCase)) {
+                                            var recorded = line.Substring(10).Trim();
+                                            if (Path.IsPathRooted(recorded)) pluginDir = ComparisonPath(recorded);
+                                        }
+                                        else if (line.Equals("backend=mochizuki", StringComparison.OrdinalIgnoreCase)) expectsMochi = true;
+                                        else if (line.StartsWith("openRrSpoof=", StringComparison.OrdinalIgnoreCase)) expectsOpenRr = true;
+                                    }
                                 }
+                                if (pluginDir == null)
+                                    pluginDir = UnlockerPlugin.DestinationDirectory(directory, UnlockerPlugin.ReadIni(Path.Combine(directory, "OptiScaler.ini")));
                                 if (!ProxyRecommendations.Supports(proxy)) continue;
                                 byte[] installedHash;
                                 using (var target = File.OpenRead(Path.Combine(directory, proxy))) installedHash = hash.ComputeHash(target);
-                                bool different = packageHash.Length != installedHash.Length;
-                                for (int i = 0; !different && i < packageHash.Length; ++i) different = packageHash[i] != installedHash[i];
+                                bool different = !packageHash.SequenceEqual(installedHash);
 
                                 if (!different && pkgMochiHash != null) {
-                                    string gameMochi = Path.Combine(directory, @"OptiScaler\plugins\dlssnr-amd.asi");
+                                    string gameMochi = Path.Combine(pluginDir, "dlssnr-amd.asi");
                                     if (File.Exists(gameMochi)) {
                                         byte[] gmHash;
                                         using (var gm = File.OpenRead(gameMochi)) gmHash = hash.ComputeHash(gm);
-                                        for (int i = 0; !different && i < pkgMochiHash.Length; ++i) different = pkgMochiHash[i] != gmHash[i];
-                                    }
-                                }
-                                if (!different && pkgOpenRrHash != null) {
-                                    string gameOpenRr = Path.Combine(directory, @"OptiScaler\plugins\openrr-amd.asi");
-                                    if (!File.Exists(gameOpenRr)) gameOpenRr = Path.Combine(directory, @"OptiScaler\plugins\openrr.asi");
-                                    if (File.Exists(gameOpenRr)) {
-                                        byte[] grHash;
-                                        using (var gr = File.OpenRead(gameOpenRr)) grHash = hash.ComputeHash(gr);
-                                        for (int i = 0; !different && i < pkgOpenRrHash.Length; ++i) different = pkgOpenRrHash[i] != grHash[i];
-                                    } else if ((Directory.Exists(Path.Combine(directory, @"openrr-amd\shaders")) || Directory.Exists(Path.Combine(directory, @"opennr-rr\shaders")))) {
+                                        different = !pkgMochiHash.SequenceEqual(gmHash);
+                                    } else if (expectsMochi) {
                                         different = true;
                                     }
                                 }
-                                compared[exe] = different;
+                                if (!different && pkgOpenRrHash != null) {
+                                    string gameOpenRr = Path.Combine(pluginDir, "openrr-amd.asi");
+                                    if (!File.Exists(gameOpenRr)) gameOpenRr = Path.Combine(pluginDir, "openrr.asi");
+                                    if (File.Exists(gameOpenRr)) {
+                                        byte[] grHash;
+                                        using (var gr = File.OpenRead(gameOpenRr)) grHash = hash.ComputeHash(gr);
+                                        different = !pkgOpenRrHash.SequenceEqual(grHash);
+                                    } else if (expectsOpenRr || Directory.Exists(Path.Combine(directory, @"openrr-amd\shaders")) || Directory.Exists(Path.Combine(directory, @"opennr-rr\shaders"))) {
+                                        different = true;
+                                    }
+                                }
+                                compared.Differences[exe] = different;
                             } catch { }
                         }
                     }
@@ -377,10 +452,19 @@ namespace OptScalerNR.Launcher
                 _window.Dispatcher.BeginInvoke(new Action(delegate {
                     _comparisonWorkerRunning = false;
                     if (_closed) return;
-                    if (!_writeBusy && request.Generation == _packageComparisonGeneration &&
+                    if (request.Generation == _packageComparisonGeneration &&
                         string.Equals(request.PackageRoot, _comparisonPackageRoot, StringComparison.OrdinalIgnoreCase)) {
-                        _packageDifferences.Clear();
-                        foreach (var entry in completed.Result) _packageDifferences.Add(entry.Key, entry.Value);
+                        var result = completed.Result;
+                        if (result != null) {
+                            var current = new HashSet<string>(_comparisonGamePaths, StringComparer.OrdinalIgnoreCase);
+                            var pending = _pendingPackageComparison;
+                            foreach (var path in request.GamePaths) {
+                                if (!current.Contains(path) || (pending != null &&
+                                    pending.GamePaths.Contains(path, StringComparer.OrdinalIgnoreCase))) continue;
+                                bool different;
+                                _packageDifferences[path] = result.Differences.TryGetValue(path, out different) ? (bool?)different : null;
+                            }
+                        }
                         RefreshGameListView();
                         UpdatePrimaryButtonState();
                     }

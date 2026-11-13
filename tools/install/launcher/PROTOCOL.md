@@ -104,7 +104,8 @@ require `gameExe`. Per-game proxy overrides live in GUI `settings.json/ProxyChoi
 {"schema":1,"requestId":"...","stage":"inspect","message":"..."}
 ```
 
-Stages: inspect, validate, prepare-model, backup, install, verify, done.
+Stages: scan, inspect, validate, prepare-model, backup, install, verify, uninstall-plan, uninstall, done.
+Uninstall reports its plan and removal stages while the child process is running.
 A stage without a known total uses indeterminate progress. Do not fake 1–99%.
 
 ## Result (`-ResultJson`, written last, atomic replace)

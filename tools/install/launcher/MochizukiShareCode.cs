@@ -104,6 +104,7 @@ namespace OptScalerNR.Launcher
                 "NRFastExtrapolationPasses", "NRFastExtrapolationHaloLimit", "NRFastExtrapolationFine",
                 "NRFastFeedbackPasses", "NRFastFeedbackHaloLimit", "NRFastFeedbackFine",
                 "NRFastHybridPasses", "NRFastHybridHaloLimit", "NRFastHybridFine", "NRFastEditStrength",
+                "NRFastInterleavedPasses", "NRFastInterleavedPreset",
                 "NRPasses", "NRUnlockPasses", "NRChainedHistory", "NRNoiseEveryFrame",
                 "NRPass2Transfer", "NRPass2Color", "NRPass2Intensity", "NRPass2FollowPass1", "NRPass2Style",
                 "NRPass2LocalTone", "NRPass2Structure", "NRPass2Skin", "NRPass2AutoMask",
@@ -140,7 +141,7 @@ namespace OptScalerNR.Launcher
                 "ClassicScaler", "Downscale", "PassesMode", "FastMethod", "FastEditStrength", "ColourLimit",
                 "FastExtrapolationPasses", "FastExtrapolationHaloLimit", "FastExtrapolationFine",
                 "FastFeedbackPasses", "FastFeedbackHaloLimit", "FastFeedbackFine",
-                "FastHybridPasses", "FastHybridHaloLimit", "FastHybridFine"
+                "FastHybridPasses", "FastHybridHaloLimit", "FastHybridFine", "FastInterleavedPasses", "FastInterleavedPreset"
             };
         }
         static Field FindField(IEnumerable<Field> fields, string section, string key)
@@ -373,14 +374,15 @@ namespace OptScalerNR.Launcher
             }
             string payload = "1|" + EscapeField(NormalizeGameTag(game)) + "|" + EscapeField(SanitizeNote(note)) + "|" +
                              Convert.ToBase64String(Encoding.UTF8.GetBytes(string.Join("\n", lines.ToArray())));
-            return "MZ4:" + payload + ";" + Crc16(payload).ToString("X4", Invariant);
+            return "MZ5:" + payload + ";" + Crc16(payload).ToString("X4", Invariant);
         }
         public static DecodedCode Decode(string code)
         {
             if (code == null) throw new CodeException("prefix");
             if (code.StartsWith("MZ1:", StringComparison.Ordinal) || code.StartsWith("MZ2:", StringComparison.Ordinal) ||
                 code.StartsWith("MZ3:", StringComparison.Ordinal)) throw new CodeException("old");
-            if (!code.StartsWith("MZ4:", StringComparison.Ordinal)) throw new CodeException("prefix");
+            if (!code.StartsWith("MZ5:", StringComparison.Ordinal) && !code.StartsWith("MZ4:", StringComparison.Ordinal))
+                throw new CodeException("prefix");
             return DecodeBase64(code);
         }
         static DecodedCode DecodeBase64(string code)
@@ -388,7 +390,9 @@ namespace OptScalerNR.Launcher
             if (code == null) throw new CodeException("prefix");
             if (code.StartsWith("MZ1:", StringComparison.Ordinal) || code.StartsWith("MZ2:", StringComparison.Ordinal) ||
                 code.StartsWith("MZ3:", StringComparison.Ordinal)) throw new CodeException("old");
-            if (!code.StartsWith("MZ4:", StringComparison.Ordinal)) throw new CodeException("prefix");
+            bool isMz5 = code.StartsWith("MZ5:", StringComparison.Ordinal);
+            bool isMz4 = code.StartsWith("MZ4:", StringComparison.Ordinal);
+            if (!isMz5 && !isMz4) throw new CodeException("prefix");
             int end = code.LastIndexOf(';');
             ushort crc;
             if (end < 4 || code.Length != end + 5 || !ushort.TryParse(code.Substring(end + 1), NumberStyles.AllowHexSpecifier, Invariant, out crc))
@@ -413,6 +417,7 @@ namespace OptScalerNR.Launcher
                 var entry = new Entry { Value = cols[3] };
                 if (cols[0] == "G") {
                     entry.Layer = 0; entry.Section = cols[1]; entry.Key = cols[2];
+                    if (isMz4) MigrateMz4Value(entry);
                     var field = FindField(GlobalFields, entry.Section, entry.Key);
                     if (field == null) throw new CodeException("unknown");
                     ValidateValue(field, entry.Value);
@@ -420,6 +425,7 @@ namespace OptScalerNR.Launcher
                     int layer;
                     if (!int.TryParse(cols[1], NumberStyles.None, Invariant, out layer) || layer <= 0) throw new CodeException("layer");
                     entry.Layer = layer; entry.Section = "Layer" + layer.ToString(Invariant); entry.Key = cols[2];
+                    if (isMz4) MigrateMz4Value(entry);
                     var field = FindField(LayerFields, "Layer", entry.Key);
                     if (field == null) throw new CodeException("unknown");
                     ValidateValue(field, entry.Value);
@@ -429,6 +435,19 @@ namespace OptScalerNR.Launcher
             }
             return decoded;
         }
+        static void MigrateMz4Value(Entry entry)
+        {
+            if (!string.Equals(entry.Key, "NRFastMethod", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(entry.Key, "FastMethod", StringComparison.OrdinalIgnoreCase))
+                return;
+            switch (entry.Value.Trim()) {
+                case "0": entry.Value = "1"; break;
+                case "1": entry.Value = "2"; break;
+                case "2": entry.Value = "3"; break;
+                case "3": entry.Value = "4"; break;
+                case "4": entry.Value = "0"; break;
+            }
+        }
         static string EntryValue(DecodedCode code, int layer, string key)
         {
             foreach (var entry in code.Entries)
@@ -436,7 +455,7 @@ namespace OptScalerNR.Launcher
                     return entry.Value;
             return "";
         }
-        static readonly Regex CodeInText = new Regex(@"MZ[1-4]:[^\r\n]*?;[0-9A-Fa-f]{4}(?![0-9A-Fa-f])", RegexOptions.Compiled);
+        static readonly Regex CodeInText = new Regex(@"MZ[1-5]:[^\r\n]*?;[0-9A-Fa-f]{4}(?![0-9A-Fa-f])", RegexOptions.Compiled);
         public static string ExtractCode(string text)
         {
             if (text == null) return null;

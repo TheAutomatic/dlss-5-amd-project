@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -12,8 +15,10 @@ namespace OptScalerNR.Launcher
         readonly Dictionary<string,string> _proxyChoices=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string,bool> _optiPatcherByGame=new Dictionary<string,bool>(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string,bool> _openRrByGame=new Dictionary<string,bool>(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<string,string> _openRrSpoofByGame=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
         bool _selectingOptiPatcher;
         bool _selectingOpenRr;
+        bool _selectingOpenRrSpoof;
         bool _selectingProxy;
         Button _refreshProfilesButton,_useRecommendationButton;
         TextBlock _profileStatus;
@@ -28,11 +33,62 @@ namespace OptScalerNR.Launcher
                 if(_selectedGame==null)return;_proxyChoices.Remove(_selectedGame.Id);SaveSettings();UpdateProxyRecommendation();
             };
         }
+        HashSet<string> _optiPatcherSupportedExes;
+        string _optiPatcherExesSource;
+        bool _optiPatcherExesLoaded;
+        HashSet<string> GetOptiPatcherSupportedExes()
+        {
+            string path=null;
+            if(!string.IsNullOrEmpty(_packageRoot)){
+                foreach(var rel in new[]{
+                    Path.Combine("OptiScaler","plugins","OptiPatcher.asi"),
+                    Path.Combine("payloads","optipatcher","OptiScaler","plugins","OptiPatcher.asi")
+                }){
+                    var cand=Path.Combine(_packageRoot,rel);
+                    if(File.Exists(cand)){path=cand;break;}
+                }
+            }
+            if(path==null)return null;
+            if(_optiPatcherExesLoaded&&string.Equals(_optiPatcherExesSource,path,StringComparison.OrdinalIgnoreCase))
+                return _optiPatcherSupportedExes;
+            try{
+                var text=Encoding.ASCII.GetString(File.ReadAllBytes(path));
+                var set=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach(Match m in Regex.Matches(text,@"[A-Za-z0-9_.\-+()]+\.exe",RegexOptions.CultureInvariant))
+                    set.Add(m.Value);
+                _optiPatcherSupportedExes=set;
+                _optiPatcherExesSource=path;
+                _optiPatcherExesLoaded=true;
+                return set;
+            }catch{
+                _optiPatcherSupportedExes=null;
+                _optiPatcherExesSource=path;
+                _optiPatcherExesLoaded=true;
+                return null;
+            }
+        }
+        bool IsOptiPatcherSupported(GameInfo game,ProxyProfile profile)
+        {
+            if(game==null||!game.HasExecutable)return false;
+            if(profile!=null&&profile.OptiPatcher)return true;
+            var exes=GetOptiPatcherSupportedExes();
+            if(exes==null||exes.Count==0)return true;
+            return exes.Contains(Path.GetFileName(game.Exe));
+        }
+        void ApplyOptiPatcherTooltip(bool supported)
+        {
+            if(_optiPatcherToggle==null)return;
+            _optiPatcherToggle.ToolTip=supported
+                ?L("优先下载最新版本（30 秒时限），失败时回退包内离线副本，并启用 LoadAsiPlugins。","Downloads the latest version with a 30-second limit, falls back to the bundled offline copy, and enables LoadAsiPlugins.")
+                :L("当前游戏不在内置 OptiPatcher 支持名单内，已自动禁用。","This game is not in the bundled OptiPatcher support list and has been disabled.");
+        }
         void RememberOptiPatcherChoice()
         {
-            _decisions.OptiPatcher=_optiPatcherToggle!=null&&_optiPatcherToggle.IsChecked==true?"install":"skip";
+            bool active=_optiPatcherToggle!=null&&_optiPatcherToggle.IsEnabled&&_optiPatcherToggle.IsChecked==true;
+            _decisions.OptiPatcher=active?"install":"skip";
             if(_selectingOptiPatcher||_loadingSettings||_applyingLanguage||_selectedGame==null||string.IsNullOrEmpty(_selectedGame.Id))return;
-            _optiPatcherByGame[_selectedGame.Id]=_optiPatcherToggle.IsChecked==true;
+            if(_optiPatcherToggle!=null&&!_optiPatcherToggle.IsEnabled)return;
+            _optiPatcherByGame[_selectedGame.Id]=active;
             SaveSettings();
         }
         void RememberOpenRrChoice()
@@ -41,6 +97,24 @@ namespace OptScalerNR.Launcher
             if(_selectingOpenRr||_loadingSettings||_applyingLanguage||_selectedGame==null||string.IsNullOrEmpty(_selectedGame.Id))return;
             _openRrByGame[_selectedGame.Id]=_openRrToggle.IsChecked==true;
             SaveSettings();
+        }
+        void RememberOpenRrSpoofChoice()
+        {
+            bool optiActive=_optiPatcherToggle!=null&&_optiPatcherToggle.IsEnabled&&_optiPatcherToggle.IsChecked==true;
+            if(_selectingOpenRrSpoof||_loadingSettings||_applyingLanguage||_selectedGame==null||string.IsNullOrEmpty(_selectedGame.Id))return;
+            if(_openRrAutoSpoofToggle==null||!_openRrAutoSpoofToggle.IsEnabled||!optiActive){
+                _decisions.OpenRrSpoof=(optiActive&&GetOpenRrSpoof(_selectedGame)=="auto")?"auto":"full";
+                return;
+            }
+            _decisions.OpenRrSpoof=_openRrAutoSpoofToggle.IsChecked==true?"auto":"full";
+            _openRrSpoofByGame[_selectedGame.Id]=_decisions.OpenRrSpoof;
+            SaveSettings();
+        }
+        // Per-game GUI choice, default full. Always sent explicitly; the installer writes it as chosen.
+        string GetOpenRrSpoof(GameInfo game)
+        {
+            string mode;
+            return game!=null&&!string.IsNullOrEmpty(game.Id)&&_openRrSpoofByGame.TryGetValue(game.Id,out mode)?mode:"full";
         }
         void RememberProxyChoice()
         {
@@ -59,11 +133,19 @@ namespace OptScalerNR.Launcher
                 _profileStatus.ToolTip=string.Format(L("推荐规则来源：{0} · 共 {1} 款游戏 · 复核于 {2}","Recommendation source: {0} · {1} games · reviewed {2}"),origin,_recommendations.Count,_recommendations.Reviewed??"");
             }
             var profile=_selectedGame==null?null:_recommendations.Match(_selectedGame);
-            bool optiPatcher;
-            if(_selectedGame==null||!_optiPatcherByGame.TryGetValue(_selectedGame.Id,out optiPatcher))optiPatcher=profile!=null&&profile.OptiPatcher;
+            bool optiSupported=IsOptiPatcherSupported(_selectedGame,profile);
+            bool optiPatcher=false;
+            if(optiSupported&&(_selectedGame==null||!_optiPatcherByGame.TryGetValue(_selectedGame.Id,out optiPatcher)))
+                optiPatcher=profile!=null&&profile.OptiPatcher;
+            if(!optiSupported)optiPatcher=false;
             _selectingOptiPatcher=true;
-            try{if(_optiPatcherToggle!=null)_optiPatcherToggle.IsChecked=optiPatcher;}
-            finally{_selectingOptiPatcher=false;}
+            try{
+                if(_optiPatcherToggle!=null){
+                    _optiPatcherToggle.IsEnabled=optiSupported&&!_writeBusy;
+                    _optiPatcherToggle.IsChecked=optiPatcher;
+                }
+            }finally{_selectingOptiPatcher=false;}
+            ApplyOptiPatcherTooltip(optiSupported);
             _decisions.OptiPatcher=optiPatcher?"install":"skip";
             bool openRr=false,savedOpenRr;
             if(_selectedGame!=null&&_openRrByGame.TryGetValue(_selectedGame.Id,out savedOpenRr))openRr=savedOpenRr;
@@ -71,6 +153,12 @@ namespace OptScalerNR.Launcher
             try{if(_openRrToggle!=null)_openRrToggle.IsChecked=openRr;}
             finally{_selectingOpenRr=false;}
             _decisions.OpenRr=openRr?"install":"skip";
+            bool openRrAutoSpoof=optiPatcher&&GetOpenRrSpoof(_selectedGame)=="auto";
+            _selectingOpenRrSpoof=true;
+            try{if(_openRrAutoSpoofToggle!=null)_openRrAutoSpoofToggle.IsChecked=openRrAutoSpoof;}
+            finally{_selectingOpenRrSpoof=false;}
+            _decisions.OpenRrSpoof=openRrAutoSpoof?"auto":"full";
+            RefreshOpenRrCard();
             if(_selectedGame==null){AppendMochizukiNote();return;}
             string manual;
             var hasManual=_proxyChoices.TryGetValue(_selectedGame.Id,out manual)&&ProxyRecommendations.Supports(manual);

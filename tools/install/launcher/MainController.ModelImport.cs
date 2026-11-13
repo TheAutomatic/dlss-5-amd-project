@@ -348,9 +348,34 @@ namespace OptScalerNR.Launcher
                 _openRrImportButton.Visibility = (enabled && !hasDlssd) ? Visibility.Visible : Visibility.Collapsed;
                 _openRrImportButton.IsEnabled = PresentationIdle;
             }
+            bool optiActive = _optiPatcherToggle != null && _optiPatcherToggle.IsEnabled && _optiPatcherToggle.IsChecked == true;
+            bool wantAutoSpoof = optiActive && GetOpenRrSpoof(_selectedGame) == "auto";
+            _decisions.OpenRrSpoof = wantAutoSpoof ? "auto" : "full";
+            if (_openRrAutoSpoofToggle != null)
+            {
+                _openRrAutoSpoofToggle.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+                _openRrAutoSpoofToggle.IsEnabled = PresentationIdle && enabled && optiActive;
+                _openRrAutoSpoofToggle.Content = optiActive
+                    ? L(
+                        "实验性：减少全局显卡伪装（Dxgi=auto，配合 OptiPatcher 保持真实 A 卡身份）",
+                        "Experimental: Reduce global GPU spoofing (Dxgi=auto, keeps native AMD adapter with OptiPatcher)")
+                    : L(
+                        "实验性：减少全局显卡伪装（需先启用 OptiPatcher；仅少量游戏支持）",
+                        "Experimental: Reduce global GPU spoofing (requires OptiPatcher; only a few games are supported)");
+                _selectingOpenRrSpoof = true;
+                try { _openRrAutoSpoofToggle.IsChecked = wantAutoSpoof; }
+                finally { _selectingOpenRrSpoof = false; }
+                _openRrAutoSpoofToggle.ToolTip = optiActive
+                    ? L(
+                        "勾选时将 [Spoofing] Dxgi/Vulkan 设为 auto 而非强开 true：在 OptiPatcher 命中的游戏中自动关闭全局 DXGI N 卡伪装，保留真实 AMD 显卡身份，同时通过 OpenRR 的 sl.dlss_d 专用能力适配解锁光线重建；未命中时 OptiScaler 会自动回退开启 DXGI 伪装。",
+                        "Sets [Spoofing] Dxgi/Vulkan to auto instead of forcing true: when OptiPatcher patches the game, global DXGI NVIDIA spoofing turns off so the game sees the native AMD adapter while OpenRR's sl.dlss_d capability hook unlocks Ray Reconstruction; if unpatched, OptiScaler falls back to DXGI spoofing.")
+                    : L(
+                        "需先启用 OptiPatcher 才能减少全局显卡伪装（当前游戏不支持或未勾选 OptiPatcher，自动保持完整伪装）。",
+                        "Requires OptiPatcher enabled to reduce global GPU spoofing (OptiPatcher is unsupported or unchecked; full spoofing stays active).");
+            }
             SetLabel("OpenRrDescription",
-                "适合 RX 9000 系列（请仅在支持 NVIDIA 光线重建游戏中使用）",
-                "For RX 9000 series (Use only in games supporting NVIDIA Ray Reconstruction)");
+                "适合 RX 9000 系列，实验性支持 RX 7000 / RDNA3（仅限光线重建游戏）",
+                "For RX 9000 series; experimental RX 7000 / RDNA3 (Ray Reconstruction games only)");
         }
         void RefreshModelImportBar()
         {

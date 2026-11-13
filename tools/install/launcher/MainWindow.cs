@@ -29,6 +29,8 @@ namespace OptScalerNR.Launcher
         public event System.ComponentModel.PropertyChangedEventHandler PropertyChanged;
         public ImageSource IconSource { get { return _image; } set { _image = value; if (PropertyChanged != null) foreach (var name in new[] { "DisplayImage", "CoverVisibility", "InitialVisibility", "ImageStretch" }) PropertyChanged(this, new System.ComponentModel.PropertyChangedEventArgs(name)); } }
         public bool PackageDiffers { get; set; }
+        public bool PackageMatches { get; set; }
+        public string InstalledStatusText { get; set; }
         public string StatusExplanation { get { return PackageDiffers ? (IsZh ? "已安装的 OptScaler NR 与当前选择的安装包不同，不一定是旧版本。可按当前选项更新，无需先卸载。" : "The installed OptScaler NR differs from the package you selected; it is not necessarily older. Update with your current options without uninstalling first.") : ""; } }
 
         public string Name { get { return Info != null ? Info.DisplayName : ""; } }
@@ -46,9 +48,7 @@ namespace OptScalerNR.Launcher
             get
             {
                 if (Info != null && !Info.HasExecutable) return IsZh ? "待选 EXE" : "Select EXE";
-                if (Info != null && Info.Installed && PackageDiffers) return IsZh ? "版本不同" : "Version differs";
-                if (Info != null && Info.Installed)
-                    return IsZh ? "已安装" : "Installed";
+                if (Info != null && Info.Installed) return InstalledStatusText;
                 return IsZh ? "未安装" : "Not installed";
             }
         }
@@ -58,7 +58,7 @@ namespace OptScalerNR.Launcher
             {
                 if (Info != null && !Info.HasExecutable) return LauncherTheme.Brush("ThemeMuted");
                 if (PackageDiffers) return LauncherTheme.Brush("ThemeWarning");
-                if (Info != null && Info.Installed)
+                if (Info != null && Info.Installed && PackageMatches)
                     return LauncherTheme.Brush("ThemeSuccess");
                 return LauncherTheme.Brush("ThemeMuted");
             }
@@ -95,7 +95,7 @@ namespace OptScalerNR.Launcher
         Button _compatButton, _restoreCompatButton, _compatHelpButton;
         MenuItem _removeGameMenuItem;
         TextBlock _compatSummary;
-        CheckBox _mochiCheck, _replaceIni, _optiPatcherToggle, _openRrToggle, _scanOnStartup;
+        CheckBox _mochiCheck, _replaceIni, _optiPatcherToggle, _openRrToggle, _openRrAutoSpoofToggle, _scanOnStartup;
         ProgressBar _progress;
         Image _heroPosterImage, _heroBgImage;
         Ellipse _statusLed;
@@ -222,15 +222,21 @@ namespace OptScalerNR.Launcher
             _replaceIni = (CheckBox)window.FindName("ReplaceIni");
             _optiPatcherToggle = (CheckBox)window.FindName("OptiPatcherToggle");
             _openRrToggle = (CheckBox)window.FindName("OpenRrToggle");
+            _openRrAutoSpoofToggle = (CheckBox)window.FindName("OpenRrAutoSpoofToggle");
             if (_openRrToggle != null)
             {
                 _openRrToggle.Checked += (s, e) => { RememberOpenRrChoice(); RefreshModelImportBar(); };
                 _openRrToggle.Unchecked += (s, e) => { RememberOpenRrChoice(); RefreshModelImportBar(); };
             }
+            if (_openRrAutoSpoofToggle != null)
+            {
+                _openRrAutoSpoofToggle.Checked += (s, e) => { RememberOpenRrSpoofChoice(); };
+                _openRrAutoSpoofToggle.Unchecked += (s, e) => { RememberOpenRrSpoofChoice(); };
+            }
             if (_optiPatcherToggle != null)
             {
-                _optiPatcherToggle.Checked += (s, e) => { RememberOptiPatcherChoice(); };
-                _optiPatcherToggle.Unchecked += (s, e) => { RememberOptiPatcherChoice(); };
+                _optiPatcherToggle.Checked += (s, e) => { RememberOptiPatcherChoice(); RefreshOpenRrCard(); };
+                _optiPatcherToggle.Unchecked += (s, e) => { RememberOptiPatcherChoice(); RefreshOpenRrCard(); };
             }
             _openLogButton = (Button)window.FindName("OpenLogButton");
             _logView = (TextBox)window.FindName("LogView");
@@ -684,20 +690,24 @@ namespace OptScalerNR.Launcher
                 if (_refreshButton != null) _refreshButton.Content = isZh ? "刷新" : "Refresh";
                 if (_packageBrowse != null) _packageBrowse.Content = isZh ? "浏览…" : "Browse…";
                 if (_heroKicker != null) _heroKicker.Text = isZh ? "已选游戏" : "Selected Game";
-                if (_replaceIni != null) _replaceIni.Content = isZh ? "覆盖现有 OptiScaler.ini 配置文件 (推荐)" : "Replace existing OptiScaler.ini (recommended)";
+                if (_replaceIni != null) _replaceIni.Content = isZh ? "覆盖现有配置文件 (.ini，推荐)" : "Replace existing configuration files (.ini, recommended)";
                 SetLabel("OptiPatcherToggle", "安装 OptiPatcher（DLSS 伪装增强，按 Wiki 推荐预选）", "Install OptiPatcher (DLSS spoofing enhancement, preselected by Wiki recommendation)");
-                if (_optiPatcherToggle != null) _optiPatcherToggle.ToolTip = L("优先下载最新版本（30 秒时限），失败时回退包内离线副本，并启用 LoadAsiPlugins。", "Downloads the latest version with a 30-second limit, falls back to the bundled offline copy, and enables LoadAsiPlugins.");
+                ApplyOptiPatcherTooltip(IsOptiPatcherSupported(_selectedGame, (_selectedGame == null || _recommendations == null) ? null : _recommendations.Match(_selectedGame)));
                 SetLabel("OpenRrToggle", "OpenRR - ASI version", "OpenRR - ASI version");
                 SetLabel("OpenRrDescription",
-                    "适合 RX 9000 系列（请仅在支持 NVIDIA 光线重建游戏中使用）",
-                    "For RX 9000 series (Use only in games supporting NVIDIA Ray Reconstruction)");
+                    "适合 RX 9000 系列，实验性支持 RX 7000 / RDNA3（仅限光线重建游戏）",
+                    "For RX 9000 series; experimental RX 7000 / RDNA3 (Ray Reconstruction games only)");
+                SetLabel("OpenRrAutoSpoofToggle",
+                    "实验性：减少全局显卡伪装（Dxgi=auto，配合 OptiPatcher 保持真实 A 卡身份）",
+                    "Experimental: Reduce global GPU spoofing (Dxgi=auto, keeps native AMD adapter with OptiPatcher)");
+                RefreshOpenRrCard();
                 if (_openRrToggle != null) _openRrToggle.ToolTip = L("勾选时部署 openrr-amd.asi 与 openrr-amd/shaders/，并在检测到您自备或导入的 nvngx_dlssd.dll (310.9.1.0) 时放入 openrr-amd/。取消勾选时移除 openrr-amd.asi。", "Installs openrr-amd.asi and openrr-amd/shaders/, and places your supplied/imported nvngx_dlssd.dll (310.9.1.0) into openrr-amd/. When unchecked, removes openrr-amd.asi.");
                 if (_scanOnStartup != null) _scanOnStartup.Content = isZh ? "启动时自动扫描游戏库" : "Scan game library on startup";
 
                 SetLabel("LocalGamesHeading", "游戏库", "Library");
                 SetLabel("ProxyHeading", "注入代理", "Injection proxy");
                 SetLabel("BackendsHeading", "ASI 插件选择 (神经渲染 & 光线重建)", "ASI Plugins (Neural Rendering & Ray Reconstruction)");
-                SetLabel("MochiCheck", "mochizuki 0.0.8.4", "mochizuki 0.0.8.4");
+                SetLabel("MochiCheck", "mochizuki 0.0.9", "mochizuki 0.0.9");
                 SetLabel("MochiDescription", "适合 RX 7000/9000 系列（6000 系请暂时先使用老版本）", "For RX 7000/9000 series (RX 6000 series please use the legacy version for now)");
                 SetLabel("DiagnosticsHeading", "配置与运行库兼容诊断", "Configuration & Runtime Compatibility");
                 SetLabel("LogHeading", "运行诊断日志", "Diagnostic Log");
@@ -920,6 +930,8 @@ namespace OptScalerNR.Launcher
             switch (stage)
             {
                 case "scan": return L("正在扫描游戏库…", "Scanning library…");
+                case "uninstall-plan": return L("正在检查卸载范围…", "Checking files to uninstall…");
+                case "uninstall": return L("正在卸载 OptScaler NR…", "Uninstalling OptScaler NR…");
                 case "inspect": return L("正在检查安装环境…", "Inspecting installation…");
                 case "validate": return L("正在检查安装条件…", "Validating installation…");
                 case "prepare-model": return L("正在准备模型…", "Preparing models…");
@@ -954,6 +966,12 @@ namespace OptScalerNR.Launcher
                     foreach (var pair in rec.OptiPatcherByGame) _optiPatcherByGame[pair.Key] = pair.Value;
                 if (rec.OpenRrByGame != null)
                     foreach (var pair in rec.OpenRrByGame) _openRrByGame[pair.Key] = pair.Value;
+                if (rec.OpenRrSpoofByGame != null)
+                    foreach (var pair in rec.OpenRrSpoofByGame)
+                    {
+                        var mode=pair.Value==null?null:pair.Value.ToLowerInvariant();
+                        if(mode=="full"||mode=="auto")_openRrSpoofByGame[pair.Key]=mode;
+                    }
                 if (rec.HiddenGames != null)
                     foreach (var pair in rec.HiddenGames) _hiddenGames[pair.Key] = pair.Value;
                 if (rec.BackendChoices != null)
@@ -987,7 +1005,8 @@ namespace OptScalerNR.Launcher
                     HiddenGames = _hiddenGames,
                     ProxyChoices = _proxyChoices,
                     OptiPatcherByGame = _optiPatcherByGame,
-                    OpenRrByGame = _openRrByGame
+                    OpenRrByGame = _openRrByGame,
+                    OpenRrSpoofByGame = _openRrSpoofByGame
                 };
                 JsonUtil.WriteFile(_settingsPath, set);
             }
@@ -1012,6 +1031,7 @@ namespace OptScalerNR.Launcher
                         {
                             if (string.IsNullOrEmpty(g.Id)) { g.Id = "manual:" + Guid.NewGuid().ToString("N"); migrated = true; }
                             if (string.IsNullOrEmpty(g.Root) && !string.IsNullOrEmpty(g.Exe)) { g.Root = Path.GetDirectoryName(g.Exe); migrated = true; }
+
                             _allGames.Add(g);
                         }
                     }
@@ -1043,6 +1063,7 @@ namespace OptScalerNR.Launcher
             [System.Runtime.Serialization.DataMember] public Dictionary<string, string> ProxyChoices;
             [System.Runtime.Serialization.DataMember(Name = "optiPatcherByGame")] public Dictionary<string, bool> OptiPatcherByGame;
             [System.Runtime.Serialization.DataMember(Name = "openRrByGame")] public Dictionary<string, bool> OpenRrByGame;
+            [System.Runtime.Serialization.DataMember(Name = "openRrSpoofByGame")] public Dictionary<string, string> OpenRrSpoofByGame;
             [System.Runtime.Serialization.DataMember] public Dictionary<string, string> HiddenGames;
             [System.Runtime.Serialization.DataMember] public string Language;
             [System.Runtime.Serialization.DataMember] public string Theme;
@@ -1384,7 +1405,12 @@ namespace OptScalerNR.Launcher
                     var matchExe = g.Exe != null && g.Exe.ToLowerInvariant().Contains(query);
                     if (!matchName && !matchExe) continue;
                 }
-                var item = new GameItemViewModel { Info = g, IsZh = isZh, PackageDiffers = PackageDiffers(g) };
+                bool? packageDiffers;
+                TryGetPackageDifference(g, out packageDiffers);
+                var item = new GameItemViewModel {
+                    Info = g, IsZh = isZh, PackageDiffers = packageDiffers == true,
+                    PackageMatches = packageDiffers == false, InstalledStatusText = PackageStatusText(g)
+                };
                 list.Add(item);
             }
 
@@ -1626,15 +1652,11 @@ namespace OptScalerNR.Launcher
                     merged.Add(incoming);
                     continue;
                 }
-                var samePath = string.Equals(existing.Exe, incoming.Exe, StringComparison.OrdinalIgnoreCase);
                 if (!KeepCachedExe(existing) || (!existing.HasExecutable && incoming.HasExecutable))
                 {
                     existing.Exe = incoming.Exe;
                     existing.ExeOverride = false;
-                    samePath = true;
                 }
-                existing.Installed = samePath ? incoming.Installed : existing.HasExecutable &&
-                    File.Exists(Path.Combine(Path.GetDirectoryName(existing.Exe), "amd-presr-install.txt"));
                 if (existing.Source != "Manual" && string.Equals(existing.Id, incoming.Id, StringComparison.OrdinalIgnoreCase))
                 {
                     existing.Name = incoming.Name;
@@ -1643,6 +1665,8 @@ namespace OptScalerNR.Launcher
                 if (!string.IsNullOrEmpty(incoming.Cover)) existing.Cover = incoming.Cover;
                 if (!string.IsNullOrEmpty(incoming.Hero)) existing.Hero = incoming.Hero;
             }
+            foreach (var game in merged)
+                game.Installed = game.HasExecutable && File.Exists(Path.Combine(Path.GetDirectoryName(game.Exe), "amd-presr-install.txt"));
             _allGames.Clear();
             _allGames.AddRange(merged);
             if (previousSelection != null)
@@ -1667,14 +1691,16 @@ namespace OptScalerNR.Launcher
                 SetBusy(false, "");
                 if (_progress != null) _progress.IsIndeterminate = false;
 
-                var selectionChanged = false;
-                if (result != null && result.Games != null)
+                if (code != 0 || result == null || result.Status != "success" || result.Games == null)
                 {
-                    selectionChanged = MergeScannedGames(result.Games);
-                    SaveLibraryCache();
-                    RefreshPackageComparisons(string.IsNullOrWhiteSpace(_packageRoot) && _lastInspectResult != null ? _lastInspectResult.PackageRoot : _packageRoot, true);
-                    RefreshGameListView();
+                    if (result != null && !string.IsNullOrEmpty(result.LogPath)) _currentLogPath = result.LogPath;
+                    if (_statusLed != null) _statusLed.Fill = WarningBrush;
+                    if (_statusText != null) _statusText.Text = L("游戏库扫描失败", "Library scan failed");
+                    return;
                 }
+                var selectionChanged = MergeScannedGames(result.Games);
+                SaveLibraryCache();
+                RefreshPackageComparisons(_packageRoot, true);
 
                 if (_statusLed != null) _statusLed.Fill = ReadyBrush;
                 if (_statusText != null)
@@ -1707,7 +1733,7 @@ namespace OptScalerNR.Launcher
             _lastInspectResult = null;
             var fastProxy = PeProbe.QuickRecommend(game.Exe);
             UpdateProxyRecommendation(fastProxy);
-            _decisions.OptiPatcher = (_optiPatcherToggle != null && _optiPatcherToggle.IsChecked == true) ? "install" : "skip";
+            _decisions.OptiPatcher = (_optiPatcherToggle != null && _optiPatcherToggle.IsEnabled && _optiPatcherToggle.IsChecked == true) ? "install" : "skip";
             _decisions.OpenRr = (_openRrToggle != null && _openRrToggle.IsChecked == true) ? "install" : "skip";
             if (TryFastInspect(game, fastProxy)) return;
 
@@ -1764,8 +1790,8 @@ namespace OptScalerNR.Launcher
             var dir = Path.GetDirectoryName(_selectedGame.Exe);
             var isZh = _language == "zh";
             var msg = isZh
-                ? ("确定要从以下目录卸载 OptScaler NR 吗？\n" + dir + "\n\n仅删除属于本项目的组件与代理文件。游戏原有文件和第三方插件会被完整保留。")
-                : ("Uninstall OptScaler NR from:\n" + dir + "\n\nOwned files are removed. Unowned plugins and the original game files stay.");
+                ? ("确定要从以下目录卸载 OptScaler NR 吗？\n" + dir + "\n\n将删除 NR 和 OpenRR 资源目录及其中的模型、着色器和缓存，并卸载本项目的组件。")
+                : ("Uninstall OptScaler NR from:\n" + dir + "\n\nThis removes the NR and OpenRR resource directories, including their models, shaders and caches, along with the installed components.");
 
             var confirm = DialogTheme.Show(_window, msg, _window.Title, MessageBoxButton.OKCancel, MessageBoxImage.Warning);
             if (confirm != MessageBoxResult.OK) return;
@@ -2030,11 +2056,11 @@ namespace OptScalerNR.Launcher
             var states = new[] {
                 new { Value = "small", Label = L("Small — CC_SMALL_FP8（通用）", "Small — CC_SMALL_FP8 (General)"),
                     State = capability == null ? null : capability.SmallState },
-                new { Value = "experimental", Label = L("Experimental — CC_SMALL_FP8_EXPERIMENTAL（暂仅限 RX 9000）", "Experimental — CC_SMALL_FP8_EXPERIMENTAL (Currently RX 9000 only)"),
+                new { Value = "experimental", Label = L("Experimental — CC_SMALL_FP8_EXPERIMENTAL（ACO 模式 · RX 7000 / 9000）", "Experimental — CC_SMALL_FP8_EXPERIMENTAL (ACO Mode · RX 7000 / 9000)"),
                     State = capability == null ? null : capability.ExperimentalState },
                 new { Value = "original", Label = L("Original — CC_SILVER_AARDWOLD（通用）", "Original — CC_SILVER_AARDWOLD (General)"),
                     State = capability == null ? null : capability.OriginalState },
-                new { Value = "int4", Label = L("Optimized — CC_SILVER_AARDWOLD_OPTIMIZED（暂仅限 RX 9000）", "Optimized — CC_SILVER_AARDWOLD_OPTIMIZED (Currently RX 9000 only)"),
+                new { Value = "int4", Label = L("Optimized — CC_SILVER_AARDWOLD_OPTIMIZED（ACO 模式 · RX 7000 / 9000）", "Optimized — CC_SILVER_AARDWOLD_OPTIMIZED (ACO Mode · RX 7000 / 9000)"),
                     State = capability == null ? null : capability.Int4State }
             };
             var ready = new bool[4];
@@ -2368,8 +2394,9 @@ namespace OptScalerNR.Launcher
             _pendingAction = action;
 
             _decisions.ExistingIni = (_replaceIni != null && _replaceIni.IsChecked == true) ? "overwrite" : "keep";
-            _decisions.OptiPatcher = (_optiPatcherToggle != null && _optiPatcherToggle.IsChecked == true) ? "install" : "skip";
+            _decisions.OptiPatcher = (_optiPatcherToggle != null && _optiPatcherToggle.IsEnabled && _optiPatcherToggle.IsChecked == true) ? "install" : "skip";
             _decisions.OpenRr = (_openRrToggle != null && _openRrToggle.IsChecked == true) ? "install" : "skip";
+            _decisions.OpenRrSpoof = (_decisions.OptiPatcher == "install" && GetOpenRrSpoof(_selectedGame) == "auto") ? "auto" : "full";
 
             var req = new LauncherRequest
             {
@@ -2498,6 +2525,7 @@ namespace OptScalerNR.Launcher
                         {
                             if (_selectedGame != null) _selectedGame.Installed = true;
                         }
+                        RecheckPackageComparison(_selectedGame);
                         SaveLibraryCache();
                         SelectGameProfiles();
                         RefreshGameListView();
@@ -2566,7 +2594,7 @@ namespace OptScalerNR.Launcher
             finally { _updatingBackends = false; }
             RefreshInspectionText();
             UpdatePrimaryButtonState();
-            DetectPackageUpdate(_selectedGame, result, requestedPackageRoot);
+            DetectPackageUpdate(result, requestedPackageRoot);
 
             if (result.Notes != null)
             {

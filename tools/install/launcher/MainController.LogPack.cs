@@ -66,14 +66,14 @@ namespace OptScalerNR.Launcher
                     copied += CopyGlobs(dir, tempDir, taken, new[]
                     {
                         "OptiScaler.log", "OptiScaler.?.log", "OptiScaler.ini",
-                        "opennr_rr.log", "opennr_rr*.log", "openrr.log", "openrr*.log", "openrr.ini", "openrr-amd.log", "openrr-amd*.log", "openrr-amd.ini", "openrr-amd-crash.dmp", "openrr-amd.log", "openrr-amd*.log", "openrr-amd.ini", "openrr-amd-crash.dmp",
-                        "dlssnr-amd.ini", "dlssnr-amd.default.ini",
+                        "opennr_rr.log", "opennr_rr*.log", "openrr.log", "openrr*.log", "openrr.ini", "openrr-amd.log", "openrr-amd*.log", "openrr-amd.ini", "openrr-amd-crash.dmp",
+                        "dlssnr-amd.ini", "dlssnr-amd.default.ini", "nr-report.txt",
                         "mochizuki_nr.log", "dlssnr-amd*.log", "dlssnr-amd-crash.dmp"
                     });
                     // The ASI's recovery config lives beside its resources, not at the game root.
                     var asiDir = Path.Combine(dir, "dlssnr-amd");
                     if (Directory.Exists(asiDir))
-                        copied += CopyGlobs(asiDir, tempDir, taken, new[] { "dlssnr-amd.default.ini" });
+                        copied += CopyGlobs(asiDir, tempDir, taken, new[] { "dlssnr-amd.default.ini", "nr-report.txt" });
                 }
                 if (!string.IsNullOrEmpty(_currentLogPath) && File.Exists(_currentLogPath))
                 {

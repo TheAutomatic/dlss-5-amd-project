@@ -142,6 +142,7 @@ namespace OptScalerNR.Launcher
                 return;
             }
             var executable = _selectedGame.Exe;
+            var comparisonGame = _selectedGame;
             var picker = new OpenFileDialog {
                 Title = L("导入解锁插件：MFGUnlocker.asi / XeFGUnlock.asi", "Import unlocker: MFGUnlocker.asi / XeFGUnlock.asi"),
                 Filter = "Plugin files (*.asi;*.dll)|*.asi;*.dll", CheckFileExists = true, RestoreDirectory = true
@@ -215,6 +216,8 @@ namespace OptScalerNR.Launcher
                 if (locked) ReleaseLock();
                 if (busy) { SetBusy(false, ""); UpdatePrimaryButtonState(); }
                 RefreshProfileActions();
+                // The whole library kept its verdicts; only this game's folder was written.
+                if (copied) RecheckPackageComparison(comparisonGame);
             }
         }
     }
