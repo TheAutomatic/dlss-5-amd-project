@@ -157,7 +157,11 @@ bool FeatureProvider_Dx12::ChangeFeature(Upscaler upscaler, ID3D12Device* device
     const bool dlssOnNonCapable =
         !IdentifyGpu::getPrimaryGpu().dlssCapable && (state.newBackend == Upscaler::DLSS || state.newBackend == Upscaler::DLSSD);
     const bool recreate = state.newBackend == Upscaler::Reset;
-    if (recreate || dlssOnNonCapable)
+    if (recreate && contextData->featureID == NVSDK_NGX_Feature_RayReconstruction &&
+        contextData->feature != nullptr && contextData->feature->GetUpscalerType() == Upscaler::OpenNrRr &&
+        cfg.OpenNrRrEnabled.value_or_default())
+        state.newBackend = Upscaler::OpenNrRr;
+    else if (recreate || dlssOnNonCapable)
         state.newBackend = cfg.Dx12Upscaler.value_or_default();
 
     if (contextData->featureID == NVSDK_NGX_Feature_RayReconstruction)

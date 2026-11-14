@@ -1145,6 +1145,11 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_VULKAN_EvaluateFeature(VkCommandBuffer 
     }
 
     deviceContext = VkContexts[handleId].feature.get();
+    if (deviceContext == nullptr)
+    {
+        LOG_ERROR("Handle {} has no feature", handleId);
+        return NVSDK_NGX_Result_FAIL_FeatureNotFound;
+    }
     state.currentFeature = deviceContext;
     state.vkFeatureIsRr = contextData->featureID == NVSDK_NGX_Feature_RayReconstruction;
 
@@ -1161,6 +1166,7 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_VULKAN_EvaluateFeature(VkCommandBuffer 
         ImGui::InsertNotification({ ImGuiToastType::Error, 10000, "Upscaler failed to run!" });
 
     if ((!upscaleResult || !deviceContext->IsInited()) &&
+        contextData->featureID != NVSDK_NGX_Feature_RayReconstruction &&
         Config::Instance()->VulkanUpscaler.value_or_default() != Upscaler::FSR22)
     {
         state.newBackend = Upscaler::FSR22;

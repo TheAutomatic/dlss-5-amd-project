@@ -573,7 +573,7 @@ OpenNrRrFeatureDx12::~OpenNrRrFeatureDx12()
 {
     if (State::Instance().isShuttingDown || _context == nullptr)
         return;
-
+    std::lock_guard lifetime(LmxxfCut::LifecycleMutex());
     DropStaleJob();
 
     {
@@ -1029,8 +1029,8 @@ bool OpenNrRrFeatureDx12::EvaluateInternal(ID3D12GraphicsCommandList* InCommandL
 
     ReapDeferredFeatures();
     FSRDFeatureDx12::ReapDeferredFeatures();
+    std::lock_guard lifetime(LmxxfCut::LifecycleMutex());
     DropStaleJob();
-
     if (const int32_t rc = s_enqueueRc.exchange(ONR_RR_OK, std::memory_order_acq_rel); rc != ONR_RR_OK)
     {
         FallBack(std::format("Enqueue rc={}: {}", rc, LmxxfCut::LastEnqueueDiagnostic().error.data()));

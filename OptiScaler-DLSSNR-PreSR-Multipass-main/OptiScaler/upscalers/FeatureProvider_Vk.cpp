@@ -84,12 +84,8 @@ bool FeatureProvider_Vk::GetFeature(Upscaler upscaler, UINT handleId, NVSDK_NGX_
             *feature = std::make_unique<DLSSDFeatureVk>(handleId, parameters);
             break;
         }
-        else
-        {
-            *feature = std::make_unique<FSR2FeatureVk>(handleId, parameters);
-            upscaler = Upscaler::FSR22;
-            break;
-        }
+        *feature = nullptr;
+        return false;
 
     default:
         *feature = std::make_unique<FSR2FeatureVk>(handleId, parameters);
@@ -246,6 +242,16 @@ bool FeatureProvider_Vk::ChangeFeature(Upscaler upscaler, VkInstance instance, V
                 {
                     OpenNrRr::Block("it did not initialise");
                     ImGui::InsertNotification({ ImGuiToastType::Warning, 10000, "OpenRR did not start, see the log" });
+                }
+                if (contextData->createParams != nullptr)
+                {
+                    int optiParam = 0;
+                    if (contextData->createParams->Get("OptiScaler", &optiParam) == NVSDK_NGX_Result_Success &&
+                        optiParam == 1)
+                    {
+                        TryDestroyNGXParameters(contextData->createParams, NVNGXProxy::VULKAN_DestroyParameters());
+                        contextData->createParams = nullptr;
+                    }
                 }
                 contextData->feature.reset();
                 state.changeBackend[handleId] = false;

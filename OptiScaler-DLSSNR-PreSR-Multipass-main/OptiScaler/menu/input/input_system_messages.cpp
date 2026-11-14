@@ -1044,9 +1044,6 @@ void WINAPI hkmouse_event(DWORD flags, DWORD dx, DWORD dy, DWORD data, ULONG_PTR
 
 static bool IsPeerOverlayOrToggleKey(void* returnAddress, int vk)
 {
-    if (vk == VK_END || vk == VK_INSERT)
-        return true;
-
     if (returnAddress == nullptr)
         return false;
 
@@ -1056,14 +1053,25 @@ static bool IsPeerOverlayOrToggleKey(void* returnAddress, int vk)
         caller == nullptr)
         return false;
 
+    static const HMODULE gameExe = GetModuleHandleW(nullptr);
+    if (caller == gameExe)
+        return false;
+
+    if (vk == VK_END || vk == VK_INSERT)
+        return true;
+
     HMODULE asi = GetModuleHandleW(L"dlssnr-amd.asi");
-    return asi != nullptr && caller == asi;
+    if (asi != nullptr && caller == asi)
+        return true;
+
+    HMODULE openrrAsi = GetModuleHandleW(L"openrr-amd.asi");
+    return openrrAsi != nullptr && caller == openrrAsi;
 }
 
 SHORT WINAPI hkGetAsyncKeyState(int vk)
 {
     HookLifetime::CallbackLease callbackLease(NonDirectInputCallbackGate);
-    if (!IsPeerOverlayOrToggleKey(_ReturnAddress(), vk) && ShouldBlockVirtualKey(vk))
+    if (ShouldBlockVirtualKey(vk) && !IsPeerOverlayOrToggleKey(_ReturnAddress(), vk))
     {
         {
             std::unique_lock lock(_state.Mutex);
@@ -1080,7 +1088,7 @@ SHORT WINAPI hkGetAsyncKeyState(int vk)
 SHORT WINAPI hkGetKeyState(int vk)
 {
     HookLifetime::CallbackLease callbackLease(NonDirectInputCallbackGate);
-    if (!IsPeerOverlayOrToggleKey(_ReturnAddress(), vk) && ShouldBlockVirtualKey(vk))
+    if (ShouldBlockVirtualKey(vk) && !IsPeerOverlayOrToggleKey(_ReturnAddress(), vk))
     {
         {
             std::unique_lock lock(_state.Mutex);
