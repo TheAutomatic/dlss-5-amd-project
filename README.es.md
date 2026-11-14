@@ -1,6 +1,6 @@
 [中文](README.md) | [English](README.en.md) | **Español**
 
-# OptScaler(NR)
+# OptiScaler(NR)
 
 > [!IMPORTANT]
 > **🎉 Actualización de arquitectura v2.0**: ¡Este proyecto se ha actualizado por completo a la arquitectura **"OptiScaler oficial sin modificar + Doble plugin `.asi` independiente (`dlssnr-amd.asi` + `openrr-amd.asi`) + Lanzador gráfico en un clic"**!
@@ -8,7 +8,7 @@
 
 **Agradecimiento especial** a todos los usuarios por sus pruebas y comentarios.
 
-Este repositorio incluye un lanzador gráfico (**`OptScalerNR.Launcher.exe`**) que escanea automáticamente las bibliotecas de Steam / Epic / GOG / Xbox, analiza las importaciones PE del `.exe` del juego para recomendar el DLL proxy óptimo, extrae y sintetiza los pesos de los modelos sin conexión en un clic, y permite elegir e instalar libremente **OptiScaler oficial sin modificar** junto con dos plugins `.asi` de renderizado neuronal para AMD: **DLSS Neural Rendering (`dlssnr-amd.asi`)** y **DLSS Ray Reconstruction (`openrr-amd.asi`)**.
+Este repositorio incluye un lanzador gráfico (**`OptiScalerNRLauncher.exe`**) que escanea automáticamente las bibliotecas de Steam / Epic / GOG / Xbox, analiza las importaciones PE del `.exe` del juego para recomendar el DLL proxy óptimo, extrae y sintetiza los pesos de los modelos sin conexión en un clic, y permite elegir e instalar libremente **OptiScaler oficial sin modificar** junto con dos plugins `.asi` de renderizado neuronal para AMD: **DLSS Neural Rendering (`dlssnr-amd.asi`)** y **DLSS Ray Reconstruction (`openrr-amd.asi`)**.
 
 **Página del proyecto: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
@@ -26,13 +26,13 @@ Este repositorio incluye un lanzador gráfico (**`OptScalerNR.Launcher.exe`**) q
 
 ## 1. Arquitectura principal y créditos
 
-En la arquitectura `2.0`, ya no modificamos ni recompilamos el host `OptiScaler.dll`; utilizamos el **host oficial sin modificar + plugins `.asi` independientes**:
+La versión `2.0` deja atrás las compilaciones modificadas de `OptiScaler.dll` y adopta una arquitectura desacoplada basada en **OptiScaler oficial + plugins `.asi` independientes**:
 
 | Componente | Origen y autor | Función y características |
 |---|---|---|
-| **[OptiScaler](https://github.com/optiscaler/OptiScaler)**<br>(Host oficial sin modificar) | Versión oficial upstream (empaquetada sin cambios y verificada por SHA-256) | Conversión universal de reescalado (DLSS/XeSS/FSR → FSR 3.1 / FSR 4 / XeSS) y generación de fotogramas (DLSSG → FSR3 FG / XeFG), cargando `OptiScaler\plugins\*.asi` |
-| **`dlssnr-amd.asi`**<br>(Plugin DLSS Neural Rendering) | **[mochizuki0323 / DLSSNR-AMD](https://gitlab.com/mochizuki0323/DLSSNR-AMD)**<br>**[TheAutomatic / DLSSNR-AMD](https://github.com/TheAutomatic/DLSSNR-AMD)** | Ejecuta DLSS Neural Rendering en GPUs AMD **RX 9000 (RDNA4)** y **RX 7000 / 700M / 800M (RDNA3)**; soporta **D3D12 Direct-ELF** y **Vulkan ACO**, con estilos RenoDX y wilsjo2 |
-| **`openrr-amd.asi`**<br>(Plugin DLSS Ray Reconstruction) | **[Storm / OpenRR](https://github.com/OpenNeuralRendering/OpenRR)**<br>**[TheAutomatic / OpenRR-ASI](https://github.com/TheAutomatic/OpenRR-ASI)** | Ejecuta la red **DLSS Ray Reconstruction (DLSS-RR)** de forma nativa en GPUs AMD **RX 9000 (RDNA4)**; soporta **D3D12 Direct-ELF** y **Vulkan**, coexistiendo con `dlssnr-amd.asi` |
+| **[OptiScaler](https://github.com/optiscaler/OptiScaler)**<br>(Puente oficial de reescalado) | Compilación oficial Nightly upstream (verificada por SHA-256; reemplazable por otras compilaciones) | Conversión universal de reescalado (DLSS/XeSS/FSR → FSR 3.1 / FSR 4 / XeSS) y generación de fotogramas (DLSSG → FSR3 FG / XeFG), cargando `OptiScaler\plugins\*.asi` |
+| **`dlssnr-amd.asi`**<br>(Plugin DLSS Neural Rendering) | **[mochizuki0323 / DLSSNR-AMD](https://gitlab.com/mochizuki0323/DLSSNR-AMD)**<br>**[TheAutomatic / DLSSNR-AMD](https://github.com/TheAutomatic/DLSSNR-AMD)** | Ejecuta DLSS Neural Rendering en GPUs AMD **RX 9000 (RDNA4)** y **RX 7000 / 700M / 800M / 8000S (RDNA3)**; soporta **D3D12 Direct-ELF** y **Vulkan ACO**, con estilos RenoDX y wilsjo2 |
+| **`openrr-amd.asi`**<br>(Plugin DLSS Ray Reconstruction) | **[Storm (Matheus) / OpenRR](https://github.com/OpenNeuralRendering/OpenRR)**<br>**[TheAutomatic / OpenRR-ASI](https://github.com/TheAutomatic/OpenRR-ASI)** | Ejecuta la red **DLSS Ray Reconstruction (DLSS-RR)** de forma nativa en GPUs AMD **RDNA4 (probado)** y **RDNA3 / RDNA3.5 (experimental)**; soporta **D3D12 Direct-ELF** y **Vulkan**, coexistiendo con `dlssnr-amd.asi` |
 
 ---
 
@@ -41,17 +41,17 @@ En la arquitectura `2.0`, ya no modificamos ni recompilamos el host `OptiScaler.
 ### Instalación con el lanzador gráfico en Windows (Recomendado)
 
 1. **Descargar y descomprimir**: Descargue el archivo `.zip` desde [Releases](https://github.com/TheAutomatic/dlss-5-amd-project/releases) y descomprímalo por completo.
-2. **Abrir el lanzador**: Haga doble clic en **`OptScalerNR.Launcher.exe`** para abrir **`OptScaler NR` Launcher**.
+2. **Abrir el lanzador**: Haga doble clic en **`OptiScalerNRLauncher.exe`** para abrir **`OptiScaler NR` Launcher**.
 3. **Seleccionar juego y proxy de inyección**:
    - Elija el juego en la lista izquierda (o pulse **`+`** arriba a la derecha para elegir el `.exe` real del juego; en Unreal Engine suele ser `<Game>\Binaries\Win64\*-Shipping.exe`);
    - El lanzador analizará automáticamente la tabla PE y seleccionará el proxy recomendado (`dxgi.dll` o `winmm.dll`).
 4. **Marcar los plugins `.asi` que desee instalar**:
    - **[☑] `dlssnr-amd.asi` (DLSS Neural Rendering · Mochizuki)**:
      - La primera vez, pulse **"Import model source file…"** y elija su `nvngx_dlssnr.dll` (`310.9.16` o `310.8.0`). El lanzador lo copiará en su carpeta y extraerá los modelos automáticamente para todos los juegos futuros.
-   - **[☑] `openrr-amd.asi` (OpenRR Ray Reconstruction · RX 9000)**:
-     - Al marcarlo, pulse **"Import nvngx_dlssd.dll…"** una sola vez y seleccione `nvngx_dlssd.dll` versión **`310.9.1.0`**.
+   - **[☑] `openrr-amd.asi` (OpenRR Ray Reconstruction)**:
+     - Compatible con juegos con Ray Reconstruction nativo. Si ya existe `nvngx_dlssd.dll` `310.9.1.0` en algún juego instalado, se detecta automáticamente; si se solicita, pulse **"Import nvngx_dlssd.dll…"** una vez y elija `nvngx_dlssd.dll` versión **`310.9.1.0`**.
    - **[☐] Instalar OptiPatcher (Opcional)**: Desbloquea opciones DLSS nativas en más de 270 juegos.
-5. **Instalar en un clic**: Pulse el botón rojo **"Install / Update"** arriba a la derecha.
+5. **Instalar en un clic**: Pulse **"Install OptiScaler NR"** (o **"Update OptiScaler NR"**) arriba a la derecha.
 
 ### Instalación en Linux / SteamOS (Proton)
 
@@ -69,8 +69,8 @@ En las **Opciones de lanzamiento** de Steam, añada: `WINEDLLOVERRIDES="dxgi=n,b
 
 ## 3. Capacidades de los dos plugins `.asi`
 
-- **`dlssnr-amd.asi` (Mochizuki · DLSS Neural Rendering)**: Soporta **RX 9000 (RDNA4)** (las 4 redes: `CC_SMALL_FP8`, `CC_SMALL_FP8_EXPERIMENTAL`, `CC_SILVER_AARDWOLD`, `CC_SILVER_AARDWOLD_OPTIMIZED` con INT4) y **RX 7000 / 700M / 800M (RDNA3)** (`CC_SMALL_FP8` y `CC_SILVER_AARDWOLD`), con ejecución **D3D12 Direct-ELF** y **Vulkan**.
-- **`openrr-amd.asi` (OpenRR · DLSS Ray Reconstruction)**: Soporta **RX 9000 (RDNA4)** (con `nvngx_dlssd.dll` `310.9.1.0`), ejecutando reconstrucción de rayos neuronal en **D3D12 Direct-ELF** y **Vulkan** sin conflictos con `dlssnr-amd.asi`.
+- **`dlssnr-amd.asi` (Mochizuki · DLSS Neural Rendering)**: Soporta **RX 9000 (RDNA4)** y **RX 7000 / 700M / 800M / 8000S (RDNA3)** en las 4 redes (`CC_SMALL_FP8`, `CC_SMALL_FP8_EXPERIMENTAL`, `CC_SILVER_AARDWOLD`, `CC_SILVER_AARDWOLD_OPTIMIZED` con INT4), con ejecución **D3D12 Direct-ELF** y **Vulkan**.
+- **`openrr-amd.asi` (OpenRR · DLSS Ray Reconstruction)**: Soporta **RDNA4 (probado)** y **RDNA3 / RDNA3.5 (experimental)** (con `nvngx_dlssd.dll` `310.9.1.0`), ejecutando reconstrucción de rayos neuronal en **D3D12 Direct-ELF** y **Vulkan** sin conflictos con `dlssnr-amd.asi`.
 
 ---
 
@@ -99,7 +99,7 @@ Este software es completamente gratuito. Si pagó por él, solicite un reembolso
 
 - **[OptiScaler](https://github.com/optiscaler/OptiScaler)** — **GPL-3.0 License**
 - **[Mochizuki / DLSSNR-AMD](https://gitlab.com/mochizuki0323/DLSSNR-AMD)** & **[TheAutomatic / DLSSNR-AMD](https://github.com/TheAutomatic/DLSSNR-AMD)** (`dlssnr-amd.asi`) — **MIT License** (© mochizuki0323)
-- **[Storm / OpenRR](https://github.com/OpenNeuralRendering/OpenRR)** & **[TheAutomatic / OpenRR-ASI](https://github.com/TheAutomatic/OpenRR-ASI)** (`openrr-amd.asi`) — **MIT License**
+- **[Storm (Matheus) / OpenRR](https://github.com/OpenNeuralRendering/OpenRR)** & **[TheAutomatic / OpenRR-ASI](https://github.com/TheAutomatic/OpenRR-ASI)** (`openrr-amd.asi`) — **MIT License**
 - **[RenoDX / clshortfuse](https://github.com/clshortfuse/renodx)** — **MIT License**
 - **[OptiPatcher](https://github.com/optiscaler/OptiPatcher)** — **GPL-3.0 License**
 - **[TheAutomatic / dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)** — **GPL-3.0 License**

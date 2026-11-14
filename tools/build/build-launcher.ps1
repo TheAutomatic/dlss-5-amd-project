@@ -1,4 +1,4 @@
-# Compile OptScalerNR.Launcher.exe with the machine Framework 4 WPF assemblies.
+# Compile OptiScalerNRLauncher.exe with the machine Framework 4 WPF assemblies.
 # Output: exports/launcher/ (never the repo root).
 [CmdletBinding()]
 param(
@@ -30,7 +30,7 @@ foreach ($need in @($csc, (Join-Path $wpf 'PresentationFramework.dll'))) {
     if (-not (Test-Path -LiteralPath $need)) { throw "Missing compiler dependency: $need" }
 }
 
-$exe = Join-Path $OutDir 'OptScalerNR.Launcher.exe'
+$exe = Join-Path $OutDir 'OptiScalerNRLauncher.exe'
 $obj = Join-Path $OutDir 'obj'
 New-Item -ItemType Directory -Force -Path $obj | Out-Null
 $cs = @(

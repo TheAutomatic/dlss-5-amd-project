@@ -96,7 +96,7 @@ namespace OptScalerNR.Launcher
                 }
 
                 var desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-                var zip = Path.Combine(desktop, "OptScalerNR-logs-" + stamp + ".zip");
+                var zip = Path.Combine(desktop, "OptiScalerNR-logs-" + stamp + ".zip");
                 if (File.Exists(zip)) File.Delete(zip);
                 ZipFile.CreateFromDirectory(tempDir, zip, System.IO.Compression.CompressionLevel.Optimal, false);
 

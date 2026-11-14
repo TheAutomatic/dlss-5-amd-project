@@ -1,7 +1,7 @@
 ﻿<#
 .SYNOPSIS
   Install official OptiScaler together with dlssnr-amd.asi and openrr.asi into a game folder.
-  Double-click Setup.bat (no args) to open OptScalerNR.Launcher.exe, or pass -GameDir.
+  Run OptiScalerNRLauncher.exe, or pass -GameDir to Setup.ps1.
 #>
 [CmdletBinding()]
 param(
@@ -168,7 +168,7 @@ if (!(Test-Path -LiteralPath (Join-Path $release 'OptiScaler.dll')) -and
     $release = Join-Path $Root 'release'
 }
 
-$productTitle = 'OptScaler(NR)'
+$productTitle = 'OptiScaler(NR)'
 $versionFile = Join-Path $release 'VERSION'
 if (Test-Path -LiteralPath $versionFile -PathType Leaf) {
     $productVersion = ([IO.File]::ReadAllText($versionFile)).Trim()
@@ -629,7 +629,7 @@ Close the game completely, then run Setup.bat again.
 $crashHelperNames = '^(crashpad_handler|unitycrashhandler(32|64)?|crashreportclient(editor)?|werfault|werfaultsecure)$'
 $gameExes = @(Get-ChildItem -LiteralPath $game -Filter '*.exe' -File -ErrorAction SilentlyContinue |
     Where-Object {
-        $_.Name -notin @('OptScalerNR.Launcher.exe', 'dlssnr_on_amd_setup.exe', 'person-worker.exe') -and
+        $_.Name -notin @('OptiScalerNRLauncher.exe', 'OptScalerNR.Launcher.exe', 'dlssnr_on_amd_setup.exe', 'person-worker.exe') -and
         $_.BaseName -notmatch $crashHelperNames
     } |
     Select-Object -ExpandProperty Name)

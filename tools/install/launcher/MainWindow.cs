@@ -31,7 +31,7 @@ namespace OptScalerNR.Launcher
         public bool PackageDiffers { get; set; }
         public bool PackageMatches { get; set; }
         public string InstalledStatusText { get; set; }
-        public string StatusExplanation { get { return PackageDiffers ? (IsZh ? "已安装的 OptScaler NR 与当前选择的安装包不同，不一定是旧版本。可按当前选项更新，无需先卸载。" : "The installed OptScaler NR differs from the package you selected; it is not necessarily older. Update with your current options without uninstalling first.") : ""; } }
+        public string StatusExplanation { get { return PackageDiffers ? (IsZh ? "已安装的 OptiScaler NR 与当前选择的安装包不同，不一定是旧版本。可按当前选项更新，无需先卸载。" : "The installed OptiScaler NR differs from the package you selected; it is not necessarily older. Update with your current options without uninstalling first.") : ""; } }
 
         public string Name { get { return Info != null ? Info.DisplayName : ""; } }
         public string Initial
@@ -615,7 +615,7 @@ namespace OptScalerNR.Launcher
                             {
                                 _productVersion = " " + raw;
                                 if (_versionText != null)
-                                    _versionText.Text = "OptScaler NR v" + raw.TrimStart('v', 'V');
+                                    _versionText.Text = "OptiScaler NR v" + raw.TrimStart('v', 'V');
                                 ((TextBlock)_window.FindName("VersionTag")).Text = raw.TrimStart('v', 'V');
                             }
                             return;
@@ -666,7 +666,7 @@ namespace OptScalerNR.Launcher
                 var isZh = _language == "zh";
                 _window.Language = XmlLanguage.GetLanguage(isZh ? "zh-CN" : "en-US");
                 if (_window != null)
-                    _window.Title = "OptScaler NR" + _productVersion + (isZh ? " - 本软件免费，如付费购买请立即退款！" : " - Free software — refund if paid!");
+                    _window.Title = "OptiScaler NR" + _productVersion + (isZh ? " - 本软件免费，如付费购买请立即退款！" : " - Free software — refund if paid!");
                 if (_refundWarning != null)
                     _refundWarning.Text = isZh ? "本软件免费，如付费购买请立即退款！" : "Free software — refund if paid!";
                 if (_pageTitle != null) _pageTitle.Text = isZh ? "游戏库" : "Library";
@@ -931,7 +931,7 @@ namespace OptScalerNR.Launcher
             {
                 case "scan": return L("正在扫描游戏库…", "Scanning library…");
                 case "uninstall-plan": return L("正在检查卸载范围…", "Checking files to uninstall…");
-                case "uninstall": return L("正在卸载 OptScaler NR…", "Uninstalling OptScaler NR…");
+                case "uninstall": return L("正在卸载 OptiScaler NR…", "Uninstalling OptiScaler NR…");
                 case "inspect": return L("正在检查安装环境…", "Inspecting installation…");
                 case "validate": return L("正在检查安装条件…", "Validating installation…");
                 case "prepare-model": return L("正在准备模型…", "Preparing models…");
@@ -1134,7 +1134,7 @@ namespace OptScalerNR.Launcher
             {
                 var worker = Path.Combine(_packageRoot, "launcher-worker.ps1");
                 if (File.Exists(worker)) return worker;
-                throw new FileNotFoundException(L("请从完整解压的安装包启动 OptScalerNR.Launcher.exe。若需指定其他安装包，请先确认开启诊断模式。", "Run OptScalerNR.Launcher.exe from the complete extracted package. Enable diagnostic mode explicitly to select another package."));
+                throw new FileNotFoundException(L("请从完整解压的安装包启动 OptiScalerNRLauncher.exe。若需指定其他安装包，请先确认开启诊断模式。", "Run OptiScalerNRLauncher.exe from the complete extracted package. Enable diagnostic mode explicitly to select another package."));
             }
         }
 
@@ -1506,14 +1506,14 @@ namespace OptScalerNR.Launcher
                 _primaryButton.Content = L("扫描 / 选择启动程序", "Find / choose game EXE");
                 _primaryButton.ToolTip = L("选择此游戏的启动程序，不会开始安装。", "Choose this game's executable; this does not install anything.");
             } else if (!_selectedGame.Installed) {
-                _primaryButton.Content = L("安装 OptScaler NR", "Install OptScaler NR");
+                _primaryButton.Content = L("安装 OptiScaler NR", "Install OptiScaler NR");
                 _primaryButton.ToolTip = L("按所选后端、模型、代理和 INI 选项安装。", "Install with the selected backends, models, proxy and INI options.");
             } else {
                 _primaryButton.Content = PackageDiffers(_selectedGame)
-                    ? L("更新 OptScaler NR", "Update OptScaler NR")
+                    ? L("更新 OptiScaler NR", "Update OptiScaler NR")
                     : L("重新安装 / 应用更改", "Reinstall / apply changes");
                 _primaryButton.ToolTip = PackageDiffers(_selectedGame)
-                    ? L("已安装的 OptScaler NR 与当前选择的安装包不同（文件哈希不同），不一定是旧版本。按当前选项更新，无需先卸载；取消勾选“覆盖现有 INI”可保留现有配置。", "The installed OptScaler NR differs from the package you selected (different file hashes); it is not necessarily older. Update with your current options without uninstalling first. Uncheck Replace INI to keep your current configuration.")
+                    ? L("已安装的 OptiScaler NR 与当前选择的安装包不同（文件哈希不同），不一定是旧版本。按当前选项更新，无需先卸载；取消勾选“覆盖现有 INI”可保留现有配置。", "The installed OptiScaler NR differs from the package you selected (different file hashes); it is not necessarily older. Update with your current options without uninstalling first. Uncheck Replace INI to keep your current configuration.")
                     : L("重新安装并应用当前后端、模型和代理选项。取消勾选“覆盖现有 INI”可保留现有配置。", "Reinstall and apply your current backend, model and proxy options. Uncheck Replace INI to keep your current configuration.");
             }
         }
@@ -1790,8 +1790,8 @@ namespace OptScalerNR.Launcher
             var dir = Path.GetDirectoryName(_selectedGame.Exe);
             var isZh = _language == "zh";
             var msg = isZh
-                ? ("确定要从以下目录卸载 OptScaler NR 吗？\n" + dir + "\n\n将删除 NR 和 OpenRR 资源目录及其中的模型、着色器和缓存，并卸载本项目的组件。")
-                : ("Uninstall OptScaler NR from:\n" + dir + "\n\nThis removes the NR and OpenRR resource directories, including their models, shaders and caches, along with the installed components.");
+                ? ("确定要从以下目录卸载 OptiScaler NR 吗？\n" + dir + "\n\n将删除 NR 和 OpenRR 资源目录及其中的模型、着色器和缓存，并卸载本项目的组件。")
+                : ("Uninstall OptiScaler NR from:\n" + dir + "\n\nThis removes the NR and OpenRR resource directories, including their models, shaders and caches, along with the installed components.");
 
             var confirm = DialogTheme.Show(_window, msg, _window.Title, MessageBoxButton.OKCancel, MessageBoxImage.Warning);
             if (confirm != MessageBoxResult.OK) return;
@@ -2315,7 +2315,7 @@ namespace OptScalerNR.Launcher
                 return;
             }
             if (installing && !HasLocalPackage()) {
-                DialogTheme.Show(_window, L("请从完整解压的安装包启动 OptScalerNR.Launcher.exe。若需使用其他目录，请在设置中确认开启诊断模式并选择完整包。", "Run OptScalerNR.Launcher.exe from a complete extracted package. To use another folder, explicitly enable diagnostic mode in Settings and select a complete package."), _window.Title);
+                DialogTheme.Show(_window, L("请从完整解压的安装包启动 OptiScalerNRLauncher.exe。若需使用其他目录，请在设置中确认开启诊断模式并选择完整包。", "Run OptiScalerNRLauncher.exe from a complete extracted package. To use another folder, explicitly enable diagnostic mode in Settings and select a complete package."), _window.Title);
                 return;
             }
 

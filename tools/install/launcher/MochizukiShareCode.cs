@@ -7,7 +7,7 @@ using System.Text.RegularExpressions;
 
 namespace OptScalerNR.Launcher
 {
-    // MZ4: section+key style code for the standalone dlssnr-amd.asi.
+    // MZ5 (compatible with MZ4 on decode): section+key style code for standalone dlssnr-amd.asi.
     // MZ1/2/3 targeted the retired built-in runtime and are rejected, not migrated.
     public static class MochizukiShareCode
     {

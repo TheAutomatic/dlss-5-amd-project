@@ -1,11 +1,11 @@
 ﻿<#
 .SYNOPSIS
-  Stage and zip the standalone OptScaler ASI Launcher package:
+  Stage and zip the standalone OptiScaler ASI Launcher package:
     - Official unmodified OptiScaler release (fetched/verified by tools/build/fetch-optiscaler.ps1)
     - payloads/dlssnr-amd/  (OptiScaler/plugins/dlssnr-amd.asi + resources + model tools)
     - payloads/openrr/      (OptiScaler/plugins/openrr-amd.asi + openrr-amd/shaders/*.spv)
     - payloads/optipatcher/ (OptiScaler/plugins/OptiPatcher.asi)
-    - OptScalerNR.Launcher.exe + Setup.ps1
+    - OptiScalerNRLauncher.exe + Setup.ps1
 #>
 [CmdletBinding()]
 param(
@@ -34,9 +34,9 @@ if (-not $Version) {
     if (Test-Path -LiteralPath $vf -PathType Leaf) {
         $Version = (Get-Content -LiteralPath $vf -Encoding UTF8 -TotalCount 1).Trim()
     }
-    if (-not $Version) { $Version = '2.0.0-alpha' }
+    if (-not $Version) { $Version = '2.0.0' }
 }
-if (-not $Name) { $Name = "OptScaler-NR-$Version" }
+if (-not $Name) { $Name = "OptiScaler-NR-$Version" }
 
 $stage = Join-Path $root (Join-Path $OutDir $Name)
 $zip   = Join-Path $root (Join-Path $OutDir ($Name + '.zip'))
@@ -56,7 +56,11 @@ foreach ($required in @(
     'ini/dlssnr-amd-optiscaler-renodx.ini',
     'model-tools/dlssnr_extract_model.exe',
     'model-tools/dlssnr-int4-weights.exe',
-    'experimental/dlssnr-small-experimental.delta'
+    'model-tools/dlssnr-int4.sha256',
+    'experimental/dlssnr-small-experimental.delta',
+    'experimental/CC_SMALL_FP8_EXPERIMENTAL.bin.sha256',
+    'optimized/dlssnr-optimized.delta',
+    'optimized/CC_SILVER_AARDWOLD_OPTIMIZED.bin.sha256'
 )) {
     if (-not (Test-Path -LiteralPath (Join-Path $asiPayload $required) -PathType Leaf)) {
         throw "dlssnr-amd payload incomplete: $required"
@@ -73,6 +77,9 @@ if (-not $openRrAsiSrc) {
 }
 if (-not (Test-Path -LiteralPath (Join-Path $openRrPayload 'openrr-amd/shaders') -PathType Container)) {
     throw 'openrr payload missing openrr-amd/shaders.'
+}
+if (-not (Test-Path -LiteralPath (Join-Path $openRrPayload 'openrr-amd/shaders-gfx11') -PathType Container)) {
+    throw 'openrr payload missing openrr-amd/shaders-gfx11.'
 }
 $optiPatcherAsiSrc = Join-Path $root 'payloads/optipatcher/OptiScaler/plugins/OptiPatcher.asi'
 if (-not (Test-Path -LiteralPath $optiPatcherAsiSrc -PathType Leaf)) {
@@ -124,7 +131,7 @@ for ($i = 0; $i -lt $lines.Length; $i++) {
 $optiPluginDst = Join-Path $stage 'OptiScaler/plugins'
 New-Item -ItemType Directory -Path $optiPluginDst -Force | Out-Null
 $pluginReadme = @(
-    'OptScaler(NR) - ASI Plugins Directory'
+    'OptiScaler(NR) - ASI Plugins Directory'
     '====================================='
     'Place custom .asi plugins (for example MFGUnlocker.asi or XeFGUnlock.asi) in this folder.'
 ) -join "`r`n"
@@ -174,6 +181,10 @@ exit /b %RC%
 
 # 7. Stage ASI 2: openrr-amd.asi (placeholder or PE) + openrr-amd/shaders/*.spv
 Copy-Item -LiteralPath $openRrAsiSrc -Destination (Join-Path $optiPluginDst 'openrr-amd.asi') -Force
+$openRrHostSrc = Join-Path $openRrPayload 'OptiScaler/plugins/openrr-ngx-host.dll'
+if (Test-Path -LiteralPath $openRrHostSrc -PathType Leaf) {
+    Copy-Item -LiteralPath $openRrHostSrc -Destination (Join-Path $optiPluginDst 'openrr-ngx-host.dll') -Force
+}
 $openRrIniSrc = $null
 foreach ($cand in @('openrr-amd.ini', 'OptiScaler/openrr-amd.ini')) {
     $p = Join-Path $openRrPayload $cand
@@ -183,13 +194,16 @@ if ($openRrIniSrc) { Copy-Item -LiteralPath $openRrIniSrc -Destination (Join-Pat
 $openRrShaderDst = Join-Path $stage 'openrr-amd/shaders'
 New-Item -ItemType Directory -Path $openRrShaderDst -Force | Out-Null
 Get-ChildItem -LiteralPath (Join-Path $openRrPayload 'openrr-amd/shaders') -Filter '*.spv' -File | Copy-Item -Destination $openRrShaderDst -Force
+$openRrShaderGfx11Dst = Join-Path $stage 'openrr-amd/shaders-gfx11'
+New-Item -ItemType Directory -Path $openRrShaderGfx11Dst -Force | Out-Null
+Get-ChildItem -LiteralPath (Join-Path $openRrPayload 'openrr-amd/shaders-gfx11') -Filter '*.spv' -File | Copy-Item -Destination $openRrShaderGfx11Dst -Force
 Get-ChildItem -LiteralPath (Join-Path $openRrPayload 'Licenses') -File | Copy-Item -Destination (Join-Path $stage 'Licenses') -Force
 
 # 8. Build & stage Launcher + Installer scripts
 & (Join-Path $root 'tools/build/build-launcher.ps1') -OutDir (Join-Path $root 'exports/launcher')
-$launcherExe = Join-Path $root 'exports/launcher/OptScalerNR.Launcher.exe'
+$launcherExe = Join-Path $root 'exports/launcher/OptiScalerNRLauncher.exe'
 if (-not (Test-Path -LiteralPath $launcherExe -PathType Leaf)) { throw 'Launcher EXE was not produced' }
-Copy-Item -LiteralPath $launcherExe -Destination (Join-Path $stage 'OptScalerNR.Launcher.exe') -Force
+Copy-Item -LiteralPath $launcherExe -Destination (Join-Path $stage 'OptiScalerNRLauncher.exe') -Force
 foreach ($pair in @(
     @('tools/install/install.ps1', 'Setup.ps1'),
     @('tools/install/uninstall.ps1', 'Uninstall_OptiScaler_NR.ps1'),
@@ -224,7 +238,7 @@ Set-Content -LiteralPath (Join-Path $stage 'VERSION') -Value ($Version + "`n") -
 (@'
 @echo off
 setlocal
-title OptScaler(NR) @VERSION@ - Uninstall
+title OptiScaler(NR) @VERSION@ - Uninstall
 if "%~1"=="" (
   powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Uninstall_OptiScaler_NR.ps1" -NoPause
 ) else (
@@ -288,7 +302,7 @@ try {
             finally { $stream.Dispose(); $sha.Dispose() }
             if ($actual -ne $expectedEntries[$relative]) { throw "Archive checksum mismatch: $relative" }
         }
-        foreach ($required in @('OptiScaler.dll', 'OptiScaler.ini', 'Setup.ps1', 'install.sh', 'OptScalerNR.Launcher.exe', 'launcher-worker.ps1', 'proxy-probe.ps1', 'library-scan.ps1', 'install-capabilities.ps1', 'xess-compat.ps1', 'proxy-profiles.json', 'OptiScaler/plugins/dlssnr-amd.asi', 'OptiScaler/plugins/openrr-amd.asi', 'dlssnr-amd/nr_present_probe.exe', 'model-tools/dlssnr_extract_model.exe', 'experimental/dlssnr-small-experimental.delta', 'dlssnr-amd-optiscaler.ini', 'dlssnr-amd-optiscaler-renodx.ini', 'mochizuki-owned.txt') + @($expectedEntries.Keys)) {
+        foreach ($required in @('OptiScaler.dll', 'OptiScaler.ini', 'Setup.ps1', 'install.sh', 'OptiScalerNRLauncher.exe', 'launcher-worker.ps1', 'proxy-probe.ps1', 'library-scan.ps1', 'install-capabilities.ps1', 'xess-compat.ps1', 'proxy-profiles.json', 'OptiScaler/plugins/dlssnr-amd.asi', 'OptiScaler/plugins/openrr-amd.asi', 'dlssnr-amd/nr_present_probe.exe', 'model-tools/dlssnr_extract_model.exe', 'experimental/dlssnr-small-experimental.delta', 'dlssnr-amd-optiscaler.ini', 'dlssnr-amd-optiscaler-renodx.ini', 'mochizuki-owned.txt') + @($expectedEntries.Keys)) {
             if (-not $seen.ContainsKey($required)) { throw "Package archive missing required component: $required" }
         }
     } finally {

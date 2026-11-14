@@ -213,7 +213,7 @@ function Assert-XessGameStopped([string]$GameDir) {
     foreach ($process in @(Get-Process)) {
         $path = $null
         try { $path = $process.Path } catch { }
-        if ($path -and $process.ProcessName -ne 'OptScalerNR.Launcher' -and [IO.Path]::GetDirectoryName($path) -eq $GameDir) { throw 'Close the game before repairing or restoring XeSS.' }
+        if ($path -and $process.ProcessName -notin @('OptiScalerNRLauncher', 'OptScalerNR.Launcher') -and [IO.Path]::GetDirectoryName($path) -eq $GameDir) { throw 'Close the game before repairing or restoring XeSS.' }
     }
 }
 function Assert-XessUnlocked([string[]]$Paths) {

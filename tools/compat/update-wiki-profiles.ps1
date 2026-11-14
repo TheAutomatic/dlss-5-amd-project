@@ -18,7 +18,7 @@ if (-not $MarkdownPath) {
     Invoke-WebRequest -Uri $wikiUrl -OutFile $markdownFile -UseBasicParsing
 }
 if (-not $LauncherExe) {
-    $LauncherExe = Join-Path $root 'exports/launcher/OptScalerNR.Launcher.exe'
+    $LauncherExe = Join-Path $root 'exports/launcher/OptiScalerNRLauncher.exe'
     if (-not (Test-Path -LiteralPath $LauncherExe)) {
         & (Join-Path $root 'tools/build/build-launcher.ps1') | Out-Null
     }
