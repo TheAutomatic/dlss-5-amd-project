@@ -3610,7 +3610,6 @@ static int GuardedMain(int argc, char** argv)
                                     const uint64_t wfv = fenceValue;
                                     CHECK_HR(gpu.queue->Signal(frameFence.Get(), wfv), "warm Signal");
                                     WaitFence(wfv);
-                                    if (gpu.info) gpu.info->ClearStoredMessages();
                                 }
                                 OnrRrInfo info{}; info.size = sizeof(info);
                                 if (openrrRoute.api5.v4.v3.v2.v1.GetInfo(openrrRoute.ctx, &info) != ONR_RR_OK)
@@ -3644,7 +3643,6 @@ static int GuardedMain(int argc, char** argv)
                         const uint64_t ofv = fenceValue;
                         CHECK_HR(gpu.queue->Signal(frameFence.Get(), ofv), "orCl Signal");
                         WaitFence(ofv);
-                        if (gpu.info) gpu.info->ClearStoredMessages();
                     }
 
                     // New-closure temporal parity: flip the history read slot after each
@@ -3986,11 +3984,14 @@ static int GuardedMain(int argc, char** argv)
                         {
                             rf.openrrSr = DownloadTexture(gpu, openrrRoute.output.tex.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                                 openrrRoute.output.format, sceneCfg.TargetW(), sceneCfg.TargetH());
-                            const auto st = ComparePlanes(rf.openrrSr, fx.truthTarget, sceneCfg.TargetW(), sceneCfg.TargetH());
-                            anyFailure |= st.nonFinite != 0;
-                            art.metrics << sceneCfg.name << ',' << passName << ',' << frame << ",openrr_sr," << st.rmse << ','
-                                << st.bias << ',' << st.energyRatio << ',' << st.detailRatio << ',' << st.psnr << ','
-                                << st.nonFinite << ',' << st.noiseStd << "\n";
+                            if (!fx.truthTarget.empty())
+                            {
+                                const auto st = ComparePlanes(rf.openrrSr, fx.truthTarget, sceneCfg.TargetW(), sceneCfg.TargetH());
+                                anyFailure |= st.nonFinite != 0;
+                                art.metrics << sceneCfg.name << ',' << passName << ',' << frame << ",openrr_sr," << st.rmse << ','
+                                    << st.bias << ',' << st.energyRatio << ',' << st.detailRatio << ',' << st.psnr << ','
+                                    << st.nonFinite << ',' << st.noiseStd << "\n";
+                            }
                         }
                         rf.truthR = capturedScene ? fx.truthRender : fx.truthJittered;
                         rf.truthT = fx.truthTarget;

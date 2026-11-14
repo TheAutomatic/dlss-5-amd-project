@@ -51,8 +51,11 @@ goto tiers
 if /i "%~1"=="release" (set "RUN_CI=1" & set "RELEASE_CHECKS=1" & set "ANY_TIER=1" & exit /b 0)
 if /i "%~1"=="ci" (set "RUN_CI=1" & set "FULL_CI=1" & set "ANY_TIER=1" & exit /b 0)
 if /i "%~1"=="device" (set "RUN_DEVICE=1" & set "ANY_TIER=1" & exit /b 0)
-if /i "%~1"=="gpu" (set "RUN_GPU=1" & set "ANY_TIER=1" & exit /b 0)
-if /i "%~1"=="all" (set "RUN_CI=1" & set "FULL_CI=1" & set "RUN_DEVICE=1" & set "RUN_GPU=1" & set "ANY_TIER=1" & exit /b 0)
+if /i "%~1"=="gpu" (
+  echo The standalone GPU test tier has been retired. Run focused tests via tests\fsr-rr\run.cmd or tests\host\run.cmd.
+  exit /b 1
+)
+if /i "%~1"=="all" (set "RUN_CI=1" & set "FULL_CI=1" & set "RUN_DEVICE=1" & set "ANY_TIER=1" & exit /b 0)
 echo Unknown tier: %~1
 exit /b 1
 

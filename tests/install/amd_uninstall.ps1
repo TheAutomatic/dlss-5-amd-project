@@ -143,10 +143,13 @@ public class UninstallProxyFixture { }
     }
     Copy-Item -LiteralPath $uninstall -Destination (Join-Path $game 'Uninstall_OptiScaler_NR.ps1')
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\..\tools\install\mochizuki-owned.txt') -Destination (Join-Path $game 'mochizuki-owned.txt')
+    Put-File (Join-Path $game 'dlssnr-amd\aco\int4\records\0401a3f73822ebd4.nrp')
     $inPlace = & $powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $game 'Uninstall_OptiScaler_NR.ps1') -NonInteractive -NoPause 2>&1
     if ($LASTEXITCODE -ne 0) { throw "In-place uninstall exit $LASTEXITCODE : $($inPlace -join [Environment]::NewLine)" }
     if (($inPlace -join '') -notmatch 'Uninstall SUCCEEDED') { throw 'Missing in-place uninstall success result.' }
     if (($inPlace -join '') -notmatch 'Planned deletions') { throw 'In-place uninstall did not list planned deletions.' }
+    Assert-Removed (Join-Path $game 'dlssnr-amd\aco\int4\records\0401a3f73822ebd4.nrp')
+    Assert-Removed (Join-Path $game 'mochizuki-owned.txt')
     Assert-Removed (Join-Path $game 'Uninstall_OptiScaler_NR.ps1')
     $null = Run-Uninstall $game # Repeated/manual uninstall remains supported.
     Write-Host 'PASS project files removed; plugins, author files, unknown files and backups preserved'

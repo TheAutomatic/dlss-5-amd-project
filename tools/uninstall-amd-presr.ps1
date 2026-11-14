@@ -253,7 +253,7 @@ $projectLeafNames = @(
     'person-model/concrt140.dll', 'person-model/vccorlib140.dll',
     'Uninstall.bat','Uninstall.ps1'
 )
-$selfLeafNames = @('Uninstall_OptiScaler_NR.bat','Uninstall_OptiScaler_NR.ps1','Uninstall.bat','Uninstall.ps1')
+$selfLeafNames = @('Uninstall_OptiScaler_NR.bat','Uninstall_OptiScaler_NR.ps1','Uninstall.bat','Uninstall.ps1','mochizuki-owned.txt')
 # spdlog rotates OptiScaler.log into OptiScaler.1.log; older sinks used .log.1.
 # Match numeric rotations only, not user notes such as OptiScaler.notes.log.
 $projectLogNamePattern = '^(OptiScaler|amd_bridge|amd_presr|mochizuki_nr|dlssnr_on_amd|dlssnr-amd|dlss-enabler)(\.[0-9]+)?\.log(\.[0-9]+)?$'
@@ -390,7 +390,7 @@ function Update-MochizukiOwned([string]$root, [string]$mode) {
 }
 
 # Files installed for the vendor NR ASI are recorded in the game folder at install
-# time. Only those exact paths are removed; models and the ASI's own ini stay.
+# time. Only those exact paths are removed; models stay.
 function Get-AsiOwnedFiles([string]$root) {
     $manifest = Join-Path $root 'dlssnr-amd-install.txt'
     if (!(Test-UninstallPath $manifest)) { return }

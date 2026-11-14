@@ -90,7 +90,14 @@ cl /nologo /std:c++20 /EHsc /W4 /utf-8 /O2 /I"%REPO%\OptiScaler-DLSSNR-PreSR-Mul
 shift
 shift
 if /i "%~1"=="--build-only" exit /b 0
-"%OUT%\openrr_bench.exe" --out "%OUT%" %1 %2 %3 %4 %5 %6 %7 %8 %9
+set "OPENRR_ARGS="
+:CollectOpenRrArgs
+if "%~1"=="" goto RunOpenRrBench
+set "OPENRR_ARGS=%OPENRR_ARGS% "%~1""
+shift
+goto CollectOpenRrArgs
+:RunOpenRrBench
+"%OUT%\openrr_bench.exe" --out "%OUT%" %OPENRR_ARGS%
 exit /b %errorlevel%
 
 :Cpu

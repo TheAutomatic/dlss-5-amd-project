@@ -2484,10 +2484,26 @@ if ($installMochizuki) {
         }
     }
     $retiredPersonDir = Join-Path $game 'person-model'
-    if (Test-Path -LiteralPath $retiredPersonDir -PathType Container) {
+    if ((Test-Path -LiteralPath $retiredPersonDir -PathType Container) -and
+        -not ((Get-Item -LiteralPath $retiredPersonDir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        foreach ($ownedPersonFile in @(
+            'onnxruntime.dll', 'yolo11n-seg.onnx', 'pphumanseg.onnx', 'yunet.onnx',
+            'person-worker.exe', 'person-worker.log', 'person-worker.1.log',
+            'msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_2.dll',
+            'msvcp140_atomic_wait.dll', 'msvcp140_codecvt_ids.dll',
+            'vcruntime140.dll', 'vcruntime140_1.dll', 'vcruntime140_threads.dll',
+            'concrt140.dll', 'vccorlib140.dll'
+        )) {
+            $p = Join-Path $retiredPersonDir $ownedPersonFile
+            if (Test-Path -LiteralPath $p -PathType Leaf) {
+                try { Remove-Item -LiteralPath $p -Force -ErrorAction Stop } catch { }
+            }
+        }
         try {
-            Remove-Item -LiteralPath $retiredPersonDir -Recurse -Force -ErrorAction Stop
-            Write-Host 'Removed retired person-model directory.' -ForegroundColor DarkGray
+            if (@(Get-ChildItem -LiteralPath $retiredPersonDir -Force -ErrorAction Stop).Count -eq 0) {
+                [IO.Directory]::Delete($retiredPersonDir, $false)
+                Write-Host 'Removed retired person-model directory.' -ForegroundColor DarkGray
+            }
         } catch { }
     }
 
@@ -2990,7 +3006,7 @@ if ($wantOpenRr) {
     }
     if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
         Set-IniSettings $gameIni 'OpenNR-RR' ([ordered]@{ 'Enabled' = 'false' })
-        Set-IniSettings $gameIni 'FSR-RR' ([ordered]@{ 'Enabled' = 'true' })
+        Set-IniSettings $gameIni 'FSR-RR' ([ordered]@{ 'Enabled' = 'true' }) -OnlyMissing
         Write-Host 'Disabled OpenRR in OptiScaler.ini ([OpenNR-RR] Enabled=false; Ray Reconstruction uses FSR-RR).' -ForegroundColor Cyan
     }
 }
