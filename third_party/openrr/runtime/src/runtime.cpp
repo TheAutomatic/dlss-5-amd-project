@@ -1392,8 +1392,10 @@ int32_t Create(const OnrRrCreateInfo* in, void** out) {
         c->kern.load(c->dev, utf8(c->shader_dir), {"ingest", "pack"});
         // D3D12 backend: only for a host that knows Record (ABI 4 sets the choice), and only after its self-test
         uint32_t choice = in->size > ONR_RR_CREATE_INFO_SIZE_V1 ? in->backend : uint32_t(ONR_RR_BACKEND_CHOICE_VULKAN);
-        if (const char* e = getenv("ONR_RR_BACKEND"))   // validation override
-            choice = !_stricmp(e, "vulkan") ? ONR_RR_BACKEND_CHOICE_VULKAN : !_stricmp(e, "d3d12") ? ONR_RR_BACKEND_CHOICE_D3D12 : choice;
+        if (choice == ONR_RR_BACKEND_CHOICE_AUTO) {
+            if (const char* e = getenv("ONR_RR_BACKEND"))   // fallback when host leaves Backend=auto
+                choice = !_stricmp(e, "vulkan") ? ONR_RR_BACKEND_CHOICE_VULKAN : !_stricmp(e, "d3d12") ? ONR_RR_BACKEND_CHOICE_D3D12 : choice;
+        }
         if (choice != ONR_RR_BACKEND_CHOICE_VULKAN) {
             wchar_t local[MAX_PATH] = {};
             c->cache_dir = in->cache_dir ? std::wstring(in->cache_dir)

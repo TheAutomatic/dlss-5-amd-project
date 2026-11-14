@@ -37,6 +37,7 @@ struct Setup {
     VkPhysicalDeviceShaderAtomicInt64Features a64{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES};
     VkPhysicalDeviceDescriptorIndexingFeatures di{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES};
     VkPhysicalDeviceHostQueryResetFeatures hqr{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES};
+    VkPhysicalDeviceScalarBlockLayoutFeatures sbl{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES};
     VkPhysicalDeviceSynchronization2Features sync2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES};
     VkPhysicalDeviceSubgroupSizeControlFeatures ssc{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES};
     VkPhysicalDeviceCooperativeMatrixFeaturesKHR cm{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_KHR};
@@ -119,7 +120,7 @@ int prepare(VkPhysicalDevice phys, const VkDeviceCreateInfo* in, VkDeviceCreateI
         {v12.shaderFloat16, "shaderFloat16"}, {v12.shaderInt8, "shaderInt8"}, {v12.bufferDeviceAddress, "bufferDeviceAddress"},
         {v12.vulkanMemoryModel, "vulkanMemoryModel"}, {v12.vulkanMemoryModelDeviceScope, "vulkanMemoryModelDeviceScope"},
         {v12.shaderBufferInt64Atomics, "shaderBufferInt64Atomics"}, {v12.descriptorBindingPartiallyBound, "descriptorBindingPartiallyBound"},
-        {v12.hostQueryReset, "hostQueryReset"},
+        {v12.hostQueryReset, "hostQueryReset"}, {v12.scalarBlockLayout, "scalarBlockLayout"},
         {v13.synchronization2, "synchronization2"}, {v13.subgroupSizeControl, "subgroupSizeControl"},
         {v13.computeFullSubgroups, "computeFullSubgroups"}, {cm.cooperativeMatrix, "cooperativeMatrix"},
         {f8.shaderFloat8, "shaderFloat8"}, {f8.shaderFloat8CooperativeMatrix, "shaderFloat8CooperativeMatrix"},
@@ -214,6 +215,7 @@ int prepare(VkPhysicalDevice phys, const VkDeviceCreateInfo* in, VkDeviceCreateI
     s.core_on(S12, &V12::descriptorBindingPartiallyBound, s.di, &VkPhysicalDeviceDescriptorIndexingFeatures::descriptorBindingPartiallyBound,
               "descriptorBindingPartiallyBound");
     s.core_on(S12, &V12::hostQueryReset, s.hqr, &VkPhysicalDeviceHostQueryResetFeatures::hostQueryReset, "hostQueryReset");
+    s.core_on(S12, &V12::scalarBlockLayout, s.sbl, &VkPhysicalDeviceScalarBlockLayoutFeatures::scalarBlockLayout, "scalarBlockLayout");
     s.core_on(S13, &V13::synchronization2, s.sync2, &VkPhysicalDeviceSynchronization2Features::synchronization2, "synchronization2");
     s.core_on(S13, &V13::subgroupSizeControl, s.ssc, &VkPhysicalDeviceSubgroupSizeControlFeatures::subgroupSizeControl, "subgroupSizeControl");
     s.core_on(S13, &V13::computeFullSubgroups, s.ssc, &VkPhysicalDeviceSubgroupSizeControlFeatures::computeFullSubgroups, "computeFullSubgroups");

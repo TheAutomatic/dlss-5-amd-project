@@ -300,15 +300,17 @@ bool D3dDevice::slot_retired(SlotState& s, uint32_t idx) {
     if (!s.serial) return true;
     if (dev_ && FAILED(dev_->GetDeviceRemovedReason())) return true;
     if (s.own) return s.own_fv != 0 && fence_ && fence_->GetCompletedValue() >= s.own_fv;
-    if (binds_ - s.serial >= kGameSlots) return true;
-    return s.query_count > 0 && done_map_ && done_map_[idx * kSlotQueries + s.query_count - 1] != 0;
+    if (s.query_count > 0 && done_map_)
+        return done_map_[idx * kSlotQueries + s.query_count - 1] != 0 || binds_ - s.serial >= kGameSlots + kOverflowDescSlots;
+    return binds_ - s.serial >= kGameSlots;
 }
 
 bool D3dDevice::overflow_retired(OverflowUpload& o) {
     if (!o.serial) return true;
     if (dev_ && FAILED(dev_->GetDeviceRemovedReason())) return true;
-    if (binds_ - o.serial >= kGameSlots) return true;
-    return o.done && *o.done != 0;
+    if (o.done)
+        return *o.done != 0 || binds_ - o.serial >= kGameSlots + kOverflowDescSlots;
+    return binds_ - o.serial >= kGameSlots;
 }
 
 bool D3dDevice::serial_retired(uint64_t serial) {
@@ -582,6 +584,11 @@ void D3dDevice::download(const Buffer& b, void* dst, VkDeviceSize size, VkDevice
 }
 
 void D3dDevice::fill(const Buffer& b, uint32_t value) {
+    if (cl_) {
+        staged(b, 0, b.size, nullptr, value, true);
+        return;
+    }
+    // Unbound setup calls follow D3dDevice::create(), which uses D3D12_HEAP_FLAG_NONE (zeroed by D3D12).
     if (value == 0) return;
     std::vector<uint32_t> v(size_t((b.size + 3) / 4), value);
     upload(b, v.data(), b.size);
