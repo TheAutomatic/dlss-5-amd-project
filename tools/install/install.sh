@@ -5,7 +5,7 @@
 # Usage:
 #   bash install.sh <game folder or game.exe> [install|remove|logs]
 #                   [--proxy dxgi.dll|winmm.dll|d3d12.dll|winhttp.dll|wininet.dll|dbghelp.dll|version.dll]
-#                   [--nr on|off] [--openrr on|off] [--optipatcher on|off] [--overwrite-ini]
+#                   [--nr on|off] [--openrr on|off] [--openrr-spoof full|auto] [--optipatcher on|off] [--overwrite-ini]
 #                   [--dll <nvngx_dlssnr.dll or .zip>] [--dlssd <nvngx_dlssd.dll>]
 #                   [--model CC_SMALL_FP8|CC_SMALL_FP8_EXPERIMENTAL|CC_SILVER_AARDWOLD|CC_SILVER_AARDWOLD_OPTIMIZED]
 #                   [--renodx|--wilsjo2]
@@ -23,6 +23,7 @@ small_ok() { sha_ok "$1" "$small_sha256"; }
 
 target="" action="" proxy=""
 want_nr="" want_openrr="" want_optipatcher=""
+openrr_spoof="full" openrr_spoof_explicit=0
 dll="" dlssd="" model="" renodx="" overwrite_ini=0
 
 while [[ $# -gt 0 ]]; do
@@ -34,6 +35,7 @@ while [[ $# -gt 0 ]]; do
         --no-nr) want_nr=off; shift;;
         --openrr) want_openrr=${2:?--openrr takes on or off}; shift 2;;
         --no-openrr) want_openrr=off; shift;;
+        --openrr-spoof) openrr_spoof=${2:?--openrr-spoof takes full or auto}; openrr_spoof_explicit=1; shift 2;;
         --optipatcher) want_optipatcher=${2:?--optipatcher takes on or off}; shift 2;;
         --overwrite-ini|--reset-ini) overwrite_ini=1; shift;;
         --dll) dll=${2:?--dll needs a file path}; shift 2;;
@@ -50,6 +52,12 @@ while [[ $# -gt 0 ]]; do
             shift;;
     esac
 done
+
+openrr_spoof=${openrr_spoof,,}
+case "$openrr_spoof" in
+    full|auto) ;;
+    *) echo "Invalid --openrr-spoof: $openrr_spoof (expected full or auto)" >&2; exit 1;;
+esac
 
 if [[ -z "$target" ]]; then
     if [[ -t 0 ]]; then
@@ -158,7 +166,7 @@ put_tree() {
         rel="${f#"$src"/}"
         if [[ "$dst_rel" == "OptiScaler" ]]; then
             case "$rel" in
-                plugins/dlssnr-amd.asi|plugins/openrr-amd.asi|plugins/openrr.asi|plugins/OptiPatcher.asi) continue;;
+                plugins/dlssnr-amd.asi|plugins/openrr-amd.asi|plugins/openrr.asi|plugins/openrr-ngx-host.dll|plugins/OptiPatcher.asi) continue;;
             esac
         fi
         put_file "$f" "$dst_rel/$rel"
@@ -184,7 +192,7 @@ remove_legacy_tree() {
                 Streamlined_fetcher_windows.bat libxess.dll libxess_dx11.dll libxess_fg.dll libxell.dll \
                 D3D12_OptiScaler/D3D12Core.dll D3D12_OptiScaler/d3d12SDKLayers.dll \
                 Licenses/DirectX_LICENSE.txt Licenses/FidelityFX_v2_LICENSE.md Licenses/XeSS_LICENSE.txt \
-                plugins/dlssnr-amd.asi plugins/openrr-amd.asi plugins/openrr.asi plugins/OptiPatcher.asi \
+                plugins/dlssnr-amd.asi plugins/openrr-amd.asi plugins/openrr.asi plugins/openrr-ngx-host.dll plugins/OptiPatcher.asi \
                 plugins/OptScaler-NR-plugins-README.txt; do
                 rm -f -- "$game/OptiScaler/$sub"
             done
@@ -194,7 +202,7 @@ remove_legacy_tree() {
             rm -f -- "$game/dlssnr-amd/nr_present_probe.exe" "$game/dlssnr-amd/dlssnr-amd.default.ini"
             ;;
         openrr-amd|opennr-rr)
-            rm -rf -- "$game/$rel/shaders" "$game/$rel/cache"
+            rm -rf -- "$game/$rel/shaders" "$game/$rel/cache" "$game/$rel/aco"
             rm -f -- "$game/$rel/nvngx_dlssd.dll"
             ;;
     esac
@@ -451,9 +459,9 @@ if [[ "$want_nr" == "on" ]]; then
             echo
             echo "Choose the starting network for dlssnr-amd.asi (can be switched in game with End / Ctrl+F11):"
             echo "  1) CC_SMALL_FP8 (default)"
-            echo "  2) CC_SMALL_FP8_EXPERIMENTAL (RX 9000)"
+            echo "  2) CC_SMALL_FP8_EXPERIMENTAL (ACO Mode: RX 9000 / RX 7000)"
             echo "  3) CC_SILVER_AARDWOLD"
-            echo "  4) CC_SILVER_AARDWOLD_OPTIMIZED (RX 9000)"
+            echo "  4) CC_SILVER_AARDWOLD_OPTIMIZED (ACO Mode: RX 9000 / RX 7000)"
             def=1; [[ $have_small == 0 ]] && def=3
             read -r -p "Start with which one? [1-4, Enter = $def]: " pick || pick=""
             case "${pick:-$def}" in
@@ -497,6 +505,19 @@ if [[ "$want_nr" == "on" ]]; then
 fi
 
 is_update=0
+# The install record remembers the last OpenRR spoof policy (written only while OpenRR is installed).
+prior_openrr_spoof=$( { sed -n 's/^# openrr_spoof=\(full\|auto\)$/\1/Ip' "$manifest" 2>/dev/null || true; } | tail -n 1)
+prior_openrr_spoof=${prior_openrr_spoof,,}
+prior_openrr_installed=0
+# Capture legacy installation evidence before remove_installed deletes the plugin/config.
+if [[ -n "$prior_openrr_spoof" || -f "$game/openrr-amd.ini" ]] ||
+   grep -Eiq '^F (OptiScaler/plugins/|plugins/)?openrr(-amd)?\.asi[[:space:]]*$' "$manifest" 2>/dev/null; then
+    prior_openrr_installed=1
+fi
+for prior_plugin in OptiScaler/plugins/openrr-amd.asi OptiScaler/plugins/openrr.asi plugins/openrr-amd.asi plugins/openrr.asi; do
+    if [[ -f "$game/$prior_plugin" ]]; then prior_openrr_installed=1; fi
+done
+if [[ $openrr_spoof_explicit == 0 && -n "$prior_openrr_spoof" ]]; then openrr_spoof=$prior_openrr_spoof; fi
 if [[ -f "$manifest" ]]; then
     is_update=1
     if [[ $overwrite_ini == 0 ]]; then
@@ -513,6 +534,7 @@ fi
 
 : > "$manifest"
 record "# format=v2-per-file"
+if [[ "$want_openrr" == "on" ]]; then record "# openrr_spoof=${openrr_spoof}"; fi
 record "F dlssnr-amd-install.txt"
 
 # 6. Install Official OptiScaler
@@ -535,6 +557,9 @@ if [[ "$want_openrr" == "on" && -f "$here/OptiScaler/plugins/openrr-amd.asi" ]];
 elif [[ "$want_openrr" == "on" && -f "$here/OptiScaler/plugins/openrr.asi" ]]; then
     put_file "$here/OptiScaler/plugins/openrr.asi" "OptiScaler/plugins/openrr-amd.asi"
 fi
+if [[ "$want_openrr" == "on" && -f "$here/OptiScaler/plugins/openrr-ngx-host.dll" ]]; then
+    put_file "$here/OptiScaler/plugins/openrr-ngx-host.dll" "OptiScaler/plugins/openrr-ngx-host.dll"
+fi
 if [[ "$want_optipatcher" == "on" && -f "$here/OptiScaler/plugins/OptiPatcher.asi" ]]; then
     put_file "$here/OptiScaler/plugins/OptiPatcher.asi" "OptiScaler/plugins/OptiPatcher.asi"
 elif [[ "$want_optipatcher" == "on" && -f "$here/plugins/OptiPatcher.asi" ]]; then
@@ -542,27 +567,41 @@ elif [[ "$want_optipatcher" == "on" && -f "$here/plugins/OptiPatcher.asi" ]]; th
 fi
 
 # Update OptiScaler.ini in-place
-python3 - "$game/OptiScaler.ini" "$want_nr" "$want_openrr" <<'PY'
+python3 - "$game/OptiScaler.ini" "$want_nr" "$want_openrr" "$openrr_spoof" "$prior_openrr_installed" <<'PY'
 import re, sys
-path, want_nr, want_openrr = sys.argv[1], sys.argv[2], sys.argv[3]
+path, want_nr, want_openrr, mode, prior = sys.argv[1:6]
 raw = open(path, "rb").read().decode("utf-8", errors="surrogateescape")
 nl = "\r\n" if "\r\n" in raw else "\n"
 lines = raw.split(nl)
 wanted = {("Plugins", "LoadAsiPlugins"): "true", ("Log", "LogToFile"): "true", ("Log", "LogLevel"): "1"}
 if want_nr == "on": wanted[("Menu", "FGShortcutKey")] = "-1"
-if want_openrr == "on":
-    wanted[("Spoofing", "Dxgi")] = "true"
-    wanted[("Spoofing", "Vulkan")] = "true"
-    wanted[("Spoofing", "VulkanExtensionSpoofing")] = "true"
+# OpenRR's policy choice authorizes these keys; disabling OpenRR hands spoofing back to OptiScaler (auto).
+spoof = ("auto" if mode == "auto" else "true") if want_openrr == "on" else ("auto" if prior == "1" else None)
+if spoof:
+    for key in ("Dxgi", "Vulkan", "VulkanExtensionSpoofing"):
+        wanted[("Spoofing", key)] = spoof
+lookup = {(section.casefold(), key.casefold()): value for (section, key), value in wanted.items()}
 sec, seen = None, set()
 for i, line in enumerate(lines):
-    m = re.match(r"^\s*\[([^\]]+)\]", line)
-    if m: sec = m.group(1); continue
+    m = re.match(r"^\s*\[([^\]]+)\]", line.lstrip("\ufeff"))
+    if m: sec = m.group(1).casefold(); continue
     e = re.match(r"^\s*([A-Za-z0-9_]+)\s*=", line)
     if e and sec:
-        k = (sec, e.group(1))
-        if k in wanted and k not in seen:
-            lines[i] = f"{e.group(1)}={wanted[k]}"; seen.add(k)
+        k = (sec, e.group(1).casefold())
+        if k in lookup and k not in seen:
+            lines[i] = f"{e.group(1)}={lookup[k]}"; seen.add(k)
+# Kept/older INIs may omit the entire section or individual spoofing keys.
+if spoof:
+    missing = [key for key in ("Dxgi", "Vulkan", "VulkanExtensionSpoofing") if ("spoofing", key.casefold()) not in seen]
+    if missing:
+        start = next((i for i, line in enumerate(lines) if re.match(r"^\s*\[Spoofing\]\s*$", line.lstrip("\ufeff"), re.IGNORECASE)), None)
+        if start is None:
+            if lines and lines[-1] != "": lines.append("")
+            lines.append("[Spoofing]")
+            end = len(lines)
+        else:
+            end = next((i for i in range(start + 1, len(lines)) if re.match(r"^\s*\[", lines[i])), len(lines))
+        lines[end:end] = [f"{key}={spoof}" for key in missing]
 open(path, "wb").write(nl.join(lines).encode("utf-8", errors="surrogateescape"))
 PY
 
@@ -596,6 +635,7 @@ fi
 # 8. Install openrr-amd.asi resources if enabled
 if [[ "$want_openrr" == "on" ]]; then
     put_tree "$here/openrr-amd" "openrr-amd"
+    rm -rf -- "$game/openrr-amd/aco"
     if [[ $is_update == 1 && $overwrite_ini == 0 && -n "$ini_preserve_tmp" && -f "$ini_preserve_tmp/openrr-amd.ini" ]]; then
         put_file "$ini_preserve_tmp/openrr-amd.ini" "openrr-amd.ini"
     elif [[ -f "$here/openrr-amd.ini" ]]; then

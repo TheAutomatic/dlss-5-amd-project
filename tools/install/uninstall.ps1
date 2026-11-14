@@ -6,8 +6,9 @@
 .DESCRIPTION
   Removes identified OptiScaler proxies, named passes/config/logs, listed dependencies,
   and this uninstaller. Asks whether to keep backup-amd-presr-* folders, then lists
-  planned deletions, then asks Y/N. Does NOT delete nvngx_dlssnr.dll, weights,
-  danielblnc setup, other proxies, or user-added plugins and unknown files.
+  planned deletions, then asks Y/N. Removes the dedicated dlssnr-amd, openrr-amd
+  and legacy opennr-rr resource directories, including their models and caches.
+  Original game files, root-level model sources and unrelated plugins are kept.
 
 .EXAMPLE
   .\Uninstall_OptiScaler_NR.bat
@@ -155,110 +156,16 @@ $proxyNames = @('dxgi.dll','winmm.dll','d3d12.dll','version.dll','winhttp.dll','
 $projectLeafNames = @(
     'dlssnr_amd_pass1.dll','dlssnr_amd_pass2.dll','dlssnr_amd_pass3.dll',
     'dlssnr_core.dll', # Legacy standalone NR core; integrated runtimes do not use it.
-    'OptiScaler.ini','amd-presr-install.txt',
-    'dlssnr_on_amd.ini', 'dlssnr-amd-crash.dmp', 'dlssnr-amd-install.txt',
-    'LmxxfNrRuntime.dll', 'MochizukiNrRuntime.dll', 'OpenNrRrRuntime.dll', 'opennr_rr.log', 'openrr-amd.log', 'openrr-amd.ini', 'openrr-control.bin', 'openrr-amd-crash.dmp', 'lmxxf-module-package.ps1', 'openrr-amd/nvngx_dlssd.dll',
-    'opennr-rr/nvngx_dlssd.dll',
-    'openrr-amd/shaders/ae.spv', 'openrr-amd/shaders/d3d_ae.spv', 'openrr-amd/shaders/d3d_downsample.spv', 'openrr-amd/shaders/d3d_downsample_tl.spv', 'openrr-amd/shaders/d3d_enc0_attr_f.spv', 'openrr-amd/shaders/d3d_enc0_attr_f_w.spv', 'openrr-amd/shaders/d3d_ingest.spv', 'openrr-amd/shaders/d3d_pack.spv', 'openrr-amd/shaders/dec_dfn_128_128_f.spv', 'openrr-amd/shaders/dec_dfn_128_128_fl.spv', 'openrr-amd/shaders/dec_dfn_160_256_f.spv', 'openrr-amd/shaders/dec_dfn_160_256_fl.spv', 'openrr-amd/shaders/dec_dfn_64_64_f.spv', 'openrr-amd/shaders/dec_dfn_96_128_f.spv', 'openrr-amd/shaders/dec_dfn_96_128_fl.spv', 'openrr-amd/shaders/dec_head_32_64_f.spv', 'openrr-amd/shaders/dec_up_128_128_160_f.spv', 'openrr-amd/shaders/dec_up_128_128_160_fl.spv', 'openrr-amd/shaders/dec_up_160_256_160_f.spv', 'openrr-amd/shaders/dec_up_160_256_160_fl.spv', 'openrr-amd/shaders/dec_up_32_64_64_f.spv', 'openrr-amd/shaders/dec_up_64_64_96_f.spv', 'openrr-amd/shaders/dec_up_96_128_128_f.spv', 'openrr-amd/shaders/dec_up_96_128_128_fl.spv', 'openrr-amd/shaders/dfn_export.spv', 'openrr-amd/shaders/dfn_import.spv', 'openrr-amd/shaders/downsample.spv', 'openrr-amd/shaders/downsample_tl.spv', 'openrr-amd/shaders/enc0_attr_f.spv', 'openrr-amd/shaders/enc0_attr_f_w.spv', 'openrr-amd/shaders/enc0_stage_32_64_f.spv', 'openrr-amd/shaders/enc0_stage_32_64_f_w.spv', 'openrr-amd/shaders/enc_stage_128_128_160_f.spv', 'openrr-amd/shaders/enc_stage_128_128_160_fl.spv', 'openrr-amd/shaders/enc_stage_160_256_0_f.spv', 'openrr-amd/shaders/enc_stage_160_256_0_fl.spv', 'openrr-amd/shaders/enc_stage_160_256_160_f.spv', 'openrr-amd/shaders/enc_stage_160_256_160_fl.spv', 'openrr-amd/shaders/enc_stage_64_64_96_f.spv', 'openrr-amd/shaders/enc_stage_96_128_128_f.spv', 'openrr-amd/shaders/enc_stage_96_128_128_fl.spv', 'openrr-amd/shaders/ingest.spv', 'openrr-amd/shaders/pack.spv', 'openrr-amd/shaders/pooled_history2.spv', 'openrr-amd/shaders/post_dlt_f.spv', 'openrr-amd/shaders/post_f.spv', 'openrr-amd/shaders/post_tile.spv', 'openrr-amd/shaders/selftest.spv', 'openrr-amd/shaders/selftest_tex.spv', 'openrr-amd/shaders/ae_lt.spv', 'openrr-amd/shaders/d3d_ae_lt.spv', 'openrr-amd/shaders/d3d_downsample_lt.spv', 'openrr-amd/shaders/d3d_downsample_tl_lt.spv', 'openrr-amd/shaders/d3d_enc0_attr_f_lt.spv', 'openrr-amd/shaders/d3d_enc0_attr_f_w_lt.spv', 'openrr-amd/shaders/d3d_ingest_lt.spv', 'openrr-amd/shaders/d3d_pack_lt.spv', 'openrr-amd/shaders/dec_dfn_128_128_f_lt.spv', 'openrr-amd/shaders/dec_dfn_128_128_fl_lt.spv', 'openrr-amd/shaders/dec_dfn_160_256_f_lt.spv', 'openrr-amd/shaders/dec_dfn_160_256_fl_lt.spv', 'openrr-amd/shaders/dec_dfn_64_64_f_lt.spv', 'openrr-amd/shaders/dec_dfn_96_128_f_lt.spv', 'openrr-amd/shaders/dec_dfn_96_128_fl_lt.spv', 'openrr-amd/shaders/dec_head_32_64_f_lt.spv', 'openrr-amd/shaders/dec_up_128_128_160_f_lt.spv', 'openrr-amd/shaders/dec_up_128_128_160_fl_lt.spv', 'openrr-amd/shaders/dec_up_160_256_160_f_lt.spv', 'openrr-amd/shaders/dec_up_160_256_160_fl_lt.spv', 'openrr-amd/shaders/dec_up_32_64_64_f_lt.spv', 'openrr-amd/shaders/dec_up_64_64_96_f_lt.spv', 'openrr-amd/shaders/dec_up_96_128_128_f_lt.spv', 'openrr-amd/shaders/dec_up_96_128_128_fl_lt.spv', 'openrr-amd/shaders/dfn_export_lt.spv', 'openrr-amd/shaders/dfn_import_lt.spv', 'openrr-amd/shaders/downsample_lt.spv', 'openrr-amd/shaders/downsample_tl_lt.spv', 'openrr-amd/shaders/enc0_attr_f_lt.spv', 'openrr-amd/shaders/enc0_attr_f_w_lt.spv', 'openrr-amd/shaders/enc0_stage_32_64_f_lt.spv', 'openrr-amd/shaders/enc0_stage_32_64_f_w_lt.spv', 'openrr-amd/shaders/enc_stage_128_128_160_f_lt.spv', 'openrr-amd/shaders/enc_stage_128_128_160_fl_lt.spv', 'openrr-amd/shaders/enc_stage_160_256_0_f_lt.spv', 'openrr-amd/shaders/enc_stage_160_256_0_fl_lt.spv', 'openrr-amd/shaders/enc_stage_160_256_160_f_lt.spv', 'openrr-amd/shaders/enc_stage_160_256_160_fl_lt.spv', 'openrr-amd/shaders/enc_stage_64_64_96_f_lt.spv', 'openrr-amd/shaders/enc_stage_96_128_128_f_lt.spv', 'openrr-amd/shaders/enc_stage_96_128_128_fl_lt.spv', 'openrr-amd/shaders/ingest_lt.spv', 'openrr-amd/shaders/pack_lt.spv', 'openrr-amd/shaders/pooled_history2_lt.spv', 'openrr-amd/shaders/post_dlt_f_lt.spv', 'openrr-amd/shaders/post_f_lt.spv', 'openrr-amd/shaders/post_tile_lt.spv', 'openrr-amd/shaders/selftest_lt.spv', 'openrr-amd/shaders/selftest_tex_lt.spv',
+    'OptiScaler.ini',
+    'dlssnr_on_amd.ini', 'dlssnr-amd-crash.dmp',
+    'LmxxfNrRuntime.dll', 'MochizukiNrRuntime.dll', 'OpenNrRrRuntime.dll', 'opennr_rr.log', 'openrr-amd.log', 'openrr-amd.ini', 'openrr-control.bin', 'openrr-amd-crash.dmp', 'lmxxf-module-package.ps1',
 
-    'opennr-rr/shaders/ae.spv', 'opennr-rr/shaders/d3d_ae.spv', 'opennr-rr/shaders/d3d_downsample.spv', 'opennr-rr/shaders/d3d_downsample_tl.spv',
-    'opennr-rr/shaders/d3d_enc0_attr_f.spv', 'opennr-rr/shaders/d3d_enc0_attr_f_w.spv', 'opennr-rr/shaders/d3d_ingest.spv', 'opennr-rr/shaders/d3d_pack.spv',
-    'opennr-rr/shaders/dec_dfn_128_128_f.spv', 'opennr-rr/shaders/dec_dfn_128_128_fl.spv', 'opennr-rr/shaders/dec_dfn_160_256_f.spv', 'opennr-rr/shaders/dec_dfn_160_256_fl.spv',
-    'opennr-rr/shaders/dec_dfn_64_64_f.spv', 'opennr-rr/shaders/dec_dfn_96_128_f.spv', 'opennr-rr/shaders/dec_dfn_96_128_fl.spv', 'opennr-rr/shaders/dec_head_32_64_f.spv',
-    'opennr-rr/shaders/dec_up_128_128_160_f.spv', 'opennr-rr/shaders/dec_up_128_128_160_fl.spv', 'opennr-rr/shaders/dec_up_160_256_160_f.spv', 'opennr-rr/shaders/dec_up_160_256_160_fl.spv',
-    'opennr-rr/shaders/dec_up_32_64_64_f.spv', 'opennr-rr/shaders/dec_up_64_64_96_f.spv', 'opennr-rr/shaders/dec_up_96_128_128_f.spv', 'opennr-rr/shaders/dec_up_96_128_128_fl.spv',
-    'opennr-rr/shaders/dfn_export.spv', 'opennr-rr/shaders/dfn_import.spv', 'opennr-rr/shaders/downsample.spv', 'opennr-rr/shaders/downsample_tl.spv',
-    'opennr-rr/shaders/enc0_attr_f.spv', 'opennr-rr/shaders/enc0_attr_f_w.spv', 'opennr-rr/shaders/enc0_stage_32_64_f.spv', 'opennr-rr/shaders/enc0_stage_32_64_f_w.spv',
-    'opennr-rr/shaders/enc_stage_128_128_160_f.spv', 'opennr-rr/shaders/enc_stage_128_128_160_fl.spv', 'opennr-rr/shaders/enc_stage_160_256_0_f.spv', 'opennr-rr/shaders/enc_stage_160_256_0_fl.spv',
-    'opennr-rr/shaders/enc_stage_160_256_160_f.spv', 'opennr-rr/shaders/enc_stage_160_256_160_fl.spv', 'opennr-rr/shaders/enc_stage_64_64_96_f.spv',
-    'opennr-rr/shaders/enc_stage_96_128_128_f.spv', 'opennr-rr/shaders/enc_stage_96_128_128_fl.spv', 'opennr-rr/shaders/ingest.spv', 'opennr-rr/shaders/pack.spv',
-    'opennr-rr/shaders/pooled_history2.spv', 'opennr-rr/shaders/post_dlt_f.spv', 'opennr-rr/shaders/post_f.spv', 'opennr-rr/shaders/post_tile.spv',
-    'opennr-rr/shaders/selftest.spv', 'opennr-rr/shaders/selftest_tex.spv',
-    'opennr-rr/shaders/ae_lt.spv', 'opennr-rr/shaders/d3d_ae_lt.spv', 'opennr-rr/shaders/d3d_downsample_lt.spv', 'opennr-rr/shaders/d3d_downsample_tl_lt.spv',
-    'opennr-rr/shaders/d3d_enc0_attr_f_lt.spv', 'opennr-rr/shaders/d3d_enc0_attr_f_w_lt.spv', 'opennr-rr/shaders/d3d_ingest_lt.spv', 'opennr-rr/shaders/d3d_pack_lt.spv',
-    'opennr-rr/shaders/dec_dfn_128_128_f_lt.spv', 'opennr-rr/shaders/dec_dfn_128_128_fl_lt.spv', 'opennr-rr/shaders/dec_dfn_160_256_f_lt.spv', 'opennr-rr/shaders/dec_dfn_160_256_fl_lt.spv',
-    'opennr-rr/shaders/dec_dfn_64_64_f_lt.spv', 'opennr-rr/shaders/dec_dfn_96_128_f_lt.spv', 'opennr-rr/shaders/dec_dfn_96_128_fl_lt.spv', 'opennr-rr/shaders/dec_head_32_64_f_lt.spv',
-    'opennr-rr/shaders/dec_up_128_128_160_f_lt.spv', 'opennr-rr/shaders/dec_up_128_128_160_fl_lt.spv', 'opennr-rr/shaders/dec_up_160_256_160_f_lt.spv', 'opennr-rr/shaders/dec_up_160_256_160_fl_lt.spv',
-    'opennr-rr/shaders/dec_up_32_64_64_f_lt.spv', 'opennr-rr/shaders/dec_up_64_64_96_f_lt.spv', 'opennr-rr/shaders/dec_up_96_128_128_f_lt.spv', 'opennr-rr/shaders/dec_up_96_128_128_fl_lt.spv',
-    'opennr-rr/shaders/dfn_export_lt.spv', 'opennr-rr/shaders/dfn_import_lt.spv', 'opennr-rr/shaders/downsample_lt.spv', 'opennr-rr/shaders/downsample_tl_lt.spv',
-    'opennr-rr/shaders/enc0_attr_f_lt.spv', 'opennr-rr/shaders/enc0_attr_f_w_lt.spv', 'opennr-rr/shaders/enc0_stage_32_64_f_lt.spv', 'opennr-rr/shaders/enc0_stage_32_64_f_w_lt.spv',
-    'opennr-rr/shaders/enc_stage_128_128_160_f_lt.spv', 'opennr-rr/shaders/enc_stage_128_128_160_fl_lt.spv', 'opennr-rr/shaders/enc_stage_160_256_0_f_lt.spv', 'opennr-rr/shaders/enc_stage_160_256_0_fl_lt.spv',
-    'opennr-rr/shaders/enc_stage_160_256_160_f_lt.spv', 'opennr-rr/shaders/enc_stage_160_256_160_fl_lt.spv', 'opennr-rr/shaders/enc_stage_64_64_96_f_lt.spv',
-    'opennr-rr/shaders/enc_stage_96_128_128_f_lt.spv', 'opennr-rr/shaders/enc_stage_96_128_128_fl_lt.spv', 'opennr-rr/shaders/ingest_lt.spv', 'opennr-rr/shaders/pack_lt.spv',
-    'opennr-rr/shaders/pooled_history2_lt.spv', 'opennr-rr/shaders/post_dlt_f_lt.spv', 'opennr-rr/shaders/post_f_lt.spv', 'opennr-rr/shaders/post_tile_lt.spv',
-    'opennr-rr/shaders/selftest_lt.spv', 'opennr-rr/shaders/selftest_tex_lt.spv',
-    'dlssnr-amd.ini', 'dlssnr-amd.default.ini', 'dlssnr-amd/dlssnr-amd.default.ini', 'dlssnr-amd/nr_present_probe.exe', 'mochizuki-owned.txt',
+    'dlssnr-amd.ini', 'dlssnr-amd.default.ini',
     'Uninstall_OptiScaler_NR.bat','Uninstall_OptiScaler_NR.ps1',
     'OptiScaler/dlssnr/README.md',
     'OptiScaler/dlssnr/design/frame-hold.md',
     'OptiScaler/dlssnr/design/multi-point-anchoring.md',
     'OptiScaler/dlssnr/design/pre-sr-multipass.md',
-    'dlssnr-amd/pipeline.cache', 'dlssnr-amd/prewarm/manifest.txt',
-    'dlssnr-amd/shaders/accumulation.txt',
-    'dlssnr-amd/shaders/coherent-act.txt',
-    'dlssnr-amd/shaders/g_attn.spv',
-    'dlssnr-amd/shaders/g_decups.spv',
-    'dlssnr-amd/shaders/g_ffwd3.spv',
-    'dlssnr-amd/shaders/g_ffwd3w.spv',
-    'dlssnr-amd/shaders/g_fswin128.spv',
-    'dlssnr-amd/shaders/g_fswin256.spv',
-    'dlssnr-amd/shaders/g_fswin32.spv',
-    'dlssnr-amd/shaders/g_fswin64.spv',
-    'dlssnr-amd/shaders/g_fswinds128.spv',
-    'dlssnr-amd/shaders/g_fswinds256.spv',
-    'dlssnr-amd/shaders/g_fswinds32.spv',
-    'dlssnr-amd/shaders/g_fswinds64.spv',
-    'dlssnr-amd/shaders/g_fswindsp128.spv',
-    'dlssnr-amd/shaders/g_fswindsp256.spv',
-    'dlssnr-amd/shaders/g_fswindsp32.spv',
-    'dlssnr-amd/shaders/g_fswindsp64.spv',
-    'dlssnr-amd/shaders/g_fswinfusedup128.spv',
-    'dlssnr-amd/shaders/g_fswinfusedup256.spv',
-    'dlssnr-amd/shaders/g_fswinfusedup32.spv',
-    'dlssnr-amd/shaders/g_fswinfusedup64.spv',
-    'dlssnr-amd/shaders/g_fswinimagepost32.spv',
-    'dlssnr-amd/shaders/g_fswinimagepreds32.spv',
-    'dlssnr-amd/shaders/g_fswinp128.spv',
-    'dlssnr-amd/shaders/g_fswinp256.spv',
-    'dlssnr-amd/shaders/g_fswinp64.spv',
-    'dlssnr-amd/shaders/g_fswinpds128.spv',
-    'dlssnr-amd/shaders/g_fswinpds256.spv',
-    'dlssnr-amd/shaders/g_fswinpds64.spv',
-    'dlssnr-amd/shaders/g_fswinpup128.spv',
-    'dlssnr-amd/shaders/g_fswinpup256.spv',
-    'dlssnr-amd/shaders/g_fswinpup64.spv',
-    'dlssnr-amd/shaders/g_gemmnores.spv',
-    'dlssnr-amd/shaders/g_gemmpool.spv',
-    'dlssnr-amd/shaders/g_gemmproj.spv',
-    'dlssnr-amd/shaders/g_gemmprojc.spv',
-    'dlssnr-amd/shaders/g_gemmprojt.spv',
-    'dlssnr-amd/shaders/g_gemmprojw.spv',
-    'dlssnr-amd/shaders/g_gemmvact.spv',
-    'dlssnr-amd/shaders/g_gemmvnores.spv',
-    'dlssnr-amd/shaders/g_gemmvproj.spv',
-    'dlssnr-amd/shaders/g_gemmvqkv.spv',
-    'dlssnr-amd/shaders/g_gemmvqkvnorm.spv',
-    'dlssnr-amd/shaders/g_gemmvqkvs.spv',
-    'dlssnr-amd/shaders/g_noisefield.spv',
-    'dlssnr-amd/shaders/g_repack.spv',
-    'dlssnr-amd/shaders/g_upsview.spv',
-    'dlssnr-amd/shaders/g_vitattn.spv',
-    'dlssnr-amd/shaders/g_vitattnnobda.spv',
-    'dlssnr-amd/shaders/runtime/cascade_blur.spv',
-    'dlssnr-amd/shaders/runtime/cascade_feed.spv',
-    'dlssnr-amd/shaders/runtime/cascade_lograt.spv',
-    'dlssnr-amd/shaders/runtime/runtime_alpha.spv',
-    'dlssnr-amd/shaders/runtime/runtime_depth.spv',
-    'dlssnr-amd/shaders/runtime/runtime_encode.spv',
-    'dlssnr-amd/shaders/runtime/runtime_prep.spv',
-    'dlssnr-amd/shaders/runtime/runtime_transfer.spv',
-    'dlssnr-amd/shaders/shader-constants.txt',
-    'dlssnr-amd/shaders/swin-bias-storage.txt',
-    'dlssnr-amd/shaders/temporal/motion_estimate.spv',
-    'dlssnr-amd/shaders/temporal/motion_luma.spv',
-    'dlssnr-amd/shaders/temporal/shader-constants.txt',
-    'dlssnr-amd/shaders/temporal/temporal_post_fp32.spv',
-    'dlssnr-amd/shaders/temporal/temporal_pre_fp32.spv',
     'person-model/onnxruntime.dll',
     'person-model/yolo11n-seg.onnx',
     'person-model/pphumanseg.onnx',
@@ -271,6 +178,8 @@ $projectLeafNames = @(
     'Uninstall.bat','Uninstall.ps1','Remove_OptiScaler.bat','Remove OptiScaler.bat','remove_optiscaler.sh','xess-compat.ps1'
 )
 $selfLeafNames = @('Uninstall_OptiScaler_NR.bat','Uninstall_OptiScaler_NR.ps1','Uninstall.bat','Uninstall.ps1','mochizuki-owned.txt','xess-compat.ps1')
+$pluginResourceDirs = @('dlssnr-amd', 'openrr-amd', 'opennr-rr')
+$installRecords = @('dlssnr-amd-install.txt', 'openrr-shaders-install.txt', 'amd-presr-install.txt')
 # spdlog rotates OptiScaler.log into OptiScaler.1.log; older sinks used .log.1.
 # Match numeric rotations only, not user notes such as OptiScaler.notes.log.
 $projectLogNamePattern = '^(OptiScaler|amd_bridge|amd_presr|mochizuki_nr|dlssnr_on_amd|dlssnr-amd|openrr-amd|openrr|opennr_rr|dlss-enabler|dlssg_to_fsr3|fakenvapi)(\.[0-9]+)?\.log(\.[0-9]+)?$'
@@ -300,7 +209,7 @@ $dependencyPaths = @(
     'D3D12_OptiScaler\d3d12SDKLayers.dll',
     'plugins\OptiPatcher.asi',
     'plugins\dlssnr-amd.asi',
-    'plugins\openrr.asi', 'plugins\openrr-amd.asi',
+    'plugins\openrr.asi', 'plugins\openrr-amd.asi', 'plugins\openrr-ngx-host.dll',
     'plugins\OptScaler-NR-plugins-README.txt'
 )
 $protectedNames = @(
@@ -366,91 +275,6 @@ function Test-TreeReparse([string]$path) {
         }
     }
     return $false
-}
-
-# Package ownership is the exact RDNA4 pin, not a filename pattern.
-# tools/install/mochizuki-owned.txt ships beside this script or under install/.
-function Get-MochizukiOwnedSet {
-    $pin = $null
-    foreach ($candidate in @(
-        (Join-Path $PSScriptRoot 'install/mochizuki-owned.txt'),
-        (Join-Path $PSScriptRoot 'mochizuki-owned.txt')
-    )) {
-        if (Test-Path -LiteralPath $candidate -PathType Leaf) { $pin = $candidate; break }
-    }
-    $set = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-    if (-not $pin) { return $set }
-    foreach ($line in [IO.File]::ReadAllLines($pin)) {
-        $rel = $line.Trim().Replace('\', '/')
-        if ($rel.Length -eq 0 -or $rel.StartsWith('#')) { continue }
-        if ($rel.IndexOfAny([char[]]@('*', '?')) -ge 0) { throw "Mochizuki ownership pin contains a wildcard: $rel" }
-        [void]$set.Add($rel)
-    }
-    return $set
-}
-
-# Plan or delete only pin-listed shader and ACO files. A reparse point on the
-# path is refused by Test-UninstallPath. Directories are removed later, and only when empty.
-function Update-MochizukiOwned([string]$root, [string]$mode) {
-    $owned = Get-MochizukiOwnedSet
-    if ($owned.Count -eq 0) { return }
-    $apply = {
-        param($path, $why)
-        if ($mode -eq 'plan') { Add-PlannedFile $path $why } else { Remove-SafeFile $path $why }
-    }
-    $assetRoot = Join-Path $root 'dlssnr-amd'
-    foreach ($tree in @('shaders', 'aco')) {
-        $treeRoot = Join-Path $assetRoot $tree
-        if (!(Test-UninstallPath $treeRoot) -or !(Test-Path -LiteralPath $treeRoot -PathType Container)) { continue }
-        foreach ($file in @(Get-ChildItem -LiteralPath $treeRoot -Recurse -File -ErrorAction SilentlyContinue)) {
-            if (!(Test-UninstallPath $file.FullName)) { continue }
-            $rel = $file.FullName.Substring($assetRoot.Length).TrimStart('\', '/').Replace('\', '/')
-            if ($owned.Contains($rel)) {
-                $why = if ($tree -eq 'shaders') { 'mochizuki-shader' } else { 'mochizuki-aco' }
-                & $apply $file.FullName $why
-            }
-        }
-    }
-    $acoCacheRoot = Join-Path $assetRoot 'aco-cache'
-    if ((Test-UninstallPath $acoCacheRoot) -and (Test-Path -LiteralPath $acoCacheRoot -PathType Container)) {
-        foreach ($dxbc in @(Get-ChildItem -LiteralPath $acoCacheRoot -Filter '*.dxbc' -File -ErrorAction SilentlyContinue)) {
-            if (Test-UninstallPath $dxbc.FullName) {
-                & $apply $dxbc.FullName 'mochizuki-legacy-dxbc-cache'
-            }
-        }
-    }
-}
-
-# Files installed for the vendor NR ASI are recorded in the game folder at install
-# time. Only those exact paths are removed; models stay.
-function Get-AsiOwnedFiles([string]$root) {
-    $manifest = Join-Path $root 'dlssnr-amd-install.txt'
-    if (!(Test-UninstallPath $manifest)) { return }
-    if (!(Test-Path -LiteralPath $manifest -PathType Leaf)) { return }
-    # Resolve the same plugin directory the installer used, including an explicit
-    # [Plugins] Path / [Libraries] OptiDllPath. Only this ASI file is claimable
-    # there; arbitrary manifest paths are still ignored.
-    $pluginRel = $null
-    try {
-        $iniPath = Join-Path $root 'OptiScaler.ini'
-        $pluginPath = Join-Path (Get-PluginsTargetDirectory $root $iniPath) 'dlssnr-amd.asi'
-        $prefix = [IO.Path]::GetFullPath($root).TrimEnd('\', '/') + '\'
-        $fullPluginPath = [IO.Path]::GetFullPath($pluginPath)
-        if ($fullPluginPath.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
-            $pluginRel = $fullPluginPath.Substring($prefix.Length)
-        }
-    } catch { $pluginRel = $null }
-    foreach ($line in Get-Content -LiteralPath $manifest -ErrorAction SilentlyContinue) {
-        $line = $line.TrimStart([char]0xFEFF).Trim()
-        if ($line -notmatch '^(?i)F (.+)$') { continue }
-        $rel = $Matches[1].Trim()
-        if ($rel -match '(^|[\\/])\.\.([\\/]|$)' -or [IO.Path]::IsPathRooted($rel)) { continue }
-        $normalized = $rel.Replace('\', '/')
-        $isPlugin = $pluginRel -and ($rel -ieq $pluginRel)
-        if ($normalized -notmatch '^(?i)dlssnr-amd/' -and -not $isPlugin) { continue }
-        $full = Join-Path $root $rel
-        if (Test-UninstallPath $full) { $full }
-    }
 }
 
 function Add-PlannedFile([string]$path, [string]$why) {
@@ -534,7 +358,7 @@ if ((Test-UninstallPath $installMark) -and (Test-Path -LiteralPath $installMark 
                 $extSha = $Matches[1].ToLowerInvariant()
                 $extPath = [IO.Path]::GetFullPath($Matches[2].Trim())
                 $baseRootForExt = [IO.Path]::GetFullPath($game).TrimEnd('\')
-                if ([IO.Path]::GetFileName($extPath) -in @('OptiPatcher.asi', 'dlssnr-amd.asi', 'openrr-amd.asi', 'openrr.asi') -and
+                if ([IO.Path]::GetFileName($extPath) -in @('OptiPatcher.asi', 'dlssnr-amd.asi', 'openrr-amd.asi', 'openrr.asi', 'openrr-ngx-host.dll') -and
                     $extPath -ine $baseRootForExt -and
                     -not $extPath.StartsWith($baseRootForExt + '\', [StringComparison]::OrdinalIgnoreCase)) {
                     $recordedExternalPlugins[$extPath] = $extSha
@@ -575,8 +399,6 @@ foreach ($path in $legacyLogPaths) { Add-PlannedFile $path 'legacy-backend-log' 
 
 foreach ($root in $roots) {
     if (!(Test-UninstallPath $root)) { continue }
-    # Read the ASI inventory before the manifest itself is deleted below.
-    $asiOwnedForRoot = @(Get-AsiOwnedFiles $root)
     foreach ($name in $proxyNames) {
         $p = Join-Path $root $name
         if (!(Test-UninstallPath $p)) { continue }
@@ -587,19 +409,15 @@ foreach ($root in $roots) {
             $kept.Add("left in place (not OptiScaler): $p")
         }
     }
-    foreach ($name in $projectLeafNames) {
+    foreach ($name in $projectLeafNames + $installRecords + $selfLeafNames) {
         Add-PlannedFile (Join-Path $root $name) 'project-file'
     }
-    foreach ($rrDir in @('openrr-amd/shaders', 'openrr-amd/cache', 'opennr-rr/shaders')) {
-        $rrFull = Join-Path $root $rrDir
-        if ((Test-UninstallPath $rrFull) -and (Test-Path -LiteralPath $rrFull -PathType Container)) {
-            Get-ChildItem -LiteralPath $rrFull -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in @('.spv', '.elf', '.bin') } | ForEach-Object {
-                Add-PlannedFile $_.FullName 'openrr-asset'
-            }
+    foreach ($name in $pluginResourceDirs) {
+        $path = Join-Path $root $name
+        if ((Test-Path -LiteralPath $path -PathType Container) -and (Test-UninstallPath $path)) {
+            $planned.Add("$path  (plugin resources, including models and caches)")
         }
     }
-    Update-MochizukiOwned $root 'plan'
-    foreach ($path in @(Get-AsiOwnedFiles $root)) { Add-PlannedFile $path 'asi-file' }
     Get-ChildItem -LiteralPath $root -File -Force -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -match $projectLogNamePattern } |
         ForEach-Object { Add-PlannedFile $_.FullName 'project-log' }
@@ -627,8 +445,14 @@ foreach ($root in $roots) {
         if ($recordedPluginDir -and ($pluginDirsToCheck -notcontains $recordedPluginDir)) {
             $pluginDirsToCheck.Add($recordedPluginDir)
         }
+        $fallbackRootPlugins = Join-Path $root 'plugins'
+        if ($pluginDirsToCheck -notcontains $fallbackRootPlugins) {
+            $pluginDirsToCheck.Add($fallbackRootPlugins)
+        }
+        $defaultOptiPlugins = [IO.Path]::GetFullPath((Join-Path $root 'OptiScaler\plugins'))
         foreach ($pDir in $pluginDirsToCheck) {
-            foreach ($pluginOwned in @('OptiPatcher.asi', 'dlssnr-amd.asi', 'openrr-amd.asi', 'openrr.asi')) {
+            if ([IO.Path]::GetFullPath($pDir) -ieq $defaultOptiPlugins) { continue }
+            foreach ($pluginOwned in @('OptiPatcher.asi', 'dlssnr-amd.asi', 'openrr-amd.asi', 'openrr.asi', 'openrr-ngx-host.dll')) {
                 $cand = Join-Path $pDir $pluginOwned
                 if ($candidatePlugins -notcontains $cand) { $candidatePlugins.Add($cand) }
             }
@@ -639,7 +463,7 @@ foreach ($root in $roots) {
         foreach ($customPluginFile in $candidatePlugins) {
             if (-not (Test-Path -LiteralPath $customPluginFile -PathType Leaf)) { continue }
             $fullPlugin = [IO.Path]::GetFullPath($customPluginFile)
-            if ([IO.Path]::GetFileName($fullPlugin) -notin @('OptiPatcher.asi', 'dlssnr-amd.asi', 'openrr-amd.asi', 'openrr.asi')) { continue }
+            if ([IO.Path]::GetFileName($fullPlugin) -notin @('OptiPatcher.asi', 'dlssnr-amd.asi', 'openrr-amd.asi', 'openrr.asi', 'openrr-ngx-host.dll')) { continue }
             $baseRoot = [IO.Path]::GetFullPath($game).TrimEnd('\')
             if ($fullPlugin -ieq $baseRoot -or $fullPlugin.StartsWith($baseRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
                 if (Test-UninstallPath $customPluginFile) {
@@ -649,7 +473,7 @@ foreach ($root in $roots) {
             } else {
                 try {
                     $safeExtPlugin = Assert-LmxxfUnlinkedPath $customPluginFile
-                    if ([IO.Path]::GetFileName($safeExtPlugin) -in @('OptiPatcher.asi', 'dlssnr-amd.asi', 'openrr-amd.asi', 'openrr.asi')) {
+                    if ([IO.Path]::GetFileName($safeExtPlugin) -in @('OptiPatcher.asi', 'dlssnr-amd.asi', 'openrr-amd.asi', 'openrr.asi', 'openrr-ngx-host.dll')) {
                         $expectedExtSha = $null
                         foreach ($k in $recordedExternalPlugins.Keys) {
                             if ($k -ieq $safeExtPlugin) { $expectedExtSha = $recordedExternalPlugins[$k]; break }
@@ -737,10 +561,7 @@ Write-Host ''
 Write-Host 'Uninstall this project from:' -ForegroundColor Yellow
 Write-Host "  $game"
 Write-Host ''
-Write-Host 'This uninstall script is still being tested.' -ForegroundColor Yellow
-Write-Host 'It cannot guarantee it will never remove a game file or another mod.' -ForegroundColor Yellow
-Write-Host 'It only deletes files that look like THIS project (OptiScaler / pass / project logs).' -ForegroundColor Yellow
-Write-Host 'It will NOT delete: nvngx_dlssnr.dll, weights.bin, native-game-tiled-assets, danielblnc setup.' -ForegroundColor Yellow
+Write-Host 'The dlssnr-amd, openrr-amd and opennr-rr folders will be removed with their models and caches.' -ForegroundColor Yellow
 Write-Host ''
 
 if ($backupDirs.Count -gt 0) {
@@ -761,7 +582,7 @@ if ($backupDirs.Count -gt 0) {
 if ($planned.Count -gt 0) {
     Write-Host 'Planned deletions (files/folders):' -ForegroundColor Yellow
     foreach ($d in $planned) { Write-Host "  - $d" }
-    Write-Host 'Known dependency and shader folders will be removed only if empty. Mochizuki caches will be rebuilt on next use.'
+    Write-Host 'Other dependency folders are removed when empty.'
 } else {
     Write-Host 'Nothing matching this project is planned for deletion.' -ForegroundColor Yellow
 }
@@ -777,6 +598,8 @@ if (-not $NonInteractive) {
         Pause-Exit 0
     }
 }
+
+Write-Host 'Removing installed files...' -ForegroundColor Cyan
 
 function Remove-SafeFile([string]$path, [string]$why) {
     if (!(Test-UninstallPath $path)) { return }
@@ -812,8 +635,6 @@ function Remove-EmptyDirectory([string]$path) {
 
 foreach ($root in $roots) {
     if (!(Test-UninstallPath $root)) { continue }
-    # Read the ASI inventory before the manifest itself is deleted below.
-    $asiOwnedForRoot = @(Get-AsiOwnedFiles $root)
     foreach ($name in $proxyNames) {
         $p = Join-Path $root $name
         if (!(Test-UninstallPath $p)) { continue }
@@ -824,16 +645,36 @@ foreach ($root in $roots) {
         if ($selfLeafNames -contains $name) { continue }
         Remove-SafeFile (Join-Path $root $name) 'project-file'
     }
-    foreach ($rrDir in @('openrr-amd/shaders', 'openrr-amd/cache', 'opennr-rr/shaders')) {
-        $rrFull = Join-Path $root $rrDir
-        if ((Test-UninstallPath $rrFull) -and (Test-Path -LiteralPath $rrFull -PathType Container)) {
-            Get-ChildItem -LiteralPath $rrFull -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in @('.spv', '.elf', '.bin') } | ForEach-Object {
-                Remove-SafeFile $_.FullName 'openrr-asset'
+    foreach ($name in $pluginResourceDirs) {
+        $path = [IO.Path]::GetFullPath((Join-Path $root $name))
+        if (-not (Get-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue)) { continue }
+        try {
+            if (-not (Test-UninstallPath $path)) { throw 'Unsafe plugin resource path.' }
+            # Check the whole tree before deleting it. Never follow a junction
+            # or symlink into a directory outside the game.
+            $longPath = if ($path.StartsWith('\\')) { '\\?\UNC\' + $path.Substring(2) } else { '\\?\' + $path }
+            $readOnlyFiles = [Collections.Generic.List[IO.FileInfo]]::new()
+            $dirs = [Collections.Generic.Stack[IO.DirectoryInfo]]::new()
+            $dirs.Push([IO.DirectoryInfo]::new($longPath))
+            while ($dirs.Count) {
+                foreach ($entry in $dirs.Pop().EnumerateFileSystemInfos()) {
+                    if ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                        throw "Linked path inside plugin resources: $($entry.FullName)"
+                    }
+                    if ($entry -is [IO.DirectoryInfo]) {
+                        $dirs.Push($entry)
+                    } elseif ($entry.IsReadOnly) {
+                        $readOnlyFiles.Add($entry)
+                    }
+                }
             }
+            foreach ($file in $readOnlyFiles) { $file.IsReadOnly = $false }
+            [IO.Directory]::Delete($longPath, $true)
+            $deleted.Add("$path  (plugin resources)")
+        } catch {
+            $errors.Add("$path : $($_.Exception.Message)")
         }
     }
-    Update-MochizukiOwned $root 'delete'
-    foreach ($path in $asiOwnedForRoot) { Remove-SafeFile $path 'asi-file' }
     Get-ChildItem -LiteralPath $root -File -Force -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -match $projectLogNamePattern } |
         ForEach-Object { Remove-SafeFile $_.FullName 'project-log' }
@@ -950,23 +791,7 @@ foreach ($root in $roots) {
         }
     }
     Remove-EmptyDirectory (Join-Path $root 'lmxxf-modules')
-    # Owned shader and ACO files were removed above. Drop only directories that are now empty.
-    # dlssnr.bin and dlssnr-amd/aco-cache are not in the owned set.
-    foreach ($tree in @('dlssnr-amd/shaders', 'dlssnr-amd/aco')) {
-        $treePath = Join-Path $root $tree
-        if ((Test-UninstallPath $treePath) -and (Test-Path -LiteralPath $treePath -PathType Container)) {
-            Get-ChildItem -LiteralPath $treePath -Directory -Recurse -ErrorAction SilentlyContinue |
-                Sort-Object { $_.FullName.Length } -Descending |
-                ForEach-Object { Remove-EmptyDirectory $_.FullName }
-            Remove-EmptyDirectory $treePath
-        }
-    }
-    foreach ($relative in @('dlssnr-amd/shaders/runtime', 'dlssnr-amd/shaders/temporal',
-            'dlssnr-amd/aco/shaders/runtime', 'dlssnr-amd/aco/shaders/temporal',
-            'dlssnr-amd/aco/shaders', 'dlssnr-amd/aco/records', 'dlssnr-amd/aco',
-            'dlssnr-amd/shaders', 'dlssnr-amd/prewarm', 'dlssnr-amd/int4-ultra/pipeline-binaries', 'dlssnr-amd', 'openrr-amd/shaders', 'openrr-amd/cache', 'openrr-amd', 'opennr-rr/shaders', 'opennr-rr', 'person-model')) {
-        Remove-EmptyDirectory (Join-Path $root $relative)
-    }
+    Remove-EmptyDirectory (Join-Path $root 'person-model')
 
     $flagsFile = Join-Path $root 'DLSS5-AMD\native-game-flags.txt'
     if ((Test-UninstallPath $flagsFile) -and (Test-Path -LiteralPath $flagsFile -PathType Leaf)) {
@@ -1242,7 +1067,7 @@ namespace OptScalerNR {
 }
 foreach ($path in ($customPluginFiles | Select-Object -Unique)) {
     $fullPlugin = [IO.Path]::GetFullPath($path)
-    if ([IO.Path]::GetFileName($fullPlugin) -notin @('OptiPatcher.asi', 'dlssnr-amd.asi', 'openrr-amd.asi', 'openrr.asi')) { continue }
+    if ([IO.Path]::GetFileName($fullPlugin) -notin @('OptiPatcher.asi', 'dlssnr-amd.asi', 'openrr-amd.asi', 'openrr.asi', 'openrr-ngx-host.dll')) { continue }
     $baseRoot = [IO.Path]::GetFullPath($game).TrimEnd('\')
     if ($fullPlugin -ieq $baseRoot -or $fullPlugin.StartsWith($baseRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
         Remove-SafeFile $path 'project-dependency'
@@ -1250,7 +1075,7 @@ foreach ($path in ($customPluginFiles | Select-Object -Unique)) {
         try {
             $safeExtPlugin = Assert-LmxxfUnlinkedPath $path
             if ((Test-Path -LiteralPath $safeExtPlugin -PathType Leaf) -and
-                ([IO.Path]::GetFileName($safeExtPlugin) -in @('OptiPatcher.asi', 'dlssnr-amd.asi', 'openrr-amd.asi', 'openrr.asi'))) {
+                ([IO.Path]::GetFileName($safeExtPlugin) -in @('OptiPatcher.asi', 'dlssnr-amd.asi', 'openrr-amd.asi', 'openrr.asi', 'openrr-ngx-host.dll'))) {
                 $expectedExtSha = $null
                 foreach ($k in $recordedExternalPlugins.Keys) {
                     if ($k -ieq $safeExtPlugin) { $expectedExtSha = $recordedExternalPlugins[$k]; break }
@@ -1269,12 +1094,7 @@ foreach ($path in ($customPluginFiles | Select-Object -Unique)) {
     }
 }
 foreach ($path in $legacyLogPaths) { Remove-SafeFile $path 'legacy-backend-log' }
-foreach ($root in $roots) {
-    if (!(Test-UninstallPath $root)) { continue }
-    foreach ($name in $selfLeafNames) {
-        Remove-SafeFile (Join-Path $root $name) 'project-file'
-    }
-}
+
 
 if (-not $keepBackups) {
     foreach ($b in $backupDirs) {
@@ -1338,5 +1158,18 @@ if ($errors.Count -gt 0) {
 }
 
 Write-Host ''
+# Keep the receipts and the game-local uninstaller when cleanup needs a retry.
+foreach ($root in $roots) {
+    if (!(Test-UninstallPath $root)) { continue }
+    foreach ($name in $installRecords + $selfLeafNames) {
+        Remove-SafeFile (Join-Path $root $name) 'project-file'
+        if ($errors.Count -gt 0) { break }
+    }
+    if ($errors.Count -gt 0) { break }
+}
+if ($errors.Count -gt 0) {
+    foreach ($e in $errors) { Write-Host "  - $e" -ForegroundColor Red }
+    Pause-Exit 1
+}
 Write-Host 'Uninstall SUCCEEDED.' -ForegroundColor Green
 Pause-Exit 0

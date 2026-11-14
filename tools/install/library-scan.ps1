@@ -392,8 +392,9 @@ function Get-OptScalerGameLibrary {
                         $art = Get-OptScalerLocalArtwork -Source Steam -Roots @($grid) -Budget $artworkBudget
                         $cover = $art.cover
                         $hero = $art.hero
+                        $before = $games.Count
                         Add-OptScalerGame $games $seen $n $cands[0].path 'Steam' ("steam:" + $appid) $cover $hero
-                        if (@($cands | Where-Object { $_.rank -eq $cands[0].rank }).Count -gt 1) {
+                        if ($games.Count -gt $before -and @($cands | Where-Object { $_.rank -eq $cands[0].rank }).Count -gt 1) {
                             $games[$games.Count - 1].selectionRequired = $true
                         }
                     }
