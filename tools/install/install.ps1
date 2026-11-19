@@ -2407,7 +2407,6 @@ function Install-OptiPatcherPlugin {
         $cachedPlugin = $null
         foreach ($cand in @(
             (Join-Path $release 'OptiScaler\plugins\OptiPatcher.asi'),
-            (Join-Path $release 'payloads\optipatcher\OptiScaler\plugins\OptiPatcher.asi'),
             (Join-Path $release 'plugins\OptiPatcher.asi')
         )) {
             if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Test-ValidPePlugin $cand)) {

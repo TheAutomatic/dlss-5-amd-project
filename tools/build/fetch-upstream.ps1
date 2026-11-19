@@ -14,6 +14,7 @@ param(
     [string]$MochiDir = $env:NR_MOCHI_DIR,
     [string]$OpenRrArchive = $env:NR_OPENRR_ARCHIVE,
     [string]$OpenRrDir = $env:NR_OPENRR_DIR,
+    [string]$OptiPatcherFile = $env:NR_OPTIPATCHER_FILE,
     [switch]$RefreshOptiPatcher
 )
 $ErrorActionPreference = 'Stop'
@@ -552,7 +553,14 @@ function Try-DownloadOptiPatcher {
     }
 }
 
-if ($RefreshOptiPatcher -and $pins.optipatcher.allowRollingRefresh) {
+if ($OptiPatcherFile) {
+    if (-not (Test-Path -LiteralPath $OptiPatcherFile -PathType Leaf)) {
+        throw "Provided -OptiPatcherFile not found: $OptiPatcherFile"
+    }
+    Assert-Pe64Amd64 -Path $OptiPatcherFile -MinBytes 4096 -MaxBytes 20971520
+    $optiPatcherResolved = $OptiPatcherFile
+    Write-Host "Using provided OptiPatcher.asi: $OptiPatcherFile" -ForegroundColor Green
+} elseif ($RefreshOptiPatcher -and $pins.optipatcher.allowRollingRefresh) {
     $optiPatcherResolved = Try-DownloadOptiPatcher
     if ($optiPatcherResolved) {
         Write-Host "Refreshed OptiPatcher.asi from rolling release -> $optiPatcherCache" -ForegroundColor Green
@@ -561,8 +569,7 @@ if ($RefreshOptiPatcher -and $pins.optipatcher.allowRollingRefresh) {
 if (-not $optiPatcherResolved) {
     foreach ($cand in @(
         $(if ($UpstreamDir) { Join-Path $UpstreamDir $pins.optipatcher.fileName } else { '' }),
-        $optiPatcherCache,
-        (Join-RelPath $repoRoot 'payloads/optipatcher/OptiScaler/plugins/OptiPatcher.asi')
+        $optiPatcherCache
     )) {
         if ($cand -and (Test-Pe64Amd64 -Path $cand -MinBytes 4096 -MaxBytes 20971520)) {
             $optiPatcherResolved = $cand
@@ -575,7 +582,7 @@ if (-not $optiPatcherResolved) {
     $optiPatcherResolved = Try-DownloadOptiPatcher
 }
 if (-not $optiPatcherResolved) {
-    throw "Failed to resolve valid AMD64 OptiPatcher.asi from local cache, repo fallback, or $($pins.optipatcher.url)."
+    throw "Failed to resolve valid AMD64 OptiPatcher.asi from -OptiPatcherFile, dist/upstream, cache/downloads, or $($pins.optipatcher.url)."
 }
 Copy-Item -LiteralPath $optiPatcherResolved -Destination $optiPatcherOut -Force
 

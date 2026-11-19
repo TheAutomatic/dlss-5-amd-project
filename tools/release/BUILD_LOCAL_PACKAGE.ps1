@@ -9,6 +9,7 @@ param(
     [string]$MochiDir = '',
     [string]$OpenRrArchive = '',
     [string]$OpenRrDir = '',
+    [string]$OptiPatcherFile = '',
     [string]$UpstreamDir = '',
     [switch]$RefreshOptiPatcher
 )
@@ -32,5 +33,6 @@ $name = "OptiScaler-NR-$Version-local-$stamp"
     -MochiDir $MochiDir `
     -OpenRrArchive $OpenRrArchive `
     -OpenRrDir $OpenRrDir `
+    -OptiPatcherFile $OptiPatcherFile `
     -UpstreamDir $UpstreamDir `
     -RefreshOptiPatcher:$RefreshOptiPatcher

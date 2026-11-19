@@ -20,6 +20,7 @@ param(
     [string]$MochiDir = '',
     [string]$OpenRrArchive = '',
     [string]$OpenRrDir = '',
+    [string]$OptiPatcherFile = '',
     [string]$UpstreamDir = '',
     [switch]$RefreshOptiPatcher,
     [string]$SigningThumbprint = '',
@@ -63,6 +64,7 @@ $upstreamInfo = & $fetchUpstreamScript `
     -MochiDir $MochiDir `
     -OpenRrArchive $OpenRrArchive `
     -OpenRrDir $OpenRrDir `
+    -OptiPatcherFile $OptiPatcherFile `
     -RefreshOptiPatcher:$RefreshOptiPatcher
 
 # 2. Verify ASI payloads exist

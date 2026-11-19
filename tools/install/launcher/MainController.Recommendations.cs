@@ -42,7 +42,7 @@ namespace OptScalerNR.Launcher
             if(!string.IsNullOrEmpty(_packageRoot)){
                 foreach(var rel in new[]{
                     Path.Combine("OptiScaler","plugins","OptiPatcher.asi"),
-                    Path.Combine("payloads","optipatcher","OptiScaler","plugins","OptiPatcher.asi")
+                    Path.Combine("cache","upstream","optipatcher","OptiScaler","plugins","OptiPatcher.asi")
                 }){
                     var cand=Path.Combine(_packageRoot,rel);
                     if(File.Exists(cand)){path=cand;break;}
