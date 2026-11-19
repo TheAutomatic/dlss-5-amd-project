@@ -1,0 +1,23 @@
+OptiScaler(NR) source and third-party notices
+
+The product host and product runtime adapters are distributed under GPL-3.0;
+see LICENSE. Individual third-party components retain their own licenses.
+
+OptiScaler source chain:
+https://github.com/optiscaler/OptiScaler
+https://github.com/Dagherbou/OptiScaler_DLSSNR
+https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass
+https://github.com/MatheusGViana/dlss-5-amd-project
+https://github.com/TheAutomatic/dlss-5-amd-project
+The Mochizuki adapter also derives from MatheusFerreiraS/neural-amd-opti
+(GPL-3.0); see third_party/mochizuki-asi/UPSTREAM.md for its source revision.
+
+Mochizuki core: MIT; see third_party/mochizuki-asi/LICENSE and UPSTREAM.md.
+OpenRR (DLSS Ray Reconstruction runtime by Matheus Ferreira / OpenNeuralRendering):
+https://github.com/OpenNeuralRendering/OpenRR (MIT; see third_party/openrr/LICENSE and Licenses/OpenRR_MIT.txt).
+RenoDX colour-compositing contributions: MIT; notices remain in the source.
+Other bundled dependencies retain the notices under the product Licenses directory.
+
+Release archives carry these notices in Licenses/. NVIDIA DLLs, extracted
+NVIDIA neural rendering weights, and Daniel's proprietary runtime are excluded.
+Users prepare separately required models under their applicable licenses.

@@ -1,0 +1,247 @@
+﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:OptScalerNR.Launcher;assembly=OptiScalerNRLauncher">
+  <!-- FocusVisualStyle is shown by keyboard navigation, never by a mouse click. -->
+  <Style x:Key="KeyboardFocus" TargetType="Control">
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Control">
+      <Border Margin="-3" CornerRadius="14" BorderThickness="1.5" BorderBrush="{DynamicResource ThemeMuted}" SnapsToDevicePixels="True"/>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <ControlTemplate x:Key="MaterialButtonTemplate" TargetType="Button">
+    <Grid x:Name="Body">
+      <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="12"/>
+      <Border x:Name="Light" CornerRadius="12" IsHitTestVisible="False"><Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#0CFFFFFF" Offset="0"/><GradientStop Color="#00000000" Offset="0.5"/><GradientStop Color="#04000000" Offset="1"/></LinearGradientBrush></Border.Background></Border>
+      <ContentPresenter x:Name="Label" Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center" RecognizesAccessKey="True" TextElement.FontFamily="{TemplateBinding FontFamily}" TextElement.FontSize="{TemplateBinding FontSize}"/>
+      <Border x:Name="KeyboardRing" Margin="-3" CornerRadius="15" BorderThickness="1.5" BorderBrush="{DynamicResource ThemeMuted}" Visibility="Collapsed" IsHitTestVisible="False"/>
+    </Grid>
+    <ControlTemplate.Triggers>
+      <Trigger Property="local:DialogTheme.KeyboardFocusVisible" Value="True"><Setter TargetName="KeyboardRing" Property="Visibility" Value="Visible"/></Trigger>
+      <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Light" Property="Opacity" Value="0.45"/></Trigger>
+      <Trigger Property="IsPressed" Value="True"><Setter TargetName="Light" Property="Opacity" Value="0"/><Setter TargetName="Label" Property="RenderTransform"><Setter.Value><TranslateTransform Y="1"/></Setter.Value></Setter></Trigger>
+      <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Body" Property="Opacity" Value="0.45"/></Trigger>
+    </ControlTemplate.Triggers>
+  </ControlTemplate>
+  <Style TargetType="Button">
+    <Setter Property="Background" Value="{DynamicResource ThemeSubtle}"/><Setter Property="Foreground" Value="{DynamicResource ThemeInk}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorder}"/><Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="Padding" Value="16,9"/><Setter Property="MinHeight" Value="36"/><Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="HorizontalContentAlignment" Value="Center"/><Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocus}"/>
+    <Setter Property="Template" Value="{StaticResource MaterialButtonTemplate}"/>
+  </Style>
+  <Style x:Key="DialogPrimary" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+    <!-- A same-colour WPF border leaves an antialiased seam inside the red fill. -->
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="Background" Value="{DynamicResource ThemeAccent}"/><Setter Property="BorderBrush" Value="{DynamicResource ThemeAccent}"/>
+    <Setter Property="Foreground" Value="{DynamicResource ThemeOnAccent}"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+  </Style>
+  <!-- Shared button styles live here (not in MainWindow.xaml) so the Template references are
+       StaticResource within THIS dictionary: a DynamicResource template reference inside a style
+       loaded by XamlReader did not resolve against a dictionary merged after parsing, and the
+       buttons silently fell back to the default Windows chrome (white bevel ring). -->
+  <!-- Rounded multi-select cards for official network choices. -->
+  <Style x:Key="ModelCard" TargetType="CheckBox">
+    <Setter Property="Foreground" Value="{DynamicResource ThemeInk}"/>
+    <Setter Property="Background" Value="{DynamicResource ThemeSubtle}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorder}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="Padding" Value="14,12"/>
+    <Setter Property="Margin" Value="0,5"/>
+    <Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="CheckBox">
+      <Border x:Name="Body" CornerRadius="10" Background="{TemplateBinding Background}"
+              BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+              Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+        <DockPanel LastChildFill="True">
+          <Border x:Name="Box" DockPanel.Dock="Left" Width="16" Height="16" CornerRadius="3"
+                  Background="Transparent" BorderBrush="{DynamicResource ThemeMuted}" BorderThickness="1"
+                  Margin="0,0,12,0" VerticalAlignment="Center">
+            <TextBlock x:Name="Tick" Text="✓" FontSize="12" FontWeight="Bold"
+                       Foreground="#FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"
+                       Visibility="Hidden"/>
+          </Border>
+          <TextBlock x:Name="Lock" DockPanel.Dock="Right" Text="&#xE72E;" FontFamily="Segoe MDL2 Assets"
+                     FontSize="12" Foreground="{DynamicResource ThemeMuted}" Visibility="Collapsed"
+                     Margin="8,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"/>
+          <ContentPresenter VerticalAlignment="Center" RecognizesAccessKey="True"/>
+        </DockPanel>
+      </Border>
+      <ControlTemplate.Triggers>
+        <Trigger Property="IsChecked" Value="True">
+          <Setter TargetName="Body" Property="Background" Value="{DynamicResource ThemeHover}"/>
+          <Setter TargetName="Box" Property="Background" Value="{DynamicResource ThemeAccent}"/>
+          <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource ThemeAccent}"/>
+          <Setter TargetName="Tick" Property="Visibility" Value="Visible"/>
+        </Trigger>
+        <Trigger Property="IsMouseOver" Value="True">
+          <Setter TargetName="Body" Property="Background" Value="{DynamicResource ThemeHover}"/>
+        </Trigger>
+        <Trigger Property="local:DialogTheme.KeyboardFocusVisible" Value="True">
+          <Setter TargetName="Body" Property="BorderBrush" Value="{DynamicResource ThemeMuted}"/>
+        </Trigger>
+        <Trigger Property="IsEnabled" Value="False">
+          <!-- Dependency lock: only the checkbox is grey; card text stays readable. -->
+          <Setter TargetName="Box" Property="Background" Value="{DynamicResource ThemeSubtle}"/>
+          <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource ThemeMuted}"/>
+          <Setter TargetName="Tick" Property="Foreground" Value="{DynamicResource ThemeMuted}"/>
+        </Trigger>
+        <Trigger Property="Tag" Value="dependencyLocked">
+          <!-- Required by a checked child: keep the normal red checked card, mark the
+               right side with a lock, and let code block unchecking. -->
+          <Setter TargetName="Lock" Property="Visibility" Value="Visible"/>
+          <Setter Property="Cursor" Value="Arrow"/>
+        </Trigger>
+        <Trigger Property="Tag" Value="unavailable">
+          <!-- The model/resource itself is unavailable, not merely dependency-locked. -->
+          <Setter TargetName="Body" Property="Opacity" Value="0.5"/>
+        </Trigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
+    <!-- AMD Crimson Primary Button -->
+    <Style x:Key="PrimaryButton" TargetType="Button">
+      <Setter Property="Background" Value="{DynamicResource ThemeAccent}"/>
+      <Setter Property="Foreground" Value="{DynamicResource ThemeOnAccent}"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Height" Value="40"/>
+      <Setter Property="FontSize" Value="13.5"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Padding" Value="18,0"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+      <Setter Property="Template" Value="{StaticResource MaterialButtonTemplate}"/>
+    </Style>
+
+    <!-- Modern Dark Ghost Button -->
+    <Style x:Key="GhostButton" TargetType="Button">
+      <Setter Property="Background" Value="{DynamicResource ThemeSubtle}"/>
+      <Setter Property="Foreground" Value="{DynamicResource ThemeInk}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorder}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Height" Value="32"/>
+      <Setter Property="Padding" Value="12,0"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+      <Setter Property="Template" Value="{StaticResource MaterialButtonTemplate}"/>
+    </Style>
+
+    <Style x:Key="HeroButton" TargetType="Button" BasedOn="{StaticResource GhostButton}">
+      <Setter Property="Background" Value="#AC202938"/>
+      <Setter Property="BorderBrush" Value="#405D697E"/>
+      <Setter Property="Foreground" Value="#F1F4F9"/>
+    </Style>
+
+  <Style TargetType="RadioButton">
+    <Setter Property="Foreground" Value="{DynamicResource ThemeInk}"/><Setter Property="Background" Value="{DynamicResource ThemeSubtle}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorder}"/><Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="Padding" Value="12"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    <Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocus}"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RadioButton">
+      <Border x:Name="Body" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+        <DockPanel><Border x:Name="Dot" DockPanel.Dock="Left" Width="12" Height="12" CornerRadius="6" BorderBrush="{DynamicResource ThemeMuted}" BorderThickness="1" Margin="0,0,12,0" VerticalAlignment="Center"/><ContentPresenter VerticalAlignment="Center" RecognizesAccessKey="True"/></DockPanel>
+      </Border>
+      <ControlTemplate.Triggers>
+        <Trigger Property="local:DialogTheme.KeyboardFocusVisible" Value="True"><Setter TargetName="Body" Property="BorderBrush" Value="{DynamicResource ThemeMuted}"/></Trigger>
+        <Trigger Property="IsChecked" Value="True"><Setter TargetName="Dot" Property="Background" Value="{DynamicResource ThemeAccent}"/><Setter TargetName="Body" Property="Background" Value="{DynamicResource ThemeHover}"/></Trigger>
+        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Body" Property="Background" Value="{DynamicResource ThemeHover}"/></Trigger>
+        <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Body" Property="Opacity" Value="0.5"/></Trigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style TargetType="CheckBox">
+    <Setter Property="Foreground" Value="{DynamicResource ThemeInk}"/><Setter Property="Padding" Value="4"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="CheckBox">
+      <DockPanel x:Name="Body" LastChildFill="True" Margin="0,5" Background="Transparent"><Border DockPanel.Dock="Left" Width="17" Height="17" Background="Transparent" BorderBrush="{DynamicResource ThemeMuted}" BorderThickness="1" CornerRadius="3" Margin="0,0,10,0" VerticalAlignment="Center"><TextBlock x:Name="Tick" Text="✓" Foreground="{DynamicResource ThemeInk}" Visibility="Hidden" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><ContentPresenter VerticalAlignment="Center" RecognizesAccessKey="True"/></DockPanel>
+      <ControlTemplate.Triggers><Trigger Property="IsChecked" Value="True"><Setter TargetName="Tick" Property="Visibility" Value="Visible"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter TargetName="Body" Property="Opacity" Value="0.5"/></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter Property="Foreground" Value="{DynamicResource ThemeAccent}"/></Trigger></ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style TargetType="TextBox">
+    <Setter Property="Background" Value="{DynamicResource ThemeBackground}"/><Setter Property="Foreground" Value="{DynamicResource ThemeInk}"/>
+    <Setter Property="CaretBrush" Value="{DynamicResource ThemeInk}"/><Setter Property="BorderBrush" Value="{DynamicResource ThemeBorder}"/>
+    <Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="10,8"/>
+  </Style>
+  <Style TargetType="ListBox">
+    <Setter Property="Background" Value="{DynamicResource ThemeBackground}"/><Setter Property="Foreground" Value="{DynamicResource ThemeInk}"/><Setter Property="BorderBrush" Value="{DynamicResource ThemeBorder}"/>
+    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+  </Style>
+  <Style TargetType="ListBoxItem">
+    <Setter Property="Foreground" Value="{DynamicResource ThemeInk}"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    <Setter Property="Padding" Value="10"/><Setter Property="Margin" Value="0,1"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem">
+      <Border x:Name="Body" Background="Transparent" CornerRadius="5" Padding="{TemplateBinding Padding}"><ContentPresenter/></Border>
+      <ControlTemplate.Triggers><Trigger Property="IsSelected" Value="True"><Setter TargetName="Body" Property="Background" Value="{DynamicResource ThemeHover}"/></Trigger><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Body" Property="Background" Value="{DynamicResource ThemeHover}"/></Trigger></ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
+
+  <!-- Dialog dropdowns use the same dark rounded theme as the main window. -->
+  <ControlTemplate x:Key="DialogComboToggle" TargetType="ToggleButton">
+    <Border x:Name="Bd" CornerRadius="8" Background="{TemplateBinding Background}"
+            BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+            SnapsToDevicePixels="True">
+      <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="28"/></Grid.ColumnDefinitions>
+        <Path x:Name="Arrow" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center"
+              Fill="{DynamicResource ThemeMuted}" Data="M 0 0 L 4 4 L 8 0 Z"/>
+      </Grid>
+    </Border>
+    <ControlTemplate.Triggers>
+      <Trigger Property="IsMouseOver" Value="True">
+        <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource ThemeMuted}"/>
+        <Setter TargetName="Arrow" Property="Fill" Value="{DynamicResource ThemeInk}"/>
+      </Trigger>
+      <Trigger Property="IsChecked" Value="True">
+        <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource ThemeAccent}"/>
+      </Trigger>
+    </ControlTemplate.Triggers>
+  </ControlTemplate>
+  <Style TargetType="ComboBox">
+    <Setter Property="Background" Value="{DynamicResource ThemeSubtle}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorder}"/>
+    <Setter Property="Foreground" Value="{DynamicResource ThemeInk}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="Height" Value="34"/>
+    <Setter Property="Padding" Value="10,0"/>
+    <Setter Property="SnapsToDevicePixels" Value="True"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBox">
+      <Grid>
+        <ToggleButton Name="ToggleButton" Template="{StaticResource DialogComboToggle}" Focusable="False"
+                      IsChecked="{Binding Path=IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                      ClickMode="Press" Background="{TemplateBinding Background}"
+                      BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"/>
+        <ContentPresenter Name="ContentSite" IsHitTestVisible="False" Content="{TemplateBinding SelectionBoxItem}"
+                          ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                          ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                          Margin="{TemplateBinding Padding}" VerticalAlignment="Center" HorizontalAlignment="Left"/>
+        <Popup Name="Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True"
+               Focusable="False" PopupAnimation="Slide">
+          <Grid Name="DropDown" SnapsToDevicePixels="True" MinWidth="{TemplateBinding ActualWidth}" MaxHeight="{TemplateBinding MaxDropDownHeight}">
+            <Border Background="{DynamicResource ThemeSubtle}" BorderThickness="1"
+                    BorderBrush="{DynamicResource ThemeBorder}" CornerRadius="8" Margin="0,4,0,4">
+              <ScrollViewer Margin="4" SnapsToDevicePixels="True">
+                <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained"/>
+              </ScrollViewer>
+            </Border>
+          </Grid>
+        </Popup>
+      </Grid>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style TargetType="ComboBoxItem">
+    <Setter Property="SnapsToDevicePixels" Value="True"/>
+    <Setter Property="Foreground" Value="{DynamicResource ThemeInk}"/>
+    <Setter Property="Padding" Value="10,6"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBoxItem">
+      <Border x:Name="Bd" Padding="{TemplateBinding Padding}" CornerRadius="6" Background="Transparent">
+        <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"/>
+      </Border>
+      <ControlTemplate.Triggers>
+        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Bd" Property="Background" Value="{DynamicResource ThemeHover}"/></Trigger>
+        <Trigger Property="IsSelected" Value="True"><Setter TargetName="Bd" Property="Background" Value="{DynamicResource ThemeHover}"/></Trigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
+</ResourceDictionary>

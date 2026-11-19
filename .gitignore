@@ -1,0 +1,9 @@
+# Cache / build / release outputs (never committed)
+cache/
+exports/
+dist/
+work/
+*.tmp
+*.log
+*.pdb
+__pycache__/

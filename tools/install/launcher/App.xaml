@@ -1,0 +1,10 @@
+<Application xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Application.Resources>
+    <SolidColorBrush x:Key="Bg" Color="#FF1B1D23"/>
+    <SolidColorBrush x:Key="Card" Color="#FF252830"/>
+    <SolidColorBrush x:Key="Text" Color="#FFF2F3F5"/>
+    <SolidColorBrush x:Key="Muted" Color="#FF9AA3B2"/>
+    <SolidColorBrush x:Key="Accent" Color="#FF3D8BFF"/>
+  </Application.Resources>
+</Application>

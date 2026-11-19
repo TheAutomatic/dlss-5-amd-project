@@ -1,0 +1,586 @@
+﻿<#
+.SYNOPSIS
+  Resolve, verify by SHA-256, and extract pinned upstream ASI payloads
+  (DLSSNR-AMD + CJK lang pack, OpenRR-ASI, OptiPatcher) defined in tools/build/upstream-pins.json.
+  Reuses matching verified archives in dist/upstream/ or cache/downloads/ before downloading from GitHub,
+  and supports local developer overrides via -MochiDir/-MochiArchive/-MochiLangArchive and -OpenRrDir/-OpenRrArchive.
+#>
+[CmdletBinding()]
+param(
+    [string]$UpstreamDir = '',
+    [string]$CacheRoot = '',
+    [string]$MochiArchive = $env:NR_MOCHI_ARCHIVE,
+    [string]$MochiLangArchive = $env:NR_MOCHI_LANG_ARCHIVE,
+    [string]$MochiDir = $env:NR_MOCHI_DIR,
+    [string]$OpenRrArchive = $env:NR_OPENRR_ARCHIVE,
+    [string]$OpenRrDir = $env:NR_OPENRR_DIR,
+    [switch]$RefreshOptiPatcher
+)
+$ErrorActionPreference = 'Stop'
+
+$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$pinsPath = Join-Path $PSScriptRoot 'upstream-pins.json'
+if (-not (Test-Path -LiteralPath $pinsPath -PathType Leaf)) {
+    throw "Missing upstream pin manifest: $pinsPath"
+}
+$pins = Get-Content -LiteralPath $pinsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+
+if (-not $UpstreamDir) { $UpstreamDir = Join-Path $repoRoot (Join-Path 'dist' 'upstream') }
+if (-not $CacheRoot)   { $CacheRoot   = Join-Path $repoRoot 'cache' }
+$downloadsDir = Join-Path $CacheRoot 'downloads'
+$upstreamCache = Join-Path $CacheRoot 'upstream'
+New-Item -ItemType Directory -Force -Path $downloadsDir, $upstreamCache | Out-Null
+
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+$ForbiddenNamePattern = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr(?:-int4|-small)?\.bin|CC_(?:SMALL_FP8|SMALL_FP8_EXPERIMENTAL|SILVER_AARDWOLD|SILVER_AARDWOLD_OPTIMIZED|SILVER_AARDWOLD_OPTIMIZED_INT4)\.bin|pipeline\.cache|version\.dll|dlssnr_on_amd_setup\.exe)$'
+
+function Get-Sha256Hex([string]$Path) {
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $fs = [IO.File]::OpenRead($Path)
+        try { return ([BitConverter]::ToString($sha.ComputeHash($fs))).Replace('-', '').ToLowerInvariant() }
+        finally { $fs.Dispose() }
+    } finally { $sha.Dispose() }
+}
+
+function Assert-Pe64Amd64([string]$Path, [int64]$MinBytes = 4096, [int64]$MaxBytes = 52428800) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "Missing PE binary: $Path"
+    }
+    $bytes = [IO.File]::ReadAllBytes($Path)
+    if ($bytes.Length -lt $MinBytes -or $bytes.Length -gt $MaxBytes) {
+        throw "Implausible PE size ($($bytes.Length) bytes): $Path"
+    }
+    if ($bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) {
+        throw "Missing MZ header: $Path"
+    }
+    $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
+    if ($peOffset -le 0 -or ($peOffset + 6) -gt $bytes.Length) {
+        throw "Invalid e_lfanew ($peOffset): $Path"
+    }
+    if ($bytes[$peOffset] -ne 0x50 -or $bytes[$peOffset + 1] -ne 0x45 -or $bytes[$peOffset + 2] -ne 0 -or $bytes[$peOffset + 3] -ne 0) {
+        throw "Missing PE signature: $Path"
+    }
+    $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+    if ($machine -ne 0x8664) {
+        throw ("Expected AMD64 PE (0x8664), found 0x{0:X4}: {1}" -f $machine, $Path)
+    }
+}
+
+function Test-Pe64Amd64([string]$Path, [int64]$MinBytes = 4096, [int64]$MaxBytes = 52428800) {
+    try {
+        Assert-Pe64Amd64 -Path $Path -MinBytes $MinBytes -MaxBytes $MaxBytes
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Download-FileWithFallback([string]$Url, [string]$Dest) {
+    $part = "$Dest.part"
+    if (Test-Path -LiteralPath $part) { Remove-Item -LiteralPath $part -Force -ErrorAction SilentlyContinue }
+    $curl = Get-Command 'curl.exe' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $curl) {
+        $curl = Get-Command 'curl' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    }
+    $downloaded = $false
+    if ($curl) {
+        & $curl.Source -fsSL --retry 3 --connect-timeout 15 --max-time 600 -o $part $Url
+        if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $part -PathType Leaf)) {
+            $downloaded = $true
+        } else {
+            Remove-Item -LiteralPath $part -Force -ErrorAction SilentlyContinue
+            Write-Warning "curl failed ($LASTEXITCODE) downloading $Url; falling back to Invoke-WebRequest."
+        }
+    }
+    if (-not $downloaded) {
+        try {
+            if ([Net.SecurityProtocolType].GetEnumNames() -contains 'Tls12') {
+                [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+            }
+        } catch { }
+        Invoke-WebRequest -UseBasicParsing -Uri $Url -OutFile $part
+    }
+    Move-Item -LiteralPath $part -Destination $Dest -Force
+}
+
+function Resolve-PinnedArchive([string]$Name, [string]$Url, [string]$ExpectedSha) {
+    $expected = $ExpectedSha.ToLowerInvariant()
+    if ($UpstreamDir) {
+        $localCand = Join-Path $UpstreamDir $Name
+        if (Test-Path -LiteralPath $localCand -PathType Leaf) {
+            $actual = Get-Sha256Hex $localCand
+            if ($actual -ne $expected) {
+                throw "SHA-256 mismatch for local upstream archive '$localCand': expected $expected, got $actual"
+            }
+            Write-Host "Reusing verified upstream archive: $localCand" -ForegroundColor Green
+            return $localCand
+        }
+    }
+
+    $cached = Join-Path $downloadsDir $Name
+    if (Test-Path -LiteralPath $cached -PathType Leaf) {
+        $actual = Get-Sha256Hex $cached
+        if ($actual -eq $expected) {
+            Write-Host "Reusing cached verified archive: $cached" -ForegroundColor Green
+            return $cached
+        }
+        Write-Warning "Cached archive SHA-256 mismatch, re-downloading: $cached"
+        Remove-Item -LiteralPath $cached -Force
+    }
+
+    Write-Host "Downloading $Url -> $cached ..." -ForegroundColor Cyan
+    $part = "$cached.part"
+    if (Test-Path -LiteralPath $part) { Remove-Item -LiteralPath $part -Force -ErrorAction SilentlyContinue }
+    Download-FileWithFallback -Url $Url -Dest $cached
+    $actual = Get-Sha256Hex $cached
+    if ($actual -ne $expected) {
+        Remove-Item -LiteralPath $cached -Force -ErrorAction SilentlyContinue
+        throw "SHA-256 mismatch for downloaded archive '$Url': expected $expected, got $actual"
+    }
+    return $cached
+}
+
+function Join-RelPath([string]$BaseDir, [string]$RelPath) {
+    return Join-Path $BaseDir ($RelPath.Replace('/', [IO.Path]::DirectorySeparatorChar))
+}
+
+function Write-ZipEntryToFile($Entry, [string]$DestPath) {
+    $dir = Split-Path -Parent $DestPath
+    if ($dir -and -not (Test-Path -LiteralPath $dir -PathType Container)) {
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    }
+    $inStream = $Entry.Open()
+    try {
+        $outStream = [IO.File]::Create($DestPath)
+        try {
+            $inStream.CopyTo($outStream)
+        } finally {
+            $outStream.Dispose()
+        }
+    } finally {
+        $inStream.Dispose()
+    }
+}
+
+function Copy-FileToRel([string]$SrcPath, [string]$BaseDir, [string]$DestRel) {
+    $destPath = Join-RelPath $BaseDir $DestRel
+    $dir = Split-Path -Parent $destPath
+    if ($dir -and -not (Test-Path -LiteralPath $dir -PathType Container)) {
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    }
+    Copy-Item -LiteralPath $SrcPath -Destination $destPath -Force
+}
+
+function Normalize-ZipEntryRel([string]$FullName) {
+    $rel = $FullName.Replace('\', '/')
+    if ($rel.StartsWith('/') -or $rel -match '(?:^|/)\.\.(?:$|/)' -or $rel -match '^[A-Za-z]:') {
+        throw "Unsafe zip entry path: $FullName"
+    }
+    return $rel
+}
+
+function Test-ForbiddenPayloadRel([string]$Rel) {
+    $norm = $Rel.Replace('\', '/')
+    $leaf = [IO.Path]::GetFileName($norm)
+    if ($leaf -match $ForbiddenNamePattern) { return $true }
+    if ($norm.StartsWith('dlssnr-amd/aco-cache/', [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    if ($norm.StartsWith('openrr-amd/cache/', [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    return $false
+}
+
+function Get-DlssnrDestRel([string]$Rel, [switch]$AllowNormalizedFallback, [string]$SourceRoot = '') {
+    $norm = $Rel.Replace('\', '/')
+    if ($norm -eq 'optiscaler/asi/dlssnr-amd.asi') { return 'OptiScaler/plugins/dlssnr-amd.asi' }
+    if ($norm -eq 'optiscaler/asi/nr_present_probe.exe') { return 'nr_present_probe.exe' }
+    if ($norm -eq 'optiscaler/asi/DearImGui-LICENSE.txt') { return 'Licenses/DearImGui-LICENSE.txt' }
+    if ($norm -eq 'optiscaler/asi/Inter-LICENSE.txt') { return 'Licenses/Inter-LICENSE.txt' }
+    if ($norm -in @('ini/dlssnr-amd-optiscaler.ini', 'ini/dlssnr-amd-optiscaler-renodx.ini')) { return $norm }
+    if ($AllowNormalizedFallback) {
+        if ($norm -in @('OptiScaler/plugins/dlssnr-amd.asi', 'nr_present_probe.exe', 'Licenses/DearImGui-LICENSE.txt', 'Licenses/Inter-LICENSE.txt')) {
+            return $norm
+        }
+        if ($norm -in @('dlssnr-amd-optiscaler.ini', 'dlssnr-amd-optiscaler-renodx.ini')) {
+            return 'ini/' + $norm
+        }
+        if ($norm -eq 'standalone/dlssnr-amd.asi' -and $SourceRoot -and -not (Test-Path -LiteralPath (Join-RelPath $SourceRoot 'optiscaler/asi/dlssnr-amd.asi') -PathType Leaf)) {
+            return 'OptiScaler/plugins/dlssnr-amd.asi'
+        }
+        if ($norm -eq 'standalone/nr_present_probe.exe' -and $SourceRoot -and -not (Test-Path -LiteralPath (Join-RelPath $SourceRoot 'optiscaler/asi/nr_present_probe.exe') -PathType Leaf)) {
+            return 'nr_present_probe.exe'
+        }
+        if ($norm -eq 'dlssnr-amd/nr_present_probe.exe' -and $SourceRoot -and
+            -not (Test-Path -LiteralPath (Join-RelPath $SourceRoot 'optiscaler/asi/nr_present_probe.exe') -PathType Leaf) -and
+            -not (Test-Path -LiteralPath (Join-RelPath $SourceRoot 'nr_present_probe.exe') -PathType Leaf)) {
+            return 'nr_present_probe.exe'
+        }
+    }
+    if ($norm.StartsWith('model-tools/') -or $norm.StartsWith('experimental/') -or
+        $norm.StartsWith('optimized/') -or $norm.StartsWith('dlssnr-amd/')) {
+        return $norm
+    }
+    return $null
+}
+
+function Get-OpenRrDestRel([string]$Rel, [switch]$AllowNormalizedFallback, [string]$SourceRoot = '') {
+    $norm = $Rel.Replace('\', '/')
+    if ($norm -eq 'OptiScaler/plugins/openrr-amd.asi') { return 'OptiScaler/plugins/openrr-amd.asi' }
+    if ($norm -eq 'OptiScaler/plugins/openrr-ngx-host.dll') { return 'OptiScaler/plugins/openrr-ngx-host.dll' }
+    if ($norm -eq 'openrr-ngx-host.dll') {
+        if (-not $AllowNormalizedFallback -or -not $SourceRoot -or -not (Test-Path -LiteralPath (Join-RelPath $SourceRoot 'OptiScaler/plugins/openrr-ngx-host.dll') -PathType Leaf)) {
+            return 'OptiScaler/plugins/openrr-ngx-host.dll'
+        }
+        return $null
+    }
+    if ($norm -eq 'openrr-amd.ini') { return 'openrr-amd.ini' }
+    if ($AllowNormalizedFallback) {
+        if ($norm -in @('openrr-amd.asi', 'plugins/openrr-amd.asi', 'OptiScaler/plugins/openrr.asi', 'plugins/openrr.asi')) {
+            return 'OptiScaler/plugins/openrr-amd.asi'
+        }
+        if ($norm -eq 'plugins/openrr-ngx-host.dll') { return 'OptiScaler/plugins/openrr-ngx-host.dll' }
+        if ($norm -eq 'OptiScaler/openrr-amd.ini') { return 'openrr-amd.ini' }
+        if ($norm.StartsWith('Licenses/')) { return $norm }
+    }
+    if ($norm.StartsWith('openrr-amd/')) { return $norm }
+    return $null
+}
+
+# --- 1. Prepare DLSSNR-AMD payload (dlssnr-amd zip/dir + CJK lang pack + static license notices) ---
+$isCustomDlssnr = [bool]($MochiDir -or $MochiArchive -or $MochiLangArchive)
+$dlssnrDir = Join-Path $upstreamCache $(if ($isCustomDlssnr) { 'dlssnr-amd-custom' } else { 'dlssnr-amd' })
+$dlssnrStampPath = Join-Path $dlssnrDir '.stamp.json'
+$staticLicenseSrcDir = Join-Path (Join-Path $repoRoot 'assets') 'licenses'
+$staticLicenseFiles = @('Mochizuki_MIT.txt', 'Mochizuki_ASI_SOURCES.md', 'Mochizuki_SOURCES.md', 'RenoDX_MIT.txt')
+
+$staticLicenseDigestBuilder = New-Object System.Text.StringBuilder
+$resolvedStaticLicenses = @()
+foreach ($licName in $staticLicenseFiles) {
+    $licPath = Join-Path $staticLicenseSrcDir $licName
+    if (-not (Test-Path -LiteralPath $licPath -PathType Leaf)) {
+        throw "Missing required static Mochizuki attribution notice: $licPath"
+    }
+    [void]$staticLicenseDigestBuilder.Append("$licName=$(Get-Sha256Hex $licPath);")
+    $resolvedStaticLicenses += @{ Name = $licName; Path = $licPath }
+}
+$shaTmp = [System.Security.Cryptography.SHA256]::Create()
+try {
+    $staticLicHash = ([BitConverter]::ToString($shaTmp.ComputeHash([Text.Encoding]::UTF8.GetBytes($staticLicenseDigestBuilder.ToString())))).Replace('-', '').ToLowerInvariant()
+} finally { $shaTmp.Dispose() }
+
+function Extract-DlssnrLangZip([string]$LangZipPath, [string]$DestStage, [switch]$AllowSkipForbidden) {
+    $langArchive = [IO.Compression.ZipFile]::OpenRead($LangZipPath)
+    try {
+        foreach ($entry in $langArchive.Entries) {
+            if ([string]::IsNullOrEmpty($entry.Name)) { continue }
+            $rel = Normalize-ZipEntryRel $entry.FullName
+            if (-not $rel.StartsWith('lang/')) { continue }
+            $destRel = 'dlssnr-amd/' + $rel
+            if ((Test-ForbiddenPayloadRel $rel) -or (Test-ForbiddenPayloadRel $destRel)) {
+                if ($AllowSkipForbidden) {
+                    Write-Host "  Skipping excluded weight/cache file in custom lang pack: $rel" -ForegroundColor DarkYellow
+                    continue
+                }
+                throw "Refusing forbidden or cache entry in pinned upstream archive: $rel"
+            }
+            Write-ZipEntryToFile -Entry $entry -DestPath (Join-RelPath $DestStage $destRel)
+        }
+    } finally {
+        $langArchive.Dispose()
+    }
+}
+
+function Stage-DlssnrPayload([string]$DestDir, [bool]$CustomMode) {
+    $stageTmp = "$DestDir.tmp-$([guid]::NewGuid().ToString('N'))"
+    try {
+        New-Item -ItemType Directory -Force -Path $stageTmp | Out-Null
+        if ($CustomMode -and $MochiDir) {
+            if (-not (Test-Path -LiteralPath $MochiDir -PathType Container)) {
+                throw "Provided -MochiDir not found: $MochiDir"
+            }
+            Write-Host "Staging custom DLSSNR-AMD directory: $MochiDir" -ForegroundColor Cyan
+            $srcPrefixLen = [IO.Path]::GetFullPath($MochiDir).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar).Length + 1
+            foreach ($file in Get-ChildItem -LiteralPath $MochiDir -Recurse -File) {
+                $rel = Normalize-ZipEntryRel ($file.FullName.Substring($srcPrefixLen))
+                $destRel = Get-DlssnrDestRel -Rel $rel -AllowNormalizedFallback -SourceRoot $MochiDir
+                if (-not $destRel) { continue }
+                if ((Test-ForbiddenPayloadRel $rel) -or (Test-ForbiddenPayloadRel $destRel)) {
+                    Write-Host "  Skipping excluded weight/cache file from -MochiDir: $rel" -ForegroundColor DarkYellow
+                    continue
+                }
+                Copy-FileToRel -SrcPath $file.FullName -BaseDir $stageTmp -DestRel $destRel
+            }
+        } else {
+            if ($CustomMode -and $MochiArchive) {
+                if (-not (Test-Path -LiteralPath $MochiArchive -PathType Leaf)) {
+                    throw "Provided -MochiArchive not found: $MochiArchive"
+                }
+                Write-Host "Staging custom DLSSNR-AMD archive: $MochiArchive" -ForegroundColor Cyan
+                $dlssnrZip = $MochiArchive
+            } else {
+                $dlssnrZip = Resolve-PinnedArchive -Name $pins.dlssnr.archiveName -Url $pins.dlssnr.archiveUrl -ExpectedSha $pins.dlssnr.archiveSha256
+            }
+            $archive = [IO.Compression.ZipFile]::OpenRead($dlssnrZip)
+            try {
+                foreach ($entry in $archive.Entries) {
+                    if ([string]::IsNullOrEmpty($entry.Name)) { continue }
+                    $rel = Normalize-ZipEntryRel $entry.FullName
+                    $destRel = if ($CustomMode) {
+                        Get-DlssnrDestRel -Rel $rel -AllowNormalizedFallback
+                    } else {
+                        Get-DlssnrDestRel -Rel $rel
+                    }
+                    if (-not $destRel) { continue }
+                    if ((Test-ForbiddenPayloadRel $rel) -or (Test-ForbiddenPayloadRel $destRel)) {
+                        if ($CustomMode) {
+                            Write-Host "  Skipping excluded weight/cache file from -MochiArchive: $rel" -ForegroundColor DarkYellow
+                            continue
+                        }
+                        throw "Refusing forbidden or cache entry in pinned upstream archive: $rel"
+                    }
+                    Write-ZipEntryToFile -Entry $entry -DestPath (Join-RelPath $stageTmp $destRel)
+                }
+            } finally {
+                $archive.Dispose()
+            }
+        }
+
+        if ($MochiLangArchive) {
+            if (-not (Test-Path -LiteralPath $MochiLangArchive -PathType Leaf)) {
+                throw "Provided -MochiLangArchive not found: $MochiLangArchive"
+            }
+            Write-Host "Overlaying custom DLSSNR-AMD CJK language archive: $MochiLangArchive" -ForegroundColor Cyan
+            Extract-DlssnrLangZip -LangZipPath $MochiLangArchive -DestStage $stageTmp -AllowSkipForbidden
+        } elseif (-not $CustomMode -or -not (Test-Path -LiteralPath (Join-RelPath $stageTmp 'dlssnr-amd/lang/zh-CN.txt') -PathType Leaf)) {
+            $dlssnrLangZip = Resolve-PinnedArchive -Name $pins.dlssnr.langArchiveName -Url $pins.dlssnr.langArchiveUrl -ExpectedSha $pins.dlssnr.langArchiveSha256
+            Extract-DlssnrLangZip -LangZipPath $dlssnrLangZip -DestStage $stageTmp
+        }
+
+        $licDestDir = Join-Path $stageTmp 'Licenses'
+        New-Item -ItemType Directory -Force -Path $licDestDir | Out-Null
+        foreach ($lic in $resolvedStaticLicenses) {
+            Copy-Item -LiteralPath $lic.Path -Destination (Join-Path $licDestDir $lic.Name) -Force
+        }
+
+        Assert-Pe64Amd64 -Path (Join-RelPath $stageTmp 'OptiScaler/plugins/dlssnr-amd.asi')
+        Assert-Pe64Amd64 -Path (Join-RelPath $stageTmp 'nr_present_probe.exe')
+        Assert-Pe64Amd64 -Path (Join-RelPath $stageTmp 'model-tools/dlssnr_extract_model.exe')
+        Assert-Pe64Amd64 -Path (Join-RelPath $stageTmp 'model-tools/dlssnr-int4-weights.exe')
+
+        if (-not $CustomMode) {
+            $wantDlssnrStamp = @{
+                schema            = 1
+                archiveSha256     = $pins.dlssnr.archiveSha256.ToLowerInvariant()
+                langArchiveSha256 = $pins.dlssnr.langArchiveSha256.ToLowerInvariant()
+                staticLicenseSha  = $staticLicHash
+            }
+            [IO.File]::WriteAllText((Join-Path $stageTmp '.stamp.json'), (($wantDlssnrStamp | ConvertTo-Json -Depth 4) + "`n"), [Text.UTF8Encoding]::new($false))
+        }
+        if (Test-Path -LiteralPath $DestDir) { Remove-Item -LiteralPath $DestDir -Recurse -Force }
+        Move-Item -LiteralPath $stageTmp -Destination $DestDir -Force
+    } catch {
+        if (Test-Path -LiteralPath $stageTmp) { Remove-Item -LiteralPath $stageTmp -Recurse -Force -ErrorAction SilentlyContinue }
+        throw
+    }
+}
+
+if ($isCustomDlssnr) {
+    Stage-DlssnrPayload -DestDir $dlssnrDir -CustomMode $true
+    Write-Host "Staged custom DLSSNR-AMD payload -> $dlssnrDir" -ForegroundColor Green
+} else {
+    $wantDlssnrStamp = @{
+        schema            = 1
+        archiveSha256     = $pins.dlssnr.archiveSha256.ToLowerInvariant()
+        langArchiveSha256 = $pins.dlssnr.langArchiveSha256.ToLowerInvariant()
+        staticLicenseSha  = $staticLicHash
+    }
+    $dlssnrCachedOk = $false
+    if ((Test-Path -LiteralPath $dlssnrStampPath -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-RelPath $dlssnrDir 'OptiScaler/plugins/dlssnr-amd.asi') -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-RelPath $dlssnrDir 'dlssnr-amd/lang/zh-CN.txt') -PathType Leaf)) {
+        try {
+            $cur = Get-Content -LiteralPath $dlssnrStampPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($cur.schema -eq $wantDlssnrStamp.schema -and
+                $cur.archiveSha256 -eq $wantDlssnrStamp.archiveSha256 -and
+                $cur.langArchiveSha256 -eq $wantDlssnrStamp.langArchiveSha256 -and
+                $cur.staticLicenseSha -eq $wantDlssnrStamp.staticLicenseSha) {
+                $dlssnrCachedOk = $true
+            }
+        } catch { $dlssnrCachedOk = $false }
+    }
+    if (-not $dlssnrCachedOk) {
+        Stage-DlssnrPayload -DestDir $dlssnrDir -CustomMode $false
+        Write-Host "Extracted DLSSNR-AMD $($pins.dlssnr.version) + CJK lang pack -> $dlssnrDir" -ForegroundColor Green
+    }
+}
+
+# --- 2. Prepare OpenRR-ASI payload ---
+$isCustomOpenRr = [bool]($OpenRrDir -or $OpenRrArchive)
+$openRrDir = Join-Path $upstreamCache $(if ($isCustomOpenRr) { 'openrr-custom' } else { 'openrr' })
+$openRrStampPath = Join-Path $openRrDir '.stamp.json'
+
+function Stage-OpenRrPayload([string]$DestDir, [bool]$CustomMode) {
+    $stageTmp = "$DestDir.tmp-$([guid]::NewGuid().ToString('N'))"
+    try {
+        New-Item -ItemType Directory -Force -Path $stageTmp | Out-Null
+        if ($CustomMode -and $OpenRrDir) {
+            if (-not (Test-Path -LiteralPath $OpenRrDir -PathType Container)) {
+                throw "Provided -OpenRrDir not found: $OpenRrDir"
+            }
+            Write-Host "Staging custom OpenRR-ASI directory: $OpenRrDir" -ForegroundColor Cyan
+            $srcPrefixLen = [IO.Path]::GetFullPath($OpenRrDir).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar).Length + 1
+            foreach ($file in Get-ChildItem -LiteralPath $OpenRrDir -Recurse -File) {
+                $rel = Normalize-ZipEntryRel ($file.FullName.Substring($srcPrefixLen))
+                $destRel = Get-OpenRrDestRel -Rel $rel -AllowNormalizedFallback -SourceRoot $OpenRrDir
+                if (-not $destRel) { continue }
+                if ((Test-ForbiddenPayloadRel $rel) -or (Test-ForbiddenPayloadRel $destRel)) {
+                    Write-Host "  Skipping excluded weight/cache file from -OpenRrDir: $rel" -ForegroundColor DarkYellow
+                    continue
+                }
+                Copy-FileToRel -SrcPath $file.FullName -BaseDir $stageTmp -DestRel $destRel
+            }
+        } else {
+            if ($CustomMode -and $OpenRrArchive) {
+                if (-not (Test-Path -LiteralPath $OpenRrArchive -PathType Leaf)) {
+                    throw "Provided -OpenRrArchive not found: $OpenRrArchive"
+                }
+                Write-Host "Staging custom OpenRR-ASI archive: $OpenRrArchive" -ForegroundColor Cyan
+                $openRrZip = $OpenRrArchive
+            } else {
+                $openRrZip = Resolve-PinnedArchive -Name $pins.openrr.archiveName -Url $pins.openrr.archiveUrl -ExpectedSha $pins.openrr.archiveSha256
+            }
+            $archive = [IO.Compression.ZipFile]::OpenRead($openRrZip)
+            try {
+                foreach ($entry in $archive.Entries) {
+                    if ([string]::IsNullOrEmpty($entry.Name)) { continue }
+                    $rel = Normalize-ZipEntryRel $entry.FullName
+                    $destRel = if ($CustomMode) {
+                        Get-OpenRrDestRel -Rel $rel -AllowNormalizedFallback
+                    } else {
+                        Get-OpenRrDestRel -Rel $rel
+                    }
+                    if (-not $destRel) { continue }
+                    if ((Test-ForbiddenPayloadRel $rel) -or (Test-ForbiddenPayloadRel $destRel)) {
+                        if ($CustomMode) {
+                            Write-Host "  Skipping excluded weight/cache file from -OpenRrArchive: $rel" -ForegroundColor DarkYellow
+                            continue
+                        }
+                        throw "Refusing forbidden or cache entry in pinned upstream archive: $rel"
+                    }
+                    Write-ZipEntryToFile -Entry $entry -DestPath (Join-RelPath $stageTmp $destRel)
+                }
+            } finally {
+                $archive.Dispose()
+            }
+        }
+
+        $rrLicDir = Join-Path $stageTmp 'Licenses'
+        New-Item -ItemType Directory -Force -Path $rrLicDir | Out-Null
+        $rrMit = Join-RelPath $stageTmp 'openrr-amd/OpenRR_LICENSE.txt'
+        $rrThird = Join-RelPath $stageTmp 'openrr-amd/OpenRR_THIRD_PARTY.md'
+        $rrMitDest = Join-Path $rrLicDir 'OpenRR_MIT.txt'
+        $rrThirdDest = Join-Path $rrLicDir 'OpenRR_THIRD_PARTY.md'
+        if ((Test-Path -LiteralPath $rrMit -PathType Leaf) -and -not (Test-Path -LiteralPath $rrMitDest -PathType Leaf)) {
+            Copy-Item -LiteralPath $rrMit -Destination $rrMitDest -Force
+        }
+        if ((Test-Path -LiteralPath $rrThird -PathType Leaf) -and -not (Test-Path -LiteralPath $rrThirdDest -PathType Leaf)) {
+            Copy-Item -LiteralPath $rrThird -Destination $rrThirdDest -Force
+        }
+        if (-not (Test-Path -LiteralPath $rrMitDest -PathType Leaf)) { throw 'Missing OpenRR_LICENSE.txt / Licenses/OpenRR_MIT.txt in OpenRR payload' }
+        if (-not (Test-Path -LiteralPath $rrThirdDest -PathType Leaf)) { throw 'Missing OpenRR_THIRD_PARTY.md / Licenses/OpenRR_THIRD_PARTY.md in OpenRR payload' }
+
+        Assert-Pe64Amd64 -Path (Join-RelPath $stageTmp 'OptiScaler/plugins/openrr-amd.asi')
+        Assert-Pe64Amd64 -Path (Join-RelPath $stageTmp 'OptiScaler/plugins/openrr-ngx-host.dll')
+
+        if (-not $CustomMode) {
+            $wantOpenRrStamp = @{
+                schema        = 1
+                archiveSha256 = $pins.openrr.archiveSha256.ToLowerInvariant()
+            }
+            [IO.File]::WriteAllText((Join-Path $stageTmp '.stamp.json'), (($wantOpenRrStamp | ConvertTo-Json -Depth 4) + "`n"), [Text.UTF8Encoding]::new($false))
+        }
+        if (Test-Path -LiteralPath $DestDir) { Remove-Item -LiteralPath $DestDir -Recurse -Force }
+        Move-Item -LiteralPath $stageTmp -Destination $DestDir -Force
+    } catch {
+        if (Test-Path -LiteralPath $stageTmp) { Remove-Item -LiteralPath $stageTmp -Recurse -Force -ErrorAction SilentlyContinue }
+        throw
+    }
+}
+
+if ($isCustomOpenRr) {
+    Stage-OpenRrPayload -DestDir $openRrDir -CustomMode $true
+    Write-Host "Staged custom OpenRR-ASI payload -> $openRrDir" -ForegroundColor Green
+} else {
+    $wantOpenRrStamp = @{
+        schema        = 1
+        archiveSha256 = $pins.openrr.archiveSha256.ToLowerInvariant()
+    }
+    $openRrCachedOk = $false
+    if ((Test-Path -LiteralPath $openRrStampPath -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-RelPath $openRrDir 'OptiScaler/plugins/openrr-amd.asi') -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-RelPath $openRrDir 'openrr-amd/aco/gfx1201/openrr-d3d12-v1/manifest.msgpack') -PathType Leaf)) {
+        try {
+            $cur = Get-Content -LiteralPath $openRrStampPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($cur.schema -eq $wantOpenRrStamp.schema -and $cur.archiveSha256 -eq $wantOpenRrStamp.archiveSha256) {
+                $openRrCachedOk = $true
+            }
+        } catch { $openRrCachedOk = $false }
+    }
+    if (-not $openRrCachedOk) {
+        Stage-OpenRrPayload -DestDir $openRrDir -CustomMode $false
+        Write-Host "Extracted OpenRR-ASI $($pins.openrr.version) -> $openRrDir" -ForegroundColor Green
+    }
+}
+
+# --- 3. Resolve OptiPatcher.asi (best-effort rolling refresh in CI, local/cached fallbacks) ---
+$optiPatcherOut = Join-RelPath $upstreamCache 'optipatcher/OptiScaler/plugins/OptiPatcher.asi'
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $optiPatcherOut) | Out-Null
+$optiPatcherCache = Join-Path $downloadsDir $pins.optipatcher.fileName
+$optiPatcherResolved = $null
+
+function Try-DownloadOptiPatcher {
+    $tmp = "$optiPatcherCache.tmp-$([guid]::NewGuid().ToString('N'))"
+    try {
+        Download-FileWithFallback -Url $pins.optipatcher.url -Dest $tmp
+        Assert-Pe64Amd64 -Path $tmp -MinBytes 4096 -MaxBytes 20971520
+        Move-Item -LiteralPath $tmp -Destination $optiPatcherCache -Force
+        return $optiPatcherCache
+    } catch {
+        if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+        Write-Warning "OptiPatcher rolling download failed ($($_.Exception.Message)); trying fallback copies."
+        return $null
+    }
+}
+
+if ($RefreshOptiPatcher -and $pins.optipatcher.allowRollingRefresh) {
+    $optiPatcherResolved = Try-DownloadOptiPatcher
+    if ($optiPatcherResolved) {
+        Write-Host "Refreshed OptiPatcher.asi from rolling release -> $optiPatcherCache" -ForegroundColor Green
+    }
+}
+if (-not $optiPatcherResolved) {
+    foreach ($cand in @(
+        $(if ($UpstreamDir) { Join-Path $UpstreamDir $pins.optipatcher.fileName } else { '' }),
+        $optiPatcherCache,
+        (Join-RelPath $repoRoot 'payloads/optipatcher/OptiScaler/plugins/OptiPatcher.asi')
+    )) {
+        if ($cand -and (Test-Pe64Amd64 -Path $cand -MinBytes 4096 -MaxBytes 20971520)) {
+            $optiPatcherResolved = $cand
+            Write-Host "Reusing verified OptiPatcher.asi: $cand" -ForegroundColor Green
+            break
+        }
+    }
+}
+if (-not $optiPatcherResolved) {
+    $optiPatcherResolved = Try-DownloadOptiPatcher
+}
+if (-not $optiPatcherResolved) {
+    throw "Failed to resolve valid AMD64 OptiPatcher.asi from local cache, repo fallback, or $($pins.optipatcher.url)."
+}
+Copy-Item -LiteralPath $optiPatcherResolved -Destination $optiPatcherOut -Force
+
+return @{
+    DlssnrDir      = $dlssnrDir
+    OpenRrDir      = $openRrDir
+    OptiPatcherAsi = $optiPatcherOut
+}
