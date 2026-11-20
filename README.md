@@ -3,8 +3,10 @@
 # OptiScaler(NR)
 
 > [!IMPORTANT]
-> **🎉 2.0 架构全面升级公告**：本项目已升级为 **“官方原版 OptiScaler + 独立双 `.asi` 插件（`dlssnr-amd.asi` + `openrr-amd.asi`）+ 图形化一键启动器”** 架构！
-> 若需查阅 `1.x` 旧版（三后端定制分支 `lmxxf` / `danielblnc` / `mochizuki`）的历史说明文档，请点击查看 **[旧版中文说明 (Legacy README)](docs/legacy-readme/README.md)**。
+> **源码公开 · 完全免费 · 严禁商业倒卖及收费代安装**：本项目启动器与脚本基于 **PolyForm Noncommercial License 1.0.0** 开源，仅限个人非商业使用。如付费购买请立即申请退款并举报卖家！详见[第 6 节：免费声明与非商业许可](#6-免费声明署名与非商业许可)。
+>
+> **🎉 2.0 架构全面升级公告**：本项目已升级为 **“官方原版 OptiScaler + 独立双 `.asi` 插件（`dlssnr-amd.asi` + `openrr-amd.asi`）+ 图形化一键启动器”** 架构！支持 **OptiScaler / 独立直通 (Standalone) / ReShade 兼容 / RTX Remix for Minecraft (Java 版)** 多模式自动适配。
+> 若需查阅 `1.x` 旧版历史说明文档，请点击查看 **[旧版中文说明 (Legacy README)](docs/legacy-readme/README.md)**。
 
 **特别感谢**：各位用户的测试与反馈意见。
 
@@ -22,7 +24,7 @@
 - [3. 双 `.asi` 插件核心能力说明](#3-双-asi-插件核心能力说明)
 - [4. 游戏内快捷键与菜单控制](#4-游戏内快捷键与菜单控制)
 - [5. 兼容修复、一键日志打包与卸载](#5-兼容修复一键日志打包与卸载)
-- [6. 免费声明、署名与开源许可](#6-免费声明署名与开源许可)
+- [6. 免费声明、署名与非商业许可](#6-免费声明署名与非商业许可)
 
 ---
 
@@ -35,6 +37,7 @@
 | **[OptiScaler](https://github.com/optiscaler/OptiScaler)**<br>（官方原版桥接框架） | 上游官方 Nightly 构建（校验 SHA-256，支持自行替换其他第三方构建） | 负责通用超分辨率转换（DLSS/XeSS/FSR → FSR 3.1 / FSR 4 / XeSS）与帧生成（DLSSG → FSR3 FG / XeFG），并通过内置 ASI Loader 加载 `OptiScaler\plugins\*.asi` |
 | **`dlssnr-amd.asi`**<br>（DLSS 神经渲染插件） | **[mochizuki0323 / DLSSNR-AMD](https://gitlab.com/mochizuki0323/DLSSNR-AMD)**<br>**[TheAutomatic / DLSSNR-AMD](https://github.com/TheAutomatic/DLSSNR-AMD)** | 在 AMD **RX 9000 (RDNA4)** 与 **RX 7000 / 700M / 800M / 8000S (RDNA3)** 上运行 DLSS 神经渲染；支持 **D3D12 Direct-ELF 原生直录** 与 **Vulkan ACO 机器码加速**，内置 RenoDX 与 wilsjo2 双风格管线 |
 | **`openrr-amd.asi`**<br>（DLSS 光线重建插件） | **[Storm (Matheus) / OpenRR](https://github.com/OpenNeuralRendering/OpenRR)**<br>**[TheAutomatic / OpenRR-ASI](https://github.com/TheAutomatic/OpenRR-ASI)** | 在 AMD **RDNA4（已实测）** 与 **RDNA3 / RDNA3.5（实验性）** 上原生运行 NVIDIA **DLSS 光线重建（Ray Reconstruction / DLSS-RR）** 网络；支持 **D3D12 Direct-ELF 原生直录** 与 **Vulkan**，可与 `dlssnr-amd.asi` 无缝共存 |
+| **[rtx-remix-minecraft-amd-patch](https://github.com/TheAutomatic/rtx-remix-minecraft-amd-patch)**<br>（RTX Remix for Minecraft 兼容补丁） | **[NVIDIAGameWorks / rtx-remix-minecraft](https://github.com/NVIDIAGameWorks/rtx-remix-minecraft)**（上游 Apache-2.0）<br>**[TheAutomatic / rtx-remix-minecraft-amd-patch](https://github.com/TheAutomatic/rtx-remix-minecraft-amd-patch)** | 自动扫描 PrismLauncher / `.minecraft\remix-sdk` 实例或手动添加实例；原名部署 `OptiScaler.dll`、自动备份并应用 AMD 兼容版 `remixbridge.dll`（完整卸载可无损还原原版），同时动态启用 `[Spoofing] VulkanExtensionSpoofing = true` |
 
 ---
 
@@ -120,17 +123,18 @@ WINEDLLOVERRIDES="dxgi=n,b" %command%
 
 ---
 
-## 6. 免费声明、署名与开源许可
+## 6. 免费声明、署名与非商业许可
 
-### 免费声明
-本项目永久免费分发。启动器与安装脚本中的“**本软件免费，如付费购买请立即退款！**”是保留的防倒卖声明；如果你是付费买到的，请立即申请退款并举报卖家。
+### 免费与禁止倒卖声明
+本项目**永久免费分发**。启动器与安装脚本中的“**本软件免费，如付费购买请立即退款！**”是保留的防倒卖声明；**严禁任何人在闲鱼、淘宝、QQ 群、付费网盘、收费整合包中售卖本工具，或以“付费远程代安装 / 付费调试”名义向他人收费提供。如果您是付费买到的，请立即申请退款并举报卖家！**
 
-### 署名与开源许可 (Attributions & Licenses)
+### 署名与许可协议 (Attributions & Licenses)
+- **[本项目 (TheAutomatic / dlss-5-amd-project)](https://github.com/TheAutomatic/dlss-5-amd-project)** — **[PolyForm Noncommercial License 1.0.0](LICENSE)**（见 [NOTICE](NOTICE)）：图形化启动器、PE 导入表探测、多模式部署与安装/卸载/打包脚本（**仅限个人、科研、非商业用途，禁止任何商业倒卖与收费代安装**）；
+- **[RTX Remix for Minecraft AMD Patch](https://github.com/TheAutomatic/rtx-remix-minecraft-amd-patch)** (`remixbridge.dll`) — **PolyForm Noncommercial License 1.0.0**：衍生自 [NVIDIAGameWorks/rtx-remix-minecraft](https://github.com/NVIDIAGameWorks/rtx-remix-minecraft)（**Apache License 2.0**）；
 - **[OptiScaler](https://github.com/optiscaler/OptiScaler)** — **GPL-3.0 License**：官方原版超分辨率与帧生成桥接框架（DLL 本体未做修改，支持自行替换其他第三方构建）；
 - **[Mochizuki / DLSSNR-AMD](https://gitlab.com/mochizuki0323/DLSSNR-AMD)** & **[TheAutomatic / DLSSNR-AMD](https://github.com/TheAutomatic/DLSSNR-AMD)** (`dlssnr-amd.asi`) — **MIT License**（© mochizuki0323）：AMD RDNA4 / RDNA3 神经网络渲染核心、D3D12 Direct-ELF 原生路径、ACO 机器码记录与 NR Control 插件；
 - **[Storm (Matheus) / OpenRR](https://github.com/OpenNeuralRendering/OpenRR)** & **[TheAutomatic / OpenRR-ASI](https://github.com/TheAutomatic/OpenRR-ASI)** (`openrr-amd.asi`) — **MIT License**：AMD RDNA4 / RDNA3 开源 DLSS 光线重建（Ray Reconstruction）运行时与独立 ASI 插件；
 - **[RenoDX / clshortfuse](https://github.com/clshortfuse/renodx)** — **MIT License**：RenoDX 风格色调映射与色彩处理算法；
-- **[OptiPatcher](https://github.com/optiscaler/OptiPatcher)** — **GPL-3.0 License**：原生 DLSS 选项解锁 ASI 插件；
-- **[本项目 (TheAutomatic / dlss-5-amd-project)](https://github.com/TheAutomatic/dlss-5-amd-project)** — **GPL-3.0 License**：图形化启动器、PE 导入表探测、双 `.asi` 协同部署、INI 配置预设与分享码体系。
+- **[OptiPatcher](https://github.com/optiscaler/OptiPatcher)** — **GPL-3.0 License**：原生 DLSS 选项解锁 ASI 插件。
 
 > 本仓库与发布包**不包含**任何 NVIDIA 专有二进制文件（`nvngx_dlssnr.dll` / `nvngx_dlssd.dll`）或从其中提取的模型权重文件（`*.bin`）。所有模型权重均由用户在本地通过自身合法持有的驱动/游戏文件离线提取生成。

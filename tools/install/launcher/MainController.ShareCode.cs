@@ -278,9 +278,9 @@ namespace OptScalerNR.Launcher
         {
             var game = CaptureIniGame();
             if (!CanUseIniGame(game)) return;
-            string path = Path.Combine(game.Directory, "dlssnr-amd.ini");
             string executable = _selectedGame.Exe;
-            if (!File.Exists(path)) { SetIniStatus("noini", ""); return; }
+            string path = DlssnrLocalData.ResolveActiveDlssnrIni(game.Directory, executable);
+            if (string.IsNullOrEmpty(path) || !File.Exists(path)) { SetIniStatus("noini", ""); return; }
             try {
                 var dialog = DialogTheme.Create(_window, L("画面风格分享", "Visual style sharing"), 620);
                 var panel = new StackPanel { Margin = new Thickness(22) };
@@ -499,8 +499,8 @@ namespace OptScalerNR.Launcher
             if (!CanUseIniGame(game)) return false;
             bool locked = false, busy = false; string temporary = null;
             try {
-                string path = Path.Combine(game.Directory, "dlssnr-amd.ini");
-                if (!File.Exists(path)) { SetIniStatus("noini", ""); return false; }
+                string path = DlssnrLocalData.ResolveActiveDlssnrIni(game.Directory, _selectedGame != null ? _selectedGame.Exe : null);
+                if (string.IsNullOrEmpty(path) || !File.Exists(path)) { SetIniStatus("noini", ""); return false; }
                 locked = TryLockTarget(game.Directory);
                 if (!locked) { SetIniStatus("locked", ""); return false; }
                 SetBusy(true, "share-code"); busy = true; RefreshProfileActions();

@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -81,6 +82,54 @@ namespace OptScalerNR.Launcher
                 AppendOutput(stderrPath, ex.ToString(), logLock);
                 proc.Dispose();
                 var failure = new IOException(ex.Message + "\nLog: " + stderrPath, ex);
+                failure.Data["logPath"] = stderrPath;
+                throw failure;
+            }
+            return new WorkerSession(proc, request != null ? request.Action : "", eventsPath, resultPath, canKill) {
+                GameExe = request != null ? request.GameExe : null,
+                PackageRoot = request != null ? request.PackageRoot : null
+            };
+        }
+
+        public static WorkerSession StartElevated(string workerScript, LauncherRequest request, string workDir, bool canKill)
+        {
+            Directory.CreateDirectory(workDir);
+            var reqPath = Path.Combine(workDir, "request.json");
+            var eventsPath = Path.Combine(workDir, "events.jsonl");
+            var resultPath = Path.Combine(workDir, "result.json");
+            var stderrPath = Path.Combine(workDir, "worker.stderr.log");
+            if (File.Exists(eventsPath)) File.Delete(eventsPath);
+            if (File.Exists(resultPath)) File.Delete(resultPath);
+            File.WriteAllText(eventsPath, "", new UTF8Encoding(false));
+            File.WriteAllText(stderrPath, "", new UTF8Encoding(false));
+            JsonUtil.WriteFile(reqPath, request);
+
+            var psi = new ProcessStartInfo();
+            psi.FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
+                @"WindowsPowerShell\v1.0\powershell.exe");
+            psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" +
+                workerScript + "\" -RequestJson \"" + reqPath + "\" -EventsJsonl \"" +
+                eventsPath + "\" -ResultJson \"" + resultPath + "\" -Elevated";
+            psi.UseShellExecute = true;
+            psi.Verb = "runas";
+            psi.WindowStyle = ProcessWindowStyle.Normal;
+            Process proc;
+            try
+            {
+                proc = Process.Start(psi);
+                if (proc == null) throw new InvalidOperationException("failed to start elevated worker");
+            }
+            catch (Win32Exception wex)
+            {
+                if (wex.NativeErrorCode == 1223)
+                    throw new OperationCanceledException("UAC_CANCELLED", wex);
+                var failure = new IOException(wex.Message, wex);
+                failure.Data["logPath"] = stderrPath;
+                throw failure;
+            }
+            catch (Exception ex)
+            {
+                var failure = new IOException(ex.Message, ex);
                 failure.Data["logPath"] = stderrPath;
                 throw failure;
             }

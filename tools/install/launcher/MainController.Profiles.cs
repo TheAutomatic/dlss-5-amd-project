@@ -47,6 +47,7 @@ namespace OptScalerNR.Launcher
             if (_iniAsiExportButton != null) _iniAsiExportButton.Click += delegate { ExportAsiIni(); };
             if (_iniAsiImportButton != null) _iniAsiImportButton.Click += delegate { ImportAsiIni(); };
             InitShareCode();
+            InitMochiHotkeys();
             InitModelImport();
             InitUnlockerPlugin();
             try { _iniProfiles = new IniProfiles(_settingsDir); }
@@ -133,7 +134,9 @@ namespace OptScalerNR.Launcher
             var game = CaptureIniGame();
             var hasGame = available && game != null;
             var hasIni = hasGame && File.Exists(Path.Combine(game.Directory, "OptiScaler.ini"));
-            RefreshShareCode(game != null && !IniBusy() && File.Exists(Path.Combine(game.Directory, "dlssnr-amd.ini")));
+            var activeAsiIni = hasGame ? DlssnrLocalData.ResolveActiveDlssnrIni(game.Directory, _selectedGame != null ? _selectedGame.Exe : null) : null;
+            RefreshShareCode(game != null && !IniBusy() && activeAsiIni != null && File.Exists(activeAsiIni));
+            RefreshMochiHotkeys(!IniBusy());
             RefreshModelImportBar();
             var selected = hasGame && !string.IsNullOrEmpty(_iniSelectedProfile);
             if (_iniProfileCombo != null) _iniProfileCombo.IsEnabled = hasGame;
@@ -141,7 +144,7 @@ namespace OptScalerNR.Launcher
             if (_iniSaveButton != null) _iniSaveButton.IsEnabled = hasIni;
             if (_iniQuickSaveButton != null) _iniQuickSaveButton.IsEnabled = hasIni;
             if (_iniImportButton != null) _iniImportButton.IsEnabled = hasGame;
-            var asiIni = hasGame ? Path.Combine(game.Directory, "dlssnr-amd.ini") : null;
+            var asiIni = activeAsiIni;
             if (_iniAsiExportButton != null) {
                 _iniAsiExportButton.Content = L("导出 dlssnr-amd.ini…", "Export dlssnr-amd.ini…");
                 _iniAsiExportButton.ToolTip = L("完整导出 dlssnr-amd.ini（ASI NR 配置），与 OptiScaler.ini 无关", "Export complete dlssnr-amd.ini (ASI NR configuration), independent of OptiScaler.ini");
@@ -261,8 +264,8 @@ namespace OptScalerNR.Launcher
         {
             var game = CaptureIniGame();
             if (!CanUseIniGame(game)) return;
-            var path = Path.Combine(game.Directory, "dlssnr-amd.ini");
-            if (!File.Exists(path)) { SetIniStatus("noasi", ""); return; }
+            var path = DlssnrLocalData.ResolveActiveDlssnrIni(game.Directory, _selectedGame != null ? _selectedGame.Exe : null);
+            if (string.IsNullOrEmpty(path) || !File.Exists(path)) { SetIniStatus("noasi", ""); return; }
             var dialog = new SaveFileDialog {
                 Title = L("完整导出 dlssnr-amd.ini", "Export complete dlssnr-amd.ini"),
                 FileName = "dlssnr-amd.ini", Filter = "INI (*.ini)|*.ini", OverwritePrompt = true,
@@ -279,7 +282,7 @@ namespace OptScalerNR.Launcher
         {
             var game = CaptureIniGame();
             if (!CanUseIniGame(game)) return;
-            var target = Path.Combine(game.Directory, "dlssnr-amd.ini");
+            var target = DlssnrLocalData.ResolveActiveDlssnrIni(game.Directory, _selectedGame != null ? _selectedGame.Exe : null);
             var dialog = new OpenFileDialog {
                 Title = L("完整导入 dlssnr-amd.ini", "Import complete dlssnr-amd.ini"),
                 Filter = "INI (*.ini)|*.ini", CheckFileExists = true, RestoreDirectory = true
@@ -293,6 +296,8 @@ namespace OptScalerNR.Launcher
                 locked = TryLockTarget(game.Directory);
                 if (!locked) { SetIniStatus("locked", ""); return; }
                 SetBusy(true, "asi-ini"); busy = true; RefreshProfileActions();
+                var targetDir = Path.GetDirectoryName(target);
+                if (!string.IsNullOrEmpty(targetDir)) Directory.CreateDirectory(targetDir);
                 temporary = target + ".stage-" + Guid.NewGuid().ToString("N");
                 using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None)) {
                     stream.Write(bytes, 0, bytes.Length); stream.Flush(true);

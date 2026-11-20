@@ -68,12 +68,31 @@ namespace OptScalerNR.Launcher
                         "OptiScaler.log", "OptiScaler.?.log", "OptiScaler.ini",
                         "opennr_rr.log", "opennr_rr*.log", "openrr.log", "openrr*.log", "openrr.ini", "openrr-amd.log", "openrr-amd*.log", "openrr-amd.ini", "openrr-amd-crash.dmp",
                         "dlssnr-amd.ini", "dlssnr-amd.default.ini", "nr-report.txt",
-                        "mochizuki_nr.log", "dlssnr-amd*.log", "dlssnr-amd-crash.dmp"
+                        "mochizuki_nr.log", "dlssnr-amd*.log", "dlssnr-amd-crash.dmp",
+                        "ReShade.log", "ReShade.ini", "ReShadePreset.ini", "*_dxgi.log", "*_d3d9.log",
+                        "amd-presr-install.txt", "dlssnr-amd-install.txt"
                     });
                     // The ASI's recovery config lives beside its resources, not at the game root.
                     var asiDir = Path.Combine(dir, "dlssnr-amd");
                     if (Directory.Exists(asiDir))
                         copied += CopyGlobs(asiDir, tempDir, taken, new[] { "dlssnr-amd.default.ini", "nr-report.txt" });
+                }
+                var localTaken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var dir in dirs)
+                {
+                    var appDir = DlssnrLocalData.ResolveAppDir(dir, game != null ? game.Exe : null);
+                    if (!string.IsNullOrEmpty(appDir) && Directory.Exists(appDir))
+                    {
+                        var localSub = Path.Combine(tempDir, "localappdata");
+                        Directory.CreateDirectory(localSub);
+                        copied += CopyGlobs(appDir, localSub, localTaken, new[]
+                        {
+                            "dlssnr-amd.ini", "dlssnr-amd.default.ini", "dlssnr-amd*.log", "dlssnr-amd-crash.dmp", "nr-report.txt"
+                        });
+                        var localAsiDir = Path.Combine(appDir, "dlssnr-amd");
+                        if (Directory.Exists(localAsiDir))
+                            copied += CopyGlobs(localAsiDir, localSub, localTaken, new[] { "dlssnr-amd.default.ini", "nr-report.txt" });
+                    }
                 }
                 if (!string.IsNullOrEmpty(_currentLogPath) && File.Exists(_currentLogPath))
                 {

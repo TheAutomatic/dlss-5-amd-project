@@ -20,12 +20,14 @@
     <Compile Include="ProxyRecommendations.cs"/>
     <Compile Include="MainController.Library.cs"/>
     <Compile Include="MainController.Recommendations.cs"/>
+    <Compile Include="MainController.Modes.cs"/>
     <Compile Include="LauncherTheme.cs"/>
     <Compile Include="MainController.Presentation.cs"/>
     <Compile Include="MainController.Profiles.cs"/>
     <Compile Include="MainController.UnlockerPlugin.cs"/>
     <Compile Include="UnlockerPlugin.cs"/>
     <Compile Include="MainController.ShareCode.cs"/>
+    <Compile Include="MainController.Hotkeys.cs"/>
     <Compile Include="MainController.ModelImport.cs" />
     <Compile Include="MochizukiShareCode.cs"/>
     <Compile Include="ModelDependencyLock.cs"/>

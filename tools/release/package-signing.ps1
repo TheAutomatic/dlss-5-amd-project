@@ -166,7 +166,16 @@ function Invoke-PackageSigning {
                 throw "Invalid unsigned PE: $($file.Name) ($($signature.Status))"
             }
             $bytes = [IO.File]::ReadAllBytes($file.FullName)
-            $signature = Set-AuthenticodeSignature -LiteralPath $file.FullName -Certificate $cert -HashAlgorithm SHA256
+            $signature = $null
+            for ($attempt = 1; $attempt -le 5; $attempt++) {
+                try {
+                    $signature = Set-AuthenticodeSignature -LiteralPath $file.FullName -Certificate $cert -HashAlgorithm SHA256
+                    break
+                } catch [System.IO.IOException] {
+                    if ($attempt -ge 5) { throw }
+                    Start-Sleep -Seconds 1
+                }
+            }
             Assert-AuthenticodePayloadUnchanged $bytes ([IO.File]::ReadAllBytes($file.FullName))
             if (!$signature.SignerCertificate -or $signature.SignerCertificate.Thumbprint -ne $cert.Thumbprint) {
                 throw "Signing failed: $($file.Name)"

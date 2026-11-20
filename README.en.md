@@ -3,8 +3,10 @@
 # OptiScaler(NR)
 
 > [!IMPORTANT]
-> **🎉 v2.0 Full Architecture Upgrade**: Upgraded to the **"Official OptiScaler + Dual Standalone `.asi` Plugins (`dlssnr-amd.asi` + `openrr-amd.asi`) + One-Click GUI Launcher"** architecture!
-> Looking for the legacy `1.x` documentation (the custom 3-backend `lmxxf` / `danielblnc` / `mochizuki` fork)? Click here: **[Legacy English README](docs/legacy-readme/README.en.md)**.
+> **Source-Available · Completely Free · No Commercial Resale or Paid Installation**: The launcher, installer scripts, and packaging tools in this repository are licensed under **PolyForm Noncommercial License 1.0.0** for personal, noncommercial use only. If you paid for this tool, request a refund immediately! See [Section 6](#6-free-software-notice-attributions--licenses).
+>
+> **🎉 v2.0 Full Architecture Upgrade**: Upgraded to the **"Official OptiScaler + Dual Standalone `.asi` Plugins (`dlssnr-amd.asi` + `openrr-amd.asi`) + One-Click GUI Launcher"** architecture! Supports **OptiScaler / Standalone Direct / ReShade Compatible / RTX Remix for Minecraft (Java Edition)**.
+> Looking for the legacy `1.x` documentation? Click here: **[Legacy English README](docs/legacy-readme/README.en.md)**.
 
 **Special thanks** to everyone who tested builds and reported feedback.
 
@@ -35,6 +37,7 @@ Version `2.0` retires custom-patched `OptiScaler.dll` builds in favor of a decou
 | **[OptiScaler](https://github.com/optiscaler/OptiScaler)**<br>(Official Upscaling Bridge) | Official upstream Nightly build (SHA-256 verified; replaceable with other third-party builds) | Handles universal upscaling conversion (DLSS/XeSS/FSR → FSR 3.1 / FSR 4 / XeSS) and frame generation (DLSSG → FSR3 FG / XeFG), loading `OptiScaler\plugins\*.asi` via its built-in ASI Loader |
 | **`dlssnr-amd.asi`**<br>(DLSS Neural Rendering Plugin) | **[mochizuki0323 / DLSSNR-AMD](https://gitlab.com/mochizuki0323/DLSSNR-AMD)**<br>**[TheAutomatic / DLSSNR-AMD](https://github.com/TheAutomatic/DLSSNR-AMD)** | Runs DLSS Neural Rendering on AMD **RX 9000 (RDNA4)** and **RX 7000 / 700M / 800M / 8000S (RDNA3)** GPUs; supports **D3D12 Direct-ELF native recording** and **Vulkan ACO machine-code acceleration**, with built-in RenoDX and wilsjo2 styles |
 | **`openrr-amd.asi`**<br>(DLSS Ray Reconstruction Plugin) | **[Storm (Matheus) / OpenRR](https://github.com/OpenNeuralRendering/OpenRR)**<br>**[TheAutomatic / OpenRR-ASI](https://github.com/TheAutomatic/OpenRR-ASI)** | Runs NVIDIA's **DLSS Ray Reconstruction (DLSS-RR)** network natively on AMD **RDNA4 (tested)** and **RDNA3 / RDNA3.5 (experimental)** GPUs; supports **D3D12 Direct-ELF native recording** and **Vulkan**, coexisting seamlessly with `dlssnr-amd.asi` |
+| **[rtx-remix-minecraft-amd-patch](https://github.com/TheAutomatic/rtx-remix-minecraft-amd-patch)**<br>(RTX Remix for Minecraft Patch) | **[NVIDIAGameWorks / rtx-remix-minecraft](https://github.com/NVIDIAGameWorks/rtx-remix-minecraft)** (Apache-2.0)<br>**[TheAutomatic / rtx-remix-minecraft-amd-patch](https://github.com/TheAutomatic/rtx-remix-minecraft-amd-patch)** | Auto-scans PrismLauncher / `.minecraft\remix-sdk` instances or adds them manually; deploys unrenamed `OptiScaler.dll`, backs up & patches `remixbridge.dll` (restoring the original on full uninstall), and dynamically sets `[Spoofing] VulkanExtensionSpoofing = true` |
 
 ---
 
@@ -122,15 +125,16 @@ Once in game with **DLSS** (or FSR / XeSS) and **Ray Reconstruction** (if suppor
 
 ## 6. Free Software Notice, Attributions & Licenses
 
-### Free Software Notice
-This software is distributed free of charge. If you paid for this package, request a refund immediately.
+### Free Software & Anti-Resale Notice
+This software is distributed **free of charge** for personal, noncommercial use. **Selling this tool or its packages, bundling it in paid modpacks or paywalled groups, or charging for "remote installation / setup" services is strictly prohibited.** If you paid for this package, request a refund immediately!
 
 ### Attributions & Licenses
+- **[This Project (TheAutomatic / dlss-5-amd-project)](https://github.com/TheAutomatic/dlss-5-amd-project)** — **[PolyForm Noncommercial License 1.0.0](LICENSE)** (see [NOTICE](NOTICE)): Graphical launcher, PE import probe, multi-mode deployment, installer/uninstaller scripts, shared INI profiles, and style share codes (**noncommercial use only; commercial resale and paid installation services prohibited**);
+- **[RTX Remix for Minecraft AMD Patch](https://github.com/TheAutomatic/rtx-remix-minecraft-amd-patch)** (`remixbridge.dll`) — **PolyForm Noncommercial License 1.0.0**: Derived from [NVIDIAGameWorks/rtx-remix-minecraft](https://github.com/NVIDIAGameWorks/rtx-remix-minecraft) (**Apache License 2.0**);
 - **[OptiScaler](https://github.com/optiscaler/OptiScaler)** — **GPL-3.0 License**: Official universal upscaling and frame generation bridge framework (DLL distributed unmodified; replaceable with other third-party builds);
 - **[Mochizuki / DLSSNR-AMD](https://gitlab.com/mochizuki0323/DLSSNR-AMD)** & **[TheAutomatic / DLSSNR-AMD](https://github.com/TheAutomatic/DLSSNR-AMD)** (`dlssnr-amd.asi`) — **MIT License** (© mochizuki0323): AMD RDNA4 / RDNA3 Neural Rendering core, D3D12 Direct-ELF native path, ACO machine-code records, and NR Control plugin;
 - **[Storm (Matheus) / OpenRR](https://github.com/OpenNeuralRendering/OpenRR)** & **[TheAutomatic / OpenRR-ASI](https://github.com/TheAutomatic/OpenRR-ASI)** (`openrr-amd.asi`) — **MIT License**: Open-source AMD RDNA4 / RDNA3 DLSS Ray Reconstruction runtime and standalone ASI plugin;
 - **[RenoDX / clshortfuse](https://github.com/clshortfuse/renodx)** — **MIT License**: RenoDX tone mapping and color processing algorithms;
-- **[OptiPatcher](https://github.com/optiscaler/OptiPatcher)** — **GPL-3.0 License**: Native DLSS option unlocker ASI plugin;
-- **[This Project (TheAutomatic / dlss-5-amd-project)](https://github.com/TheAutomatic/dlss-5-amd-project)** — **GPL-3.0 License**: Graphical launcher, PE import probe, dual `.asi` deployment, shared INI profiles, and style share codes.
+- **[OptiPatcher](https://github.com/optiscaler/OptiPatcher)** — **GPL-3.0 License**: Native DLSS option unlocker ASI plugin.
 
 > This repository and release packages contain **no** proprietary NVIDIA binaries (`nvngx_dlssnr.dll` / `nvngx_dlssd.dll`) or extracted model weight files (`*.bin`). All model weights are extracted locally by the user from their own files.

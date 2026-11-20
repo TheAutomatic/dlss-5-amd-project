@@ -323,15 +323,29 @@ function Get-OptScalerLocalArtwork {
     return $result
 }
 
-function Add-OptScalerGame($list, $seen, [string]$name, [string]$exe, [string]$source, [string]$id, [string]$cover = '', [string]$hero = '') {
+function Test-OptScalerIsOptiDll([string]$path) {
+    if (-not $path -or -not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
+    try {
+        $vi = (Get-Item -LiteralPath $path).VersionInfo
+        return ($vi.ProductName -eq 'OptiScaler' -or $vi.FileDescription -eq 'OptiScaler')
+    } catch { return $false }
+}
+
+function Add-OptScalerGame($list, $seen, [string]$name, [string]$exe, [string]$source, [string]$id, [string]$cover = '', [string]$hero = '', [string]$TargetKind = '', [string]$Root = '') {
     if (-not $exe) { return }
     try { $exe = [IO.Path]::GetFullPath($exe) } catch { return }
     $key = $exe.ToLowerInvariant()
     if ($seen.ContainsKey($key)) { return }
     $seen[$key] = $true
     $dir = [IO.Path]::GetDirectoryName($exe)
-    $installed = Test-Path -LiteralPath (Join-Path $dir 'amd-presr-install.txt')
-    [void]$list.Add(@{
+    $isRtxMc = [bool]($TargetKind -eq 'rtx-remix-mc' -and (Test-Path -LiteralPath (Join-Path $dir 'remixbridge.dll') -PathType Leaf))
+    $installed = (Test-Path -LiteralPath (Join-Path $dir 'amd-presr-install.txt') -PathType Leaf) -or
+        (Test-Path -LiteralPath (Join-Path $dir 'dlssnr-amd-install.txt') -PathType Leaf) -or
+        (Test-Path -LiteralPath (Join-Path $dir 'dlssnr_amd.addon64') -PathType Leaf) -or
+        ((Test-Path -LiteralPath (Join-Path $dir 'dlssnr-amd.asi') -PathType Leaf) -and
+         (Test-Path -LiteralPath (Join-Path $dir 'vk-override\implicit_layer\dlssnr_standalone.json') -PathType Leaf)) -or
+        ($isRtxMc -and (Test-OptScalerIsOptiDll (Join-Path $dir 'OptiScaler.dll')))
+    $item = @{
         id = $(if ($id) { $id } else { $key })
         name = $name
         exe = $exe
@@ -341,7 +355,80 @@ function Add-OptScalerGame($list, $seen, [string]$name, [string]$exe, [string]$s
         exeOverride = $false
         cover = $cover
         hero = $hero
-    })
+    }
+    if ($TargetKind) { $item.targetKind = $TargetKind }
+    if ($Root) { $item.root = $Root }
+    [void]$list.Add($item)
+}
+
+function Get-OptScalerRtxRemixMcGames($games, $seen) {
+    $hasSdkMarkers = {
+        param([string]$sdkDir)
+        if (-not $sdkDir -or -not (Test-Path -LiteralPath (Join-Path $sdkDir 'remixbridge.dll') -PathType Leaf)) { return $false }
+        foreach ($marker in @('d3d9.dll', 'rtxio.dll', 'NRD.dll', 'NRC_Vulkan.dll')) {
+            if (Test-Path -LiteralPath (Join-Path $sdkDir $marker) -PathType Leaf) { return $true }
+        }
+        return $false
+    }
+
+    $prismRoots = New-Object System.Collections.Generic.List[string]
+    if ($env:LOCALAPPDATA) { [void]$prismRoots.Add((Join-Path $env:LOCALAPPDATA 'RtxRemixMinecraft\PrismLauncher\instances')) }
+    if ($env:APPDATA) { [void]$prismRoots.Add((Join-Path $env:APPDATA 'PrismLauncher\instances')) }
+
+    foreach ($instRoot in ($prismRoots | Select-Object -Unique)) {
+        if (-not $instRoot -or -not (Test-Path -LiteralPath $instRoot -PathType Container)) { continue }
+        $launcherRoot = Split-Path -Parent $instRoot
+        Get-ChildItem -LiteralPath $instRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            $instDir = $_.FullName
+            $sdkDir = $null
+            foreach ($mcSub in @('.minecraft\remix-sdk', 'minecraft\remix-sdk')) {
+                $candSdk = Join-Path $instDir $mcSub
+                if (& $hasSdkMarkers $candSdk) { $sdkDir = $candSdk; break }
+            }
+            if (-not $sdkDir) { return }
+
+            $cfgName = $null; $cfgUuid = $null; $cfgIcon = $null
+            $cfgPath = Join-Path $instDir 'instance.cfg'
+            if (Test-Path -LiteralPath $cfgPath -PathType Leaf) {
+                try {
+                    foreach ($line in [IO.File]::ReadAllLines($cfgPath, [Text.Encoding]::UTF8)) {
+                        if ($line -match '^\s*name=(.+)$' -and -not $cfgName) { $cfgName = $Matches[1].Trim() }
+                        elseif ($line -match '^\s*uuid=(.+)$' -and -not $cfgUuid) { $cfgUuid = $Matches[1].Trim() }
+                        elseif ($line -match '^\s*iconKey=(.+)$' -and -not $cfgIcon) { $cfgIcon = $Matches[1].Trim() }
+                    }
+                } catch { }
+            }
+
+            $displayName = if ($cfgName) { $cfgName } elseif ($_.Name -and $_.Name -notmatch '^\.?minecraft$') { $_.Name } else { 'RTX Remix for Minecraft' }
+            $idSuffix = if ($cfgUuid) {
+                $cfgUuid.ToLowerInvariant()
+            } else {
+                $sha1 = [System.Security.Cryptography.SHA1]::Create()
+                try {
+                    $b = [Text.Encoding]::UTF8.GetBytes($sdkDir.ToLowerInvariant())
+                    ([BitConverter]::ToString($sha1.ComputeHash($b))).Replace('-', '').ToLowerInvariant().Substring(0, 12)
+                } finally { $sha1.Dispose() }
+            }
+            $cover = ''
+            if ($cfgIcon -and $launcherRoot) {
+                foreach ($ext in @('.png', '.jpg', '.jpeg')) {
+                    $iconCand = Join-Path $launcherRoot (Join-Path 'icons' ($cfgIcon + $ext))
+                    if (Test-Path -LiteralPath $iconCand -PathType Leaf) { $cover = $iconCand; break }
+                }
+            }
+            $anchorExe = Join-Path $sdkDir 'remixbridge.dll'
+            Add-OptScalerGame $games $seen $displayName $anchorExe 'RTX Remix' ("rtxremix:" + $idSuffix) $cover '' 'rtx-remix-mc' $instDir
+        }
+    }
+
+    if ($env:APPDATA) {
+        $officialMcDir = Join-Path $env:APPDATA '.minecraft'
+        $officialSdk = Join-Path $officialMcDir 'remix-sdk'
+        if (& $hasSdkMarkers $officialSdk) {
+            $anchorExe = Join-Path $officialSdk 'remixbridge.dll'
+            Add-OptScalerGame $games $seen 'Minecraft (RTX Remix)' $anchorExe 'RTX Remix' 'rtxremix:official-minecraft' '' '' 'rtx-remix-mc' $officialMcDir
+        }
+    }
 }
 
 function Get-OptScalerGameLibrary {
@@ -461,5 +548,6 @@ function Get-OptScalerGameLibrary {
             }
         }
     }
+    Get-OptScalerRtxRemixMcGames $games $seen
     return @($games | Sort-Object { $_.name }, { $_.exe })
 }

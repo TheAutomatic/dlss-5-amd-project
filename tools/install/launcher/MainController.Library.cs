@@ -16,7 +16,7 @@ namespace OptScalerNR.Launcher
 {
     public sealed partial class MainController
     {
-        Button _addFolderButton, _manageGameButton;
+        Button _addFolderButton, _addRtxRemixMcButton, _manageGameButton;
         ContextMenu _manageGameMenu;
         MenuItem _changeExeMenuItem, _scanExeMenuItem, _editGameMenuItem, _removeSelectedGameMenuItem, _launchSteamMenuItem;
         CancellationTokenSource _folderScan;
@@ -29,8 +29,10 @@ namespace OptScalerNR.Launcher
         void InitLibraryActions()
         {
             _addFolderButton=(Button)_window.FindName("AddFolderButton");
+            _addRtxRemixMcButton=(Button)_window.FindName("AddRtxRemixMcButton");
             _manageGameButton=(Button)_window.FindName("ManageGameButton");
             if(_addFolderButton!=null)_addFolderButton.Click+=(s,e)=>AddFolder();
+            if(_addRtxRemixMcButton!=null)_addRtxRemixMcButton.Click+=(s,e)=>AddRtxRemixMinecraftInstance();
             if(_manageGameButton!=null)
             {
                 var itemStyle=(Style)_window.FindResource("GameContextMenuItem");
@@ -66,15 +68,17 @@ namespace OptScalerNR.Launcher
             bool busy=_writeBusy||(_session!=null&&_session.IsRunning&&(_presentationBusy||!_session.CanKill))||_folderScan!=null;
             bool canManage=_selectedGame!=null&&!busy;
             if(_addFolderButton!=null){_addFolderButton.Content=L("+ 添加文件夹","+ Add Folder");_addFolderButton.IsEnabled=!busy;}
+            if(_addRtxRemixMcButton!=null){_addRtxRemixMcButton.Content=L("+ 添加 RTX Remix Minecraft 实例…","+ Add RTX Remix Minecraft Instance…");_addRtxRemixMcButton.IsEnabled=!busy;}
             if(_manageGameButton!=null){
                 _manageGameButton.Content=_folderScan!=null?L("取消扫描","Cancel scan"):L("管理 ▾","Manage ▾");
                 _manageGameButton.IsEnabled=_folderScan!=null||canManage;
                 if(!canManage&&_manageGameMenu!=null)_manageGameMenu.IsOpen=false;
             }
             bool isSteam = _selectedGame != null && !string.IsNullOrEmpty(_selectedGame.Id) && _selectedGame.Id.StartsWith("steam:", StringComparison.OrdinalIgnoreCase);
+            bool isRtxMc = _selectedGame != null && _selectedGame.IsRtxRemixMinecraft;
             if(_launchSteamMenuItem!=null){_launchSteamMenuItem.Header=L("通过 Steam 启动…","Launch via Steam…");_launchSteamMenuItem.Visibility=isSteam?Visibility.Visible:Visibility.Collapsed;_launchSteamMenuItem.IsEnabled=canManage;}
-            if(_changeExeMenuItem!=null){_changeExeMenuItem.Header=L("更换 EXE…","Change EXE…");_changeExeMenuItem.IsEnabled=canManage;}
-            if(_scanExeMenuItem!=null){_scanExeMenuItem.Header=L("扫描启动程序…","Find game EXE…");_scanExeMenuItem.IsEnabled=canManage;}
+            if(_changeExeMenuItem!=null){_changeExeMenuItem.Header=L("更换 EXE…","Change EXE…");_changeExeMenuItem.Visibility=isRtxMc?Visibility.Collapsed:Visibility.Visible;_changeExeMenuItem.IsEnabled=canManage&&!isRtxMc;}
+            if(_scanExeMenuItem!=null){_scanExeMenuItem.Header=L("扫描启动程序…","Find game EXE…");_scanExeMenuItem.Visibility=isRtxMc?Visibility.Collapsed:Visibility.Visible;_scanExeMenuItem.IsEnabled=canManage&&!isRtxMc;}
             if(_editGameMenuItem!=null){_editGameMenuItem.Header=L("编辑信息…","Edit details…");_editGameMenuItem.IsEnabled=canManage;}
             if(_removeSelectedGameMenuItem!=null){_removeSelectedGameMenuItem.Header=L("从列表移除","Remove from list");_removeSelectedGameMenuItem.IsEnabled=canManage;}
         }
@@ -116,10 +120,103 @@ namespace OptScalerNR.Launcher
             var root=Path.GetFullPath(path).TrimEnd('\\','/');
             if(root.EndsWith(":"))root+="\\";
             if((File.GetAttributes(root)&FileAttributes.ReparsePoint)!=0){DialogTheme.Show(_window,L("请选择实际文件夹，不使用目录链接。","Select the actual folder rather than a directory link."),_window.Title);return;}
+            var detectedSdk = PeProbe.ResolveRtxRemixSdkDir(root);
+            if(!string.IsNullOrEmpty(detectedSdk)){AddRtxRemixSdkEntry(detectedSdk);return;}
             RestoreHiddenPath(root);
             var game=_allGames.Find(g=>SamePath(g.RootDirectory,root));
             if(game==null){game=new GameInfo{Id="manual:"+Guid.NewGuid().ToString("N"),Name=Path.GetFileName(root.TrimEnd('\\','/')),Root=root,Source="Manual"};if(string.IsNullOrEmpty(game.Name))game.Name=root;_allGames.Add(game);}
             SaveSettings();SaveLibraryCache();RefreshGameListView();SelectGame(game);
+        }
+        void AddRtxRemixMinecraftInstance()
+        {
+            try
+            {
+                string startDir = null;
+                var localApp = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                var roamingApp = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                var cand1 = string.IsNullOrEmpty(localApp) ? null : Path.Combine(localApp, @"RtxRemixMinecraft\PrismLauncher\instances");
+                var cand2 = string.IsNullOrEmpty(roamingApp) ? null : Path.Combine(roamingApp, @"PrismLauncher\instances");
+                if (!string.IsNullOrEmpty(cand1) && Directory.Exists(cand1)) startDir = cand1;
+                else if (!string.IsNullOrEmpty(cand2) && Directory.Exists(cand2)) startDir = cand2;
+
+                var picked = FolderPicker.Pick(
+                    _window,
+                    L("选择 RTX Remix Minecraft 实例目录（或 .minecraft / remix-sdk 文件夹）",
+                      "Select RTX Remix Minecraft instance folder (or .minecraft / remix-sdk folder)"),
+                    startDir);
+                if (string.IsNullOrEmpty(picked)) return;
+                var sdkDir = PeProbe.ResolveRtxRemixSdkDir(picked);
+                if (string.IsNullOrEmpty(sdkDir))
+                {
+                    DialogTheme.Show(
+                        _window,
+                        L("在所选目录中未检测到 RTX Remix for Minecraft 运行目录（需包含 remix-sdk\\remixbridge.dll 与 d3d9.dll / rtxio.dll）。\n\n请选择 PrismLauncher 实例文件夹、.minecraft 文件夹，或直接选择其中的 remix-sdk 文件夹。",
+                          "No RTX Remix for Minecraft SDK directory (remix-sdk\\remixbridge.dll + d3d9.dll / rtxio.dll) was found in the selected folder.\n\nSelect the PrismLauncher instance folder, .minecraft folder, or the remix-sdk folder directly."),
+                        _window.Title,
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                    return;
+                }
+                AddRtxRemixSdkEntry(sdkDir);
+            }
+            catch (Exception ex) { DialogTheme.Show(_window, ex.Message, _window.Title); }
+        }
+        void AddRtxRemixSdkEntry(string sdkDir)
+        {
+            if (_writeBusy || string.IsNullOrEmpty(sdkDir) || !Directory.Exists(sdkDir)) return;
+            var sdkFull = Path.GetFullPath(sdkDir).TrimEnd('\\', '/');
+            if ((File.GetAttributes(sdkFull) & FileAttributes.ReparsePoint) != 0)
+            {
+                DialogTheme.Show(_window, L("请选择实际文件夹，不使用目录链接。", "Select the actual folder rather than a directory link."), _window.Title);
+                return;
+            }
+            var anchor = Path.Combine(sdkFull, "remixbridge.dll");
+            var instDir = PeProbe.TryFindPrismInstanceDir(sdkFull);
+            var rootDir = !string.IsNullOrEmpty(instDir) ? instDir : sdkFull;
+            var displayName = PeProbe.TryReadPrismInstanceName(sdkFull);
+            if (string.IsNullOrEmpty(displayName))
+            {
+                var baseName = Path.GetFileName(rootDir.TrimEnd('\\', '/'));
+                displayName = (!string.IsNullOrEmpty(baseName) && !string.Equals(baseName, "remix-sdk", StringComparison.OrdinalIgnoreCase))
+                    ? baseName
+                    : "RTX Remix for Minecraft";
+            }
+            RestoreHiddenPath(sdkFull);
+            RestoreHiddenPath(anchor);
+            RestoreHiddenPath(rootDir);
+
+            var game = _allGames.Find(g => SamePath(g.Exe, anchor) || (g.IsRtxRemixMinecraft && SamePath(g.RootDirectory, rootDir)));
+            if (game == null)
+            {
+                string idHash;
+                using (var sha = SHA256.Create())
+                    idHash = BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(sdkFull.ToLowerInvariant()))).Replace("-", "").ToLowerInvariant().Substring(0, 12);
+                game = new GameInfo
+                {
+                    Id = "rtxremix:manual-" + idHash,
+                    Name = displayName,
+                    Exe = anchor,
+                    Root = rootDir,
+                    Source = "RTX Remix",
+                    TargetKind = "rtx-remix-mc"
+                };
+                _allGames.Add(game);
+            }
+            else
+            {
+                game.Exe = anchor;
+                if (string.IsNullOrEmpty(game.Root)) game.Root = rootDir;
+                if (string.IsNullOrEmpty(game.Name)) game.Name = displayName;
+                game.TargetKind = "rtx-remix-mc";
+                if (!string.IsNullOrEmpty(game.Id)) _hiddenGames.Remove(game.Id);
+            }
+            game.ExeOverride = true;
+            game.Installed = IsDirectoryInstalled(sdkFull);
+            SaveSettings();
+            SaveLibraryCache();
+            RecheckPackageComparison(game);
+            RefreshGameListView();
+            SelectGame(game);
         }
         void BindExecutable(GameInfo game,string path)
         {
@@ -127,7 +224,8 @@ namespace OptScalerNR.Launcher
             if(game==null||string.IsNullOrEmpty(normal)||!GamePaths.CanUse(normal))return;
             if(string.IsNullOrEmpty(game.Root))game.Root=Path.GetDirectoryName(normal);
             game.Exe=normal;game.ExeOverride=true;
-            game.Installed=File.Exists(Path.Combine(Path.GetDirectoryName(normal),"amd-presr-install.txt"));
+            var normalDir=Path.GetDirectoryName(normal);
+            game.Installed=File.Exists(Path.Combine(normalDir,"amd-presr-install.txt"))||!string.IsNullOrEmpty(PeProbe.DetectInstalledMode(normalDir));
             RestoreHiddenPath(normal);
             if(!string.IsNullOrEmpty(game.Id))_hiddenGames.Remove(game.Id);
             // Keep the existing ID, including legacy custom IDs, and every display override.

@@ -1459,9 +1459,9 @@
       "names":[
         "Borderlands 4"
       ],
-      "notesEn":"OptiScaler Wiki: Working · Inputs: DLSS, FSR3.1, XeSS · Proxy: default dxgi.dll. Spoofing causes a big performance overhead, so recommended to use FSR or XeSS inputs. Reflex works without spoof",
-      "notesZh":"OptiScaler Wiki：可用 · 输入：DLSS、FSR3.1、XeSS · 未记录特殊代理，默认 dxgi.dll。Spoofing causes a big performance overhead, so 建议 to use FSR 或 XeSS 输入. Reflex 可用：out spoof",
-      "optiPatcher":false,
+      "notesEn":"OptiScaler Wiki: Working · Inputs: DLSS, FSR3.1, XeSS · OptiPatcher supported · Proxy: default dxgi.dll. Spoofing causes a big performance overhead, so recommended to use FSR or XeSS inputs. Reflex works without spoof",
+      "notesZh":"OptiScaler Wiki：可用 · 输入：DLSS、FSR3.1、XeSS · 支持 OptiPatcher · 未记录特殊代理，默认 dxgi.dll。Spoofing causes a big performance overhead, so 建议 to use FSR 或 XeSS 输入. Reflex 可用：out spoof",
+      "optiPatcher":true,
       "pathSegments":[
         "Borderlands 4"
       ],
@@ -3363,9 +3363,9 @@
       "names":[
         "Enshrouded"
       ],
-      "notesEn":"OptiScaler Wiki: Working · Inputs: DLSS · Proxy: default dxgi.dll. Shimmering grass and fog with FSR2/3",
-      "notesZh":"OptiScaler Wiki：可用 · 输入：DLSS · 未记录特殊代理，默认 dxgi.dll。Shimmering grass and fog with FSR2/3",
-      "optiPatcher":false,
+      "notesEn":"OptiScaler Wiki: Working · Inputs: DLSS · OptiPatcher supported · Proxy: default dxgi.dll. FSR3 inputs don't work",
+      "notesZh":"OptiScaler Wiki：可用 · 输入：DLSS · 支持 OptiPatcher · 未记录特殊代理，默认 dxgi.dll。FSR3 输入 don't work",
+      "optiPatcher":true,
       "pathSegments":[
         "Enshrouded"
       ],
@@ -7249,6 +7249,23 @@
       ],
       "preferred":"dxgi.dll",
       "source":"https://github.com/optiscaler/OptiScaler/wiki/Compatibility-List",
+      "sourceFormat":"wiki",
+      "upstreamVersion":null
+    },
+    {
+      "alternatives":[],
+      "id":"phantombladezero",
+      "names":[
+        "Phantom Blade Zero"
+      ],
+      "notesEn":"OptiScaler Wiki: Working · Inputs: DLSS, FSR3.1/4, XeSS · OptiPatcher supported · Proxy: default dxgi.dll. Click the compatibility entry link to see more info",
+      "notesZh":"OptiScaler Wiki：可用 · 输入：DLSS、FSR3.1/4、XeSS · 支持 OptiPatcher · 未记录特殊代理，默认 dxgi.dll。Click the compatibility entry link to see more info",
+      "optiPatcher":true,
+      "pathSegments":[
+        "Phantom Blade Zero"
+      ],
+      "preferred":"dxgi.dll",
+      "source":"https://github.com/optiscaler/OptiScaler/wiki/Phantom-Blade-Zero",
       "sourceFormat":"wiki",
       "upstreamVersion":null
     },
@@ -11793,6 +11810,23 @@
     },
     {
       "alternatives":[],
+      "id":"borderlands3",
+      "names":[
+        "Borderlands 3"
+      ],
+      "notesEn":"OptiScaler Wiki: Working · Inputs: DLSS · Proxy: default dxgi.dll · Luma UE mod required. Luma compatibility list mentions flickering issues, but image seems fine",
+      "notesZh":"OptiScaler Wiki：可用 · 输入：DLSS · 未记录特殊代理，默认 dxgi.dll · 需 Luma UE Mod。Luma compatibility list mentions 闪烁 issues, but image seems fine",
+      "optiPatcher":false,
+      "pathSegments":[
+        "Borderlands 3"
+      ],
+      "preferred":"dxgi.dll",
+      "source":"https://github.com/optiscaler/OptiScaler/wiki/Luma-Unreal-Engine-Luma-UE",
+      "sourceFormat":"wiki",
+      "upstreamVersion":null
+    },
+    {
+      "alternatives":[],
       "id":"breathedge",
       "names":[
         "Breathedge"
@@ -12175,7 +12209,7 @@
     "dbghelp.dll",
     "version.dll"
   ],
-  "reviewed":"2026-11-08",
-  "revision":2026110801,
+  "reviewed":"2026-11-21",
+  "revision":2026112101,
   "schema":1
 }

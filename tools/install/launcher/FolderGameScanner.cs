@@ -179,11 +179,11 @@ namespace OptScalerNR.Launcher
             var linked=CancellationTokenSource.CreateLinkedTokenSource(cancellation); var token=linked.Token;
             var work=Task.Run(()=> {
                 if(!Directory.Exists(root) || LinkedAncestor(root))throw new IOException("Select an existing folder without directory links.");
-                var todo=new List<DirectoryItem> {new DirectoryItem {Path=root}};
+                var q0=new Queue<DirectoryItem>(); var q1=new Queue<DirectoryItem>(); var q2=new Queue<DirectoryItem>();
+                q0.Enqueue(new DirectoryItem {Path=root});
                 var seen=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                while(todo.Count>0 && !token.IsCancellationRequested && timer.ElapsedMilliseconds<10000) {
-                    todo.Sort((a,b)=> {int p=a.Priority.CompareTo(b.Priority); return p!=0 ? p : a.Depth.CompareTo(b.Depth);});
-                    var item=todo[0]; todo.RemoveAt(0);
+                while((q0.Count>0 || q1.Count>0 || q2.Count>0) && !token.IsCancellationRequested && timer.ElapsedMilliseconds<10000) {
+                    var item=q0.Count>0 ? q0.Dequeue() : (q1.Count>0 ? q1.Dequeue() : q2.Dequeue());
                     if(!seen.Add(item.Path) || Linked(item.Path))continue;
                     lock(state.Gate)state.Directories++;
                     try {
@@ -203,12 +203,16 @@ namespace OptScalerNR.Launcher
                             // the root Content folder and identified Xbox packages searchable.
                             if(name=="content" && item.Depth>0 && !File.Exists(System.IO.Path.Combine(dir,"MicrosoftGame.Config")))continue;
                             if(new[] {"paks","shadercache",".git","node_modules","optiscaler","person-model","dlssnr-amd","redist","_commonredist","__installer"}.Contains(name))continue;
-                            if(todo.Count+seen.Count>=10000) {lock(state.Gate)state.Limited=true;break;}
-                            if(!Linked(dir))todo.Add(new DirectoryItem {Path=dir,Depth=item.Depth+1,Priority=Priority(dir)});
+                            if(q0.Count+q1.Count+q2.Count+seen.Count>=10000) {lock(state.Gate)state.Limited=true;break;}
+                            if(!Linked(dir)) {
+                                int p=Priority(dir);
+                                var nextItem=new DirectoryItem {Path=dir,Depth=item.Depth+1,Priority=p};
+                                if(p==0)q0.Enqueue(nextItem); else if(p==1)q1.Enqueue(nextItem); else q2.Enqueue(nextItem);
+                            }
                         }
                     } catch(IOException) {lock(state.Gate)state.Limited=true;} catch(UnauthorizedAccessException) {lock(state.Gate)state.Limited=true;}
                 }
-                if(todo.Count>0)lock(state.Gate)state.Limited=true;
+                if(q0.Count+q1.Count+q2.Count>0)lock(state.Gate)state.Limited=true;
             });
             var winner=await Task.WhenAny(work,Task.Delay(10000,cancellation)).ConfigureAwait(false);
             if(winner==work) {try {await work.ConfigureAwait(false);}finally{linked.Dispose();} return state.Snapshot(false);}
