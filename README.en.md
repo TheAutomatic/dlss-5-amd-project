@@ -60,22 +60,22 @@ Version `2.0` retires custom-patched `OptiScaler.dll` builds in favor of a decou
 
 ---
 
-### Linux / SteamOS (Proton) Script Installation
+### Linux / SteamOS (Proton) Graphical Launcher (new)
 
-The package includes [`install.sh`](install.sh) for Linux / Steam Deck (Proton):
+Download a Linux package from the [Releases page](https://github.com/TheAutomatic/dlss-5-amd-project/releases). It is built on Mochizuki's upstream [DLSSNR-AMD for Linux](https://gitlab.com/mochizuki0323/DLSSNR-AMD/-/releases) and, like upstream, comes in two builds:
+
+| Package | For | Install routes |
+| --- | --- | --- |
+| `OptiScaler-NR-Linux-x86_64-<version>.tar.gz` | 64-bit games | OptiScaler + three ReShade Feeder routes |
+| `OptiScaler-NR-Linux-i686-<version>.tar.gz` | 32-bit games | ReShade Feeder routes only (OptiScaler is 64-bit only) |
 
 ```bash
-# Interactive install (scans game EXE imports to recommend proxy, then asks whether to install dlssnr-amd.asi, openrr-amd.asi, and OptiPatcher.asi)
-bash install.sh "/path/to/game/folder"
-
-# Or non-interactive one-liner
-bash install.sh "/path/to/game/folder" install --proxy dxgi.dll --nr on --openrr on --dll /path/to/nvngx_dlssnr.dll --dlssd /path/to/nvngx_dlssd.dll
-
-# Uninstall / Pack diagnostic logs
-bash install.sh "/path/to/game/folder" remove
-bash install.sh "/path/to/game/folder" logs
+tar -xzf OptiScaler-NR-Linux-x86_64-<version>.tar.gz && cd OptiScaler-NR-Linux-x86_64-<version>
+./OptiScalerNR-Launcher.sh                 # graphical launcher (python3 >= 3.8; scans Steam / Heroic / Lutris)
+./OptiScalerNR-Launcher.sh --install-desktop   # add an app-menu entry
+bash uninstall.sh "/path/to/game/folder"   # uninstall (--all = every game the launcher installed into)
 ```
-After installation, add the printed Steam **Launch Options** to the game in Steam:
+Upstream's `install.sh` ships unmodified and can also be used directly (see `README-Linux.md` / `README.txt` in the package). After installing, copy the **launch options** shown by the launcher into Steam › Properties › General › Launch Options, e.g.:
 ```text
 WINEDLLOVERRIDES="dxgi=n,b" %command%
 ```
