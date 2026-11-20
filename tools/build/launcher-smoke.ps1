@@ -15,10 +15,13 @@ if (-not (Test-Path -LiteralPath $exe)) {
 $fw = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319'
 $wpf = Join-Path $fw 'WPF'
 $smoke = Join-Path $launcherDir 'launcher-smoke.exe'
-& (Join-Path $fw 'csc.exe') /nologo /noconfig /nostdlib+ /target:exe /platform:x64 /warnaserror+ /out:$smoke `
-    /r:(Join-Path $fw 'mscorlib.dll') /r:(Join-Path $fw 'System.dll') /r:(Join-Path $fw 'System.Core.dll') /r:(Join-Path $fw 'System.Xaml.dll') `
-    /r:(Join-Path $wpf 'WindowsBase.dll') /r:(Join-Path $wpf 'PresentationCore.dll') /r:(Join-Path $wpf 'PresentationFramework.dll') `
-    (Join-Path $PSScriptRoot 'launcher-smoke.cs')
+$cscArgs = @('/nologo', '/noconfig', '/nostdlib+', '/target:exe', '/platform:x64', '/warnaserror+', "/out:$smoke")
+foreach ($r in @((Join-Path $fw 'mscorlib.dll'), (Join-Path $fw 'System.dll'), (Join-Path $fw 'System.Core.dll'), (Join-Path $fw 'System.Xaml.dll'),
+                 (Join-Path $wpf 'WindowsBase.dll'), (Join-Path $wpf 'PresentationCore.dll'), (Join-Path $wpf 'PresentationFramework.dll'))) {
+    $cscArgs += "/r:$r"
+}
+$cscArgs += (Join-Path $PSScriptRoot 'launcher-smoke.cs')
+& (Join-Path $fw 'csc.exe') @cscArgs
 if ($LASTEXITCODE -ne 0) { throw "smoke harness compile failed ($LASTEXITCODE)" }
 
 # Throw-away settings + fake library (real files so HasExecutable is true; nothing is installed).
