@@ -1,0 +1,249 @@
+// STA smoke test for the WPF launcher (C# 5, compiled with the .NET Framework csc in CI).
+// Loads OptiScalerNRLauncher.exe, creates the main window with a throw-away settings folder and a fake
+// library, then cycles light/dark x zh/en x the four install modes, the settings overlay and the
+// 1020x660 minimum size. Fails (exit code 1) on any dispatcher exception or clipped key control, and
+// writes PNG previews of every state into the output folder.
+//
+// Usage: launcher-smoke.exe <OptiScalerNRLauncher.exe> <settingsDir> <outDir>
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
+using System.Threading;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Threading;
+
+static class LauncherSmoke
+{
+    static readonly List<string> Failures = new List<string>();
+    static Window _window;
+    static object _controller;
+    static string _out;
+
+    [STAThread]
+    static int Main(string[] args)
+    {
+        if (args.Length < 3) { Console.Error.WriteLine("usage: launcher-smoke <exe> <settingsDir> <outDir>"); return 2; }
+        _out = args[2];
+        Directory.CreateDirectory(_out);
+        var app = new Application();
+        app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        app.DispatcherUnhandledException += delegate(object s, DispatcherUnhandledExceptionEventArgs e) {
+            Fail("dispatcher exception: " + e.Exception);
+            e.Handled = true;
+        };
+        try
+        {
+            var asm = Assembly.LoadFrom(Path.GetFullPath(args[0]));
+            var type = asm.GetType("OptScalerNR.Launcher.MainController", true);
+            var create = type.GetMethod("Create", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public, null,
+                new[] { typeof(string[]), typeof(string) }, null);
+            _window = (Window)create.Invoke(null, new object[] { new string[0], Path.GetFullPath(args[1]) });
+            _controller = _window.Tag;
+            _window.Width = 1240; _window.Height = 800;
+            _window.WindowStartupLocation = WindowStartupLocation.Manual;
+            _window.Left = 0; _window.Top = 0;
+            _window.ShowActivated = false;
+            app.MainWindow = _window;
+            _window.Show();
+            Pump(3500);
+
+            var list = (ListBox)Find("GameList");
+            Check(list.Items.Count >= 2, "fake library loaded (" + list.Items.Count + " items)");
+
+            foreach (var theme in new[] { "light", "dark" })
+            {
+                Invoke("SetTheme", theme);
+                foreach (var lang in new[] { "zh", "en" })
+                {
+                    Invoke("SetLanguage", lang);
+                    SelectGame(list, false);
+                    foreach (var mode in new[] { "ModeOptiScalerRadio", "ModeStandaloneRadio", "ModeReShadeRadio" })
+                    {
+                        ((RadioButton)Find(mode)).IsChecked = true;
+                        Pump(400);
+                        AssertLayout(theme + "-" + lang + "-" + mode);
+                        Shot(theme + "-" + lang + "-" + mode.Replace("Mode", "").Replace("Radio", "").ToLowerInvariant());
+                    }
+                    ((RadioButton)Find("ModeOptiScalerRadio")).IsChecked = true;
+                    if (SelectGame(list, true))
+                    {
+                        Pump(600);
+                        Check(((FrameworkElement)Find("RtxRemixMcModeCard")).IsVisible, theme + "-" + lang + ": RTX Remix MC card visible");
+                        Check(!((FrameworkElement)Find("ModeCardsGrid")).IsVisible, theme + "-" + lang + ": mode cards hidden for RTX Remix MC");
+                        AssertLayout(theme + "-" + lang + "-rtxmc");
+                        Shot(theme + "-" + lang + "-rtxremixmc");
+                    }
+                    else Fail("no RTX Remix MC entry in the fake library");
+                    CheckEnglish(lang);
+                }
+                // Settings overlay + Esc close.
+                SelectGame(list, false);
+                ((Button)Find("SettingsTab")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                Pump(300);
+                Check(((FrameworkElement)Find("SettingsPage")).IsVisible, theme + ": settings overlay opens");
+                Shot(theme + "-en-settings");
+                ((Button)Find("SettingsCloseButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                Pump(200);
+                Check(!((FrameworkElement)Find("SettingsPage")).IsVisible, theme + ": settings overlay closes");
+            }
+
+            // Minimum window size: every key control must stay inside the window.
+            foreach (var theme in new[] { "light", "dark" })
+            {
+                Invoke("SetTheme", theme);
+                foreach (var lang in new[] { "zh", "en" })
+                {
+                    Invoke("SetLanguage", lang);
+                    _window.Width = _window.MinWidth; _window.Height = _window.MinHeight;
+                    Pump(600);
+                    Check(Math.Abs(_window.ActualWidth - 1020) < 1 && Math.Abs(_window.ActualHeight - 660) < 1,
+                        "min size is 1020x660 (got " + _window.ActualWidth + "x" + _window.ActualHeight + ")");
+                    AssertLayout("min-" + theme + "-" + lang);
+                    Shot("min-" + theme + "-" + lang);
+                }
+            }
+            // Preview images used by the PR description.
+            _window.Width = 1240; _window.Height = 800;
+            Invoke("SetLanguage", "zh");
+            SelectGame(list, false);
+            foreach (var theme in new[] { "light", "dark" }) { Invoke("SetTheme", theme); Pump(500); Shot("preview-" + theme + "-zh"); }
+            Invoke("SetLanguage", "en");
+            foreach (var theme in new[] { "light", "dark" }) { Invoke("SetTheme", theme); Pump(500); Shot("preview-" + theme + "-en"); }
+        }
+        catch (Exception ex)
+        {
+            Fail("exception: " + ex);
+        }
+        try { if (_window != null) _window.Close(); } catch { }
+        Pump(200);
+        Console.WriteLine(Failures.Count == 0 ? "SMOKE OK" : ("SMOKE FAILED (" + Failures.Count + ")"));
+        foreach (var f in Failures) Console.WriteLine("  - " + f);
+        return Failures.Count == 0 ? 0 : 1;
+    }
+
+    static object Find(string name)
+    {
+        var o = _window.FindName(name);
+        if (o == null) throw new InvalidOperationException("missing x:Name " + name);
+        return o;
+    }
+
+    static void Invoke(string method, string arg)
+    {
+        var m = _controller.GetType().GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+        if (m == null) throw new MissingMethodException(method);
+        m.Invoke(_controller, new object[] { arg });
+        Pump(300);
+    }
+
+    static bool SelectGame(ListBox list, bool rtxMc)
+    {
+        for (int i = 0; i < list.Items.Count; i++)
+        {
+            var info = Member(list.Items[i], "Info") ?? list.Items[i];
+            var isMc = Member(info, "IsRtxRemixMinecraft") as bool? == true;
+            if (isMc == rtxMc)
+            {
+                if (list.SelectedIndex != i) { list.SelectedIndex = i; Pump(1200); }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static object Member(object o, string name)
+    {
+        if (o == null) return null;
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        var f = o.GetType().GetField(name, flags);
+        if (f != null) return f.GetValue(o);
+        var p = o.GetType().GetProperty(name, flags);
+        return p != null ? p.GetValue(o, null) : null;
+    }
+
+    static void CheckEnglish(string lang)
+    {
+        if (lang != "en") return;
+        var status = (TextBlock)Find("StatusText");
+        foreach (var c in status.Text ?? "")
+            if (c >= 0x4E00 && c <= 0x9FFF) { Fail("English mode StatusText contains Chinese: " + status.Text); return; }
+    }
+
+    static void AssertLayout(string state)
+    {
+        var root = (FrameworkElement)_window.Content;
+        var w = root.ActualWidth; var h = root.ActualHeight;
+        foreach (var name in new[] { "SearchBox", "RefreshButton", "ThemeToggle", "SettingsTab", "MinBtn", "MaxBtn", "CloseBtn",
+                                     "AddMenuButton", "GameList", "PrimaryButton", "StatusText", "DetailsScroll" })
+        {
+            var el = _window.FindName(name) as FrameworkElement;
+            if (el == null) { Fail(state + ": missing " + name); continue; }
+            if (!el.IsVisible) continue;
+            var tl = el.TranslatePoint(new Point(0, 0), root);
+            var br = el.TranslatePoint(new Point(el.ActualWidth, el.ActualHeight), root);
+            if (tl.X < -0.5 || tl.Y < -0.5 || br.X > w + 0.5 || br.Y > h + 0.5)
+                Fail(state + ": " + name + " outside the window (" + tl + " .. " + br + " in " + w + "x" + h + ")");
+            if (el.ActualWidth < 1 || el.ActualHeight < 1) Fail(state + ": " + name + " has zero size");
+        }
+        // Hero action buttons must not be squeezed below their desired width (text clipping).
+        foreach (var name in new[] { "PrimaryButton", "LaunchGameButton", "ManageGameButton", "OpenFolderButton", "UninstallButton" })
+        {
+            var el = _window.FindName(name) as FrameworkElement;
+            if (el == null || !el.IsVisible) continue;
+            if (el.ActualWidth + 0.5 < el.DesiredSize.Width) Fail(state + ": " + name + " clipped (" + el.ActualWidth + " < " + el.DesiredSize.Width + ")");
+        }
+    }
+
+    static void Shot(string name)
+    {
+        try
+        {
+            var root = (FrameworkElement)_window.Content;
+            int w = (int)Math.Ceiling(root.ActualWidth), h = (int)Math.Ceiling(root.ActualHeight);
+            if (w < 1 || h < 1) return;
+            var dv = new DrawingVisual();
+            using (var dc = dv.RenderOpen())
+            {
+                var bg = _window.Background as SolidColorBrush;
+                // Mica/transparent canvases render as the solid fallback colour.
+                dc.DrawRectangle(bg != null && bg.Color.A > 0 ? (Brush)bg : (_window.FindResource("ThemeBackground") as Brush), null, new Rect(0, 0, w, h));
+                dc.DrawRectangle(new VisualBrush(root) { Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top }, null, new Rect(0, 0, w, h));
+            }
+            var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+            rtb.Render(dv);
+            var enc = new PngBitmapEncoder();
+            enc.Frames.Add(BitmapFrame.Create(rtb));
+            using (var fs = File.Create(Path.Combine(_out, name + ".png"))) enc.Save(fs);
+        }
+        catch (Exception ex) { Fail("screenshot " + name + ": " + ex.Message); }
+    }
+
+    static void Check(bool ok, string what)
+    {
+        if (!ok) Fail(what);
+    }
+
+    static void Fail(string message)
+    {
+        Failures.Add(message);
+        Console.WriteLine("FAIL: " + message);
+    }
+
+    static void Pump(int ms)
+    {
+        var end = DateTime.UtcNow.AddMilliseconds(ms);
+        do
+        {
+            var frame = new DispatcherFrame();
+            Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.Background,
+                new DispatcherOperationCallback(delegate(object f) { ((DispatcherFrame)f).Continue = false; return null; }), frame);
+            Dispatcher.PushFrame(frame);
+            Thread.Sleep(15);
+        } while (DateTime.UtcNow < end);
+    }
+}
