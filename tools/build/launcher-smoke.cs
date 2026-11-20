@@ -111,9 +111,9 @@ static class LauncherSmoke
             _window.Width = 1240; _window.Height = 800;
             Invoke("SetLanguage", "zh");
             SelectGame(list, false);
-            foreach (var theme in new[] { "light", "dark" }) { Invoke("SetTheme", theme); Pump(500); Shot("preview-" + theme + "-zh"); }
+            foreach (var theme in new[] { "light", "dark" }) { Invoke("SetTheme", theme); Pump(500); Preview("preview-" + theme + "-zh"); }
             Invoke("SetLanguage", "en");
-            foreach (var theme in new[] { "light", "dark" }) { Invoke("SetTheme", theme); Pump(500); Shot("preview-" + theme + "-en"); }
+            foreach (var theme in new[] { "light", "dark" }) { Invoke("SetTheme", theme); Pump(500); Preview("preview-" + theme + "-en"); }
         }
         catch (Exception ex)
         {
@@ -124,6 +124,16 @@ static class LauncherSmoke
         Console.WriteLine(Failures.Count == 0 ? "SMOKE OK" : ("SMOKE FAILED (" + Failures.Count + ")"));
         foreach (var f in Failures) Console.WriteLine("  - " + f);
         return Failures.Count == 0 ? 0 : 1;
+    }
+
+    // Top of the details pane plus two scrolled pages so the lower sections are reviewable too.
+    static void Preview(string name)
+    {
+        var scroll = (ScrollViewer)Find("DetailsScroll");
+        scroll.ScrollToTop(); Pump(250); Shot(name);
+        scroll.ScrollToVerticalOffset(scroll.ViewportHeight * 0.9); Pump(250); Shot(name + "-2");
+        scroll.ScrollToBottom(); Pump(250); Shot(name + "-3");
+        scroll.ScrollToTop(); Pump(150);
     }
 
     static object Find(string name)
@@ -195,7 +205,8 @@ static class LauncherSmoke
         {
             var el = _window.FindName(name) as FrameworkElement;
             if (el == null || !el.IsVisible) continue;
-            if (el.ActualWidth + 0.5 < el.DesiredSize.Width) Fail(state + ": " + name + " clipped (" + el.ActualWidth + " < " + el.DesiredSize.Width + ")");
+            // DesiredSize includes the margin; ActualWidth does not.
+            if (el.ActualWidth + el.Margin.Left + el.Margin.Right + 0.5 < el.DesiredSize.Width) Fail(state + ": " + name + " clipped (" + el.ActualWidth + " < " + el.DesiredSize.Width + ")");
         }
     }
 

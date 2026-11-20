@@ -677,10 +677,8 @@
                           </Border>
                           <Button x:Name="RelockMochiMcBtn" Style="{DynamicResource CardAction}" Margin="0,0,8,0" Content="重新锁定" Visibility="Collapsed"
                                   local:DialogTheme.Icon="M 3.75 7.25 H 12.25 V 13.75 H 3.75 Z M 5.5 7.25 V 5 A 2.5 2.5 0 0 1 10.5 5 V 7.25"/>
-                          <Button x:Name="MochiHotkeysButton" Style="{DynamicResource CardAction}" Margin="0,0,8,0"
-                                  local:DialogTheme.Icon="M 2 4 H 14 A 0.75 0.75 0 0 1 14.75 4.75 V 11.25 A 0.75 0.75 0 0 1 14 12 H 2 A 0.75 0.75 0 0 1 1.25 11.25 V 4.75 A 0.75 0.75 0 0 1 2 4 Z M 4 6.75 H 4.5 M 6.5 6.75 H 7 M 9 6.75 H 9.5 M 11.5 6.75 H 12 M 5 9.5 H 11"/>
-                          <Button x:Name="MochiShareCodeButton" Style="{DynamicResource CardAction}"
-                                  local:DialogTheme.Icon="M 8 10 V 2.5 M 5 5.5 L 8 2.5 L 11 5.5 M 3 8.5 V 13.5 H 13 V 8.5"/>
+                          <Button x:Name="MochiHotkeysButton" Style="{DynamicResource CardAction}" Margin="0,0,8,0"/>
+                          <Button x:Name="MochiShareCodeButton" Style="{DynamicResource CardAction}"/>
                         </StackPanel>
                         <CheckBox x:Name="MochiCheck" Style="{DynamicResource ToggleSwitch}" Content="mochizuki 0.0.9 (M3)" FontWeight="SemiBold" FontSize="13.5" VerticalAlignment="Center" IsChecked="True" IsEnabled="True"/>
                       </DockPanel>
