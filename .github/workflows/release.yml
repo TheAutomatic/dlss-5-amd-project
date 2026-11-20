@@ -218,3 +218,117 @@ jobs:
         run: |
           python -B .github/scripts/publish_release_asset.py --tag "$env:RELEASE_TAG" --asset "dist/OptiScaler-NR-$env:RELEASE_VERSION.zip"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  # Linux packages: Mochizuki's upstream DLSSNR-AMD Linux release (x86_64 + i686, SHA-256 pinned under
+  # "mochizukiLinux" in tools/build/upstream-pins.json) + CJK lang pack + the stdlib-only Python launcher.
+  # Runs after `build` so the GitHub Release already exists when assets are attached on tag pushes.
+  linux:
+    if: (github.event_name == 'push' && github.ref_type == 'tag') || github.event_name == 'workflow_dispatch'
+    needs: build
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            v="${GITHUB_REF_NAME#v}"
+          else
+            v="$(tr -d '[:space:]' < VERSION)"
+          fi
+          if ! printf '%s' "$v" | grep -Eq '^[0-9A-Za-z._-]+$'; then echo "Invalid version: $v" >&2; exit 1; fi
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then v="$v-test-$GITHUB_RUN_NUMBER-${GITHUB_SHA:0:8}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Cache upstream Linux archives
+        uses: actions/cache@v6
+        with:
+          path: cache/linux
+          key: upstream-linux-${{ hashFiles('tools/build/upstream-pins.json') }}
+          restore-keys: |
+            upstream-linux-
+
+      - name: Launcher unit tests
+        shell: bash
+        working-directory: tools/linux
+        run: python3 -B launcher/selftest.py --unit-only -v
+
+      - name: Package Linux tarballs (x86_64 + i686)
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tools/release/package-linux.sh --version '${{ steps.ver.outputs.version }}' --arch all --out dist --cache cache/linux
+          ls -la dist
+
+      - name: Guard against proprietary files and self-test packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver='${{ steps.ver.outputs.version }}'
+          work="$RUNNER_TEMP/linux-pkg"
+          mkdir -p "$work"
+          for arch in x86_64 i686; do
+            name="OptiScaler-NR-Linux-$arch-$ver"
+            tgz="dist/$name.tar.gz"
+            test -f "$tgz" && test -f "$tgz.sha256"
+            (cd dist && sha256sum -c "$name.tar.gz.sha256")
+            # Same forbidden-name regex as the Windows guard; also require a single top-level folder.
+            python3 -B - "$tgz" "$name" <<'PY'
+          import re, sys, tarfile
+          tgz, top = sys.argv[1], sys.argv[2]
+          forbidden = re.compile(r'^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr(?:-int4|-small)?\.bin|CC_(?:SMALL_FP8|SMALL_FP8_EXPERIMENTAL|SILVER_AARDWOLD|SILVER_AARDWOLD_OPTIMIZED|SILVER_AARDWOLD_OPTIMIZED_INT4)\.bin|pipeline\.cache|version\.dll|dlssnr_on_amd_setup\.exe)$', re.I)
+          with tarfile.open(tgz) as tf:
+              names = tf.getnames()
+          bad = [n for n in names if forbidden.match(n.rstrip('/').rsplit('/', 1)[-1])]
+          stray = [n for n in names if n != top and not n.startswith(top + '/')]
+          for n in bad:
+              print('FORBIDDEN: ' + n)
+          for n in stray:
+              print('UNEXPECTED TOP-LEVEL ENTRY: ' + n)
+          if bad or stray:
+              sys.exit('Refusing to publish ' + tgz)
+          PY
+            tar -xzf "$tgz" -C "$work"
+            NR_E2E_TMP="$RUNNER_TEMP" python3 -B "$work/$name/launcher/selftest.py" -v
+            rm -rf "${work:?}/$name"
+          done
+
+      - name: Upload tested Linux packages
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v6
+        with:
+          name: OptiScaler-NR-Linux-test-${{ github.run_id }}
+          path: |
+            dist/OptiScaler-NR-Linux-*-${{ steps.ver.outputs.version }}.tar.gz
+            dist/OptiScaler-NR-Linux-*-${{ steps.ver.outputs.version }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Linux release assets with verified retries
+        if: startsWith(github.ref, 'refs/tags/')
+        timeout-minutes: 20
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          for arch in x86_64 i686; do
+            for f in "dist/OptiScaler-NR-Linux-$arch-$RELEASE_VERSION.tar.gz" "dist/OptiScaler-NR-Linux-$arch-$RELEASE_VERSION.tar.gz.sha256"; do
+              python -B .github/scripts/publish_release_asset.py --tag "$RELEASE_TAG" --asset "$f"
+            done
+          done

@@ -64,5 +64,24 @@
       "NOTICE": "efb16c0f7b4e7c286ac43828aded4289e065f7f2fd3f936aa72e3d10d65bc5eb",
       "THIRD_PARTY_LICENSES/NVIDIA-rtx-remix-minecraft-Apache-2.0.txt": "fcd7f4edc6be93f37717add43dcb2617812d74536c6717b57028234b19a6d1db"
     }
+  },
+  "mochizukiLinux": {
+    "version": "0.0.9",
+    "releaseUrl": "https://gitlab.com/mochizuki0323/DLSSNR-AMD/-/releases/v0.0.9",
+    "archives": {
+      "x86_64": {
+        "archiveName": "DLSSNR-AMD-Vulkan-Linux-0.0.9-x86_64.tar.gz",
+        "archiveUrl": "https://gitlab.com/api/v4/projects/88319462/packages/generic/dlssnr-amd/0.0.9/DLSSNR-AMD-Vulkan-Linux-0.0.9-x86_64.tar.gz",
+        "archiveSha256": "30c795f9e446cbea8af46cea142d78c108e2cce0ac26fa9ced7c3a56600fbdc2"
+      },
+      "i686": {
+        "archiveName": "DLSSNR-AMD-Vulkan-Linux-0.0.9-i686.tar.gz",
+        "archiveUrl": "https://gitlab.com/api/v4/projects/88319462/packages/generic/dlssnr-amd/0.0.9/DLSSNR-AMD-Vulkan-Linux-0.0.9-i686.tar.gz",
+        "archiveSha256": "6047e7e1d9ed4513dda6f53750911e8f7dc3b818755f0aa893c0a3cfd2a361d2"
+      }
+    },
+    "langArchiveName": "DLSSNR-AMD-lang-CJK-0.0.9.zip",
+    "langArchiveUrl": "https://gitlab.com/api/v4/projects/88319462/packages/generic/dlssnr-amd/0.0.9/DLSSNR-AMD-lang-CJK-0.0.9.zip",
+    "langArchiveSha256": "2fe930c08de465a474f6cf204790544388bc6b2e198d9c3b7c082559c964f14a"
   }
 }
