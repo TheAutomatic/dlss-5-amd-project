@@ -26,12 +26,25 @@ namespace OptScalerNR.Launcher
         readonly Dictionary<string, string> _installedModes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         ComboBox _themeCombo;
         Button _themeToggle;
-        static readonly Brush HeroMutedBrush = new SolidColorBrush(Color.FromRgb(204, 213, 228));
+        static readonly Brush HeroMutedBrush = LauncherTheme.Brush("ThemeMuted");
+        // 16px line icons (stroked by the icon button template).
+        static readonly Geometry SunGlyph = Glyph("M 5.25 8 A 2.75 2.75 0 1 1 10.75 8 A 2.75 2.75 0 1 1 5.25 8 Z M 8 1.5 V 3 M 8 13 V 14.5 M 1.5 8 H 3 M 13 8 H 14.5 M 3.4 3.4 L 4.46 4.46 M 11.54 11.54 L 12.6 12.6 M 3.4 12.6 L 4.46 11.54 M 11.54 4.46 L 12.6 3.4");
+        static readonly Geometry MoonGlyph = Glyph("M 13.25 9.75 A 5.75 5.75 0 1 1 6.25 2.75 A 4.5 4.5 0 0 0 13.25 9.75 Z");
+        static readonly Geometry AutoGlyph = Glyph("M 2.25 8 A 5.75 5.75 0 1 1 13.75 8 A 5.75 5.75 0 1 1 2.25 8 Z M 8 2.25 V 13.75 M 8 5 H 12.9 M 8 8 H 13.75 M 8 11 H 12.9");
+        // 10px caption glyphs (match the XAML defaults of MaxBtn).
+        static readonly Geometry MaximizeGlyph = Glyph("M 1.5 0.5 H 8.5 A 1 1 0 0 1 9.5 1.5 V 8.5 A 1 1 0 0 1 8.5 9.5 H 1.5 A 1 1 0 0 1 0.5 8.5 V 1.5 A 1 1 0 0 1 1.5 0.5 Z");
+        static readonly Geometry RestoreGlyph = Glyph("M 2.5 2.5 H 7.5 A 1 1 0 0 1 8.5 3.5 V 8.5 A 1 1 0 0 1 7.5 9.5 H 1.5 A 1 1 0 0 1 0.5 8.5 V 3.5 A 1 1 0 0 1 1.5 2.5 Z M 2.5 0.5 H 8.5 A 1 1 0 0 1 9.5 1.5 V 7.5");
+        static Geometry Glyph(string data)
+        {
+            var g = Geometry.Parse(data);
+            g.Freeze();
+            return g;
+        }
         void InitPresentation()
         {
             var hero = (Border)_window.FindName("HeroCard");
             hero.SizeChanged += delegate {
-                hero.Clip = new RectangleGeometry(new Rect(0, 0, hero.ActualWidth, hero.ActualHeight), 18, 18);
+                hero.Clip = new RectangleGeometry(new Rect(0, 0, hero.ActualWidth, hero.ActualHeight), 8, 8);
             };
             _themeCombo = (ComboBox)_window.FindName("ThemeCombo");
             _themeToggle = (Button)_window.FindName("ThemeToggle");
@@ -53,6 +66,17 @@ namespace OptScalerNR.Launcher
             var addRtxRemixMc = (Button)_window.FindName("AddRtxRemixMcButton");
             if (addRtxRemixMc != null) addRtxRemixMc.Click += delegate { addPopup.IsOpen = false; };
             ((Button)_window.FindName("SettingsCloseButton")).Click += delegate { SwitchTab(false); };
+            // Settings overlay: click on the scrim (outside the card) or press Esc to close.
+            var settingsPage = (FrameworkElement)_window.FindName("SettingsPage");
+            settingsPage.MouseLeftButtonDown += delegate(object sender, System.Windows.Input.MouseButtonEventArgs e) {
+                if (ReferenceEquals(e.OriginalSource, settingsPage)) { SwitchTab(false); e.Handled = true; }
+            };
+            _window.PreviewKeyDown += delegate(object sender, System.Windows.Input.KeyEventArgs e) {
+                if (e.Key == System.Windows.Input.Key.Escape && settingsPage.Visibility == Visibility.Visible) {
+                    SwitchTab(false);
+                    e.Handled = true;
+                }
+            };
             ((Button)_window.FindName("RefreshBackendsButton")).Click += delegate {
                 if (PresentationIdle && _selectedGame != null && _selectedGame.HasExecutable) InspectGame(_selectedGame);
             };
@@ -87,7 +111,10 @@ namespace OptScalerNR.Launcher
         {
             SetLabel("ThemeHeading", "外观主题", "Appearance");
             SetLabel("LangZh", "中", "ZH");
-            SetLabel("AddMenuButton", "添加游戏 ▾", "Add game ▾");
+            SetLabel("AddMenuButton", "添加", "Add");
+            ((Button)_window.FindName("AddMenuButton")).ToolTip = L("添加游戏、文件夹或 RTX Remix 实例", "Add a game, folder or RTX Remix instance");
+            SetLabel("SearchPlaceholder", "搜索游戏或程序路径", "Search games or paths");
+            _settingsTab.ToolTip = L("设置", "Settings");
             SetLabel("SettingsCloseButton", "完成", "Done");
             ((Button)_window.FindName("RefreshBackendsButton")).ToolTip = L("重新检查后端与模型来源（不下载、不提取）", "Recheck backends and model sources (no download or extraction)");
             SetLabel("QuickLogButton", "诊断日志", "Diagnostic log");
@@ -95,13 +122,14 @@ namespace OptScalerNR.Launcher
             ((Button)_window.FindName("PackLogButton")).ToolTip =
                 L("收集所选游戏的 OptiScaler/mochizuki 日志与配置、系统信息（GPU/驱动/内存）和近两天的驱动与崩溃事件，打包成压缩包放到桌面。",
                   "Collect the selected game's OptiScaler/mochizuki logs and configs, a system summary (GPU/driver/RAM) and the last two days of driver and crash events into a zip on your desktop.");
-            SetLabel("DiagnosticsHeading", "配置与运行库兼容诊断", "Configuration & Runtime Compatibility");
+            SetLabel("DiagnosticsHeading", "安装选项与兼容修复", "Install options & compatibility");
             _searchBox.ToolTip = L("搜索游戏或程序路径", "Search games or executable paths");
             _refreshButton.ToolTip = L("刷新游戏库", "Refresh game library");
             _refreshButton.Content = "↻";
             ((Button)_window.FindName("LangZh")).ToolTip = L("使用简体中文", "Use Chinese");
             ((Button)_window.FindName("LangEn")).ToolTip = L("使用英语", "Use English");
             _themeToggle.Content = _theme == "auto" ? "◐" : _theme == "light" ? "☀" : "☾";
+            DialogTheme.SetIcon(_themeToggle, _theme == "auto" ? AutoGlyph : _theme == "light" ? SunGlyph : MoonGlyph);
             _themeToggle.ToolTip = L("主题：", "Theme: ") + ThemeName(_theme) + L("（点击切换）", " (click to cycle)");
             bool previous = _applyingLanguage;
             _applyingLanguage = true;
@@ -113,8 +141,13 @@ namespace OptScalerNR.Launcher
             } finally { _applyingLanguage = previous; }
             var zh = (Button)_window.FindName("LangZh");
             var en = (Button)_window.FindName("LangEn");
-            zh.Background = LauncherTheme.Brush(_language == "zh" ? "ThemeSurface" : "ThemeSubtle");
-            en.Background = LauncherTheme.Brush(_language == "en" ? "ThemeSurface" : "ThemeSubtle");
+            // Segmented control: the selected segment is a raised card, the other one stays flat.
+            zh.Background = _language == "zh" ? LauncherTheme.Brush("ThemeCardBg") : Brushes.Transparent;
+            en.Background = _language == "en" ? LauncherTheme.Brush("ThemeCardBg") : Brushes.Transparent;
+            zh.FontWeight = _language == "zh" ? FontWeights.SemiBold : FontWeights.Normal;
+            en.FontWeight = _language == "en" ? FontWeights.SemiBold : FontWeights.Normal;
+            zh.Foreground = LauncherTheme.Brush(_language == "zh" ? "ThemeInk" : "ThemeMuted");
+            en.Foreground = LauncherTheme.Brush(_language == "en" ? "ThemeInk" : "ThemeMuted");
             RefreshDiagnosticModeUI();
             RefreshHardwareText();
             RefreshHeroState();

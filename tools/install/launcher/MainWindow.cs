@@ -133,10 +133,10 @@ namespace OptScalerNR.Launcher
         Decisions _decisions = new Decisions();
 
         static readonly Brush ReadyBrush = LauncherTheme.Brush("ThemeSuccess");
-        static readonly Brush ReadyBorder = LauncherTheme.Brush("ThemeSuccess");
+        static readonly Brush ReadyBorder = LauncherTheme.Brush("ThemeSuccessBg");
         static readonly Brush ReadyBg = LauncherTheme.Brush("ThemeSuccessBg");
         static readonly Brush MissingBrush = LauncherTheme.Brush("ThemeMuted");
-        static readonly Brush MissingBorder = LauncherTheme.Brush("ThemeBorder");
+        static readonly Brush MissingBorder = LauncherTheme.Brush("ThemeHairline");
         static readonly Brush MissingBg = LauncherTheme.Brush("ThemeSubtle");
         static readonly Brush WarningBrush = LauncherTheme.Brush("ThemeWarning");
 
@@ -160,6 +160,8 @@ namespace OptScalerNR.Launcher
             window.Resources.MergedDictionaries.Add(DialogTheme.Resources());
             var controller = new MainController(window, args, settingsDirectory);
             window.Tag = controller;
+            // Win11: native rounded corners, dark caption sync and (22H2+) Mica. Win10 keeps the solid frame.
+            NativeFrame.Attach(window, true);
             return window;
         }
 
@@ -286,12 +288,12 @@ namespace OptScalerNR.Launcher
                 if (_window.WindowState == WindowState.Maximized)
                 {
                     _window.BorderThickness = new Thickness(7);
-                    if (_maxBtn != null) _maxBtn.Content = "\x25A3";
+                    if (_maxBtn != null) DialogTheme.SetIcon(_maxBtn, RestoreGlyph);
                 }
                 else
                 {
-                    _window.BorderThickness = new Thickness(1);
-                    if (_maxBtn != null) _maxBtn.Content = "\x25A2";
+                    _window.BorderThickness = NativeFrame.NormalBorder;
+                    if (_maxBtn != null) DialogTheme.SetIcon(_maxBtn, MaximizeGlyph);
                 }
             };
 
@@ -508,6 +510,7 @@ namespace OptScalerNR.Launcher
             if (_libraryPage != null) _libraryPage.Visibility = Visibility.Visible;
             if (_settingsPage != null) _settingsPage.Visibility = toSettings ? Visibility.Visible : Visibility.Collapsed;
             if (_settingsTab != null) _settingsTab.Content = L("设置", "Settings");
+            if (_settingsTab != null) _settingsTab.ToolTip = L("设置", "Settings");
         }
 
         void ToggleLanguage()
@@ -678,7 +681,7 @@ namespace OptScalerNR.Launcher
                 if (_addButton != null) _addButton.Content = L("添加游戏 EXE…", "Add game EXE…");
                 if (_launchGameButton != null)
                 {
-                    _launchGameButton.Content = isZh ? "▶ 启动游戏" : "▶ Launch";
+                    _launchGameButton.Content = isZh ? "启动游戏" : "Launch";
                     _launchGameButton.ToolTip = isZh ? "直接运行当前选中的游戏主程序" : "Directly run the selected game executable";
                 }
                 if (_openFolderButton != null) _openFolderButton.Content = isZh ? "打开目录" : "Open Folder";
@@ -691,7 +694,7 @@ namespace OptScalerNR.Launcher
                 if (_openLogButton != null) _openLogButton.Content = isZh ? "打开完整日志" : "Open Full Log";
                 if (_refreshButton != null) _refreshButton.Content = isZh ? "刷新" : "Refresh";
                 if (_packageBrowse != null) _packageBrowse.Content = isZh ? "浏览…" : "Browse…";
-                if (_heroKicker != null) _heroKicker.Text = isZh ? "已选游戏" : "Selected Game";
+                if (_heroKicker != null) _heroKicker.Text = isZh ? "已选游戏" : "Selected game";
                 if (_replaceIni != null) _replaceIni.Content = isZh ? "覆盖现有配置文件 (.ini，推荐)" : "Replace existing configuration files (.ini, recommended)";
                 SetLabel("OptiPatcherToggle", "安装 OptiPatcher（DLSS 伪装增强，按 Wiki 推荐预选）", "Install OptiPatcher (DLSS spoofing enhancement, preselected by Wiki recommendation)");
                 ApplyOptiPatcherTooltip(IsOptiPatcherSupported(_selectedGame, (_selectedGame == null || _recommendations == null) ? null : _recommendations.Match(_selectedGame)));
@@ -711,8 +714,9 @@ namespace OptScalerNR.Launcher
                 SetLabel("BackendsHeading", "ASI 插件选择 (神经渲染 & 光线重建)", "ASI Plugins (Neural Rendering & Ray Reconstruction)");
                 SetLabel("MochiCheck", "mochizuki 0.0.9（M3）", "mochizuki 0.0.9 (M3)");
                 SetLabel("MochiDescription", "适合 RX 7000/9000 系列（6000 系请暂时先使用老版本）", "For RX 7000/9000 series (RX 6000 series please use the legacy version for now)");
-                SetLabel("DiagnosticsHeading", "配置与运行库兼容诊断", "Configuration & Runtime Compatibility");
-                SetLabel("LogHeading", "运行诊断日志", "Diagnostic Log");
+                SetLabel("DiagnosticsHeading", "安装选项与兼容修复", "Install options & compatibility");
+                SetLabel("LogHeading", "运行诊断日志", "Diagnostic log");
+                SetLabel("LogPreviewHeading", "显示最近日志", "Show recent log");
                 SetLabel("SettingsHeading", "设置", "Settings");
                 SetLabel("LanguageHeading", "语言", "Language");
                 SetLabel("PackageHeading", "安装包目录", "Package Folder");
@@ -897,6 +901,16 @@ namespace OptScalerNR.Launcher
             SetLabel("BackendDetailsHeading", "安装包中缺少的组件", "Missing package components");
         }
 
+        // Remembers both translations of the latest free-form status message so a language switch can
+        // re-render it (previously e.g. the Wiki offline fallback stayed Chinese after switching to English).
+        string _statusZh, _statusEn;
+        void SetStatus(string zh, string en)
+        {
+            _statusZh = zh;
+            _statusEn = en;
+            if (_statusText != null) _statusText.Text = L(zh, en);
+        }
+
         void RefreshStatusLanguage()
         {
             if (_statusText == null) return;
@@ -905,15 +919,20 @@ namespace OptScalerNR.Launcher
                 _statusText.Text = StageText(_eventStage ?? _session.Action);
                 return;
             }
+            if (_statusZh != null && (_statusText.Text == _statusZh || _statusText.Text == _statusEn))
+            {
+                _statusText.Text = L(_statusZh, _statusEn);
+                return;
+            }
             switch (_statusText.Text)
             {
-                case "": _statusText.Text = L("就绪", "Ready"); break;
-                case "就绪": case "Ready": _statusText.Text = L("就绪", "Ready"); break;
-                case "正在扫描游戏库…": case "Scanning library…": _statusText.Text = L("正在扫描游戏库…", "Scanning library…"); break;
-                case "游戏库已更新": case "Library updated": _statusText.Text = L("游戏库已更新", "Library updated"); break;
-                case "Cancelled.": case "已取消。": _statusText.Text = L("已取消。", "Cancelled."); break;
-                case "success": case "成功": _statusText.Text = L("成功", "success"); break;
-                case "failed": case "失败": _statusText.Text = L("失败", "failed"); break;
+                case "": SetStatus("就绪", "Ready"); break;
+                case "就绪": case "Ready": SetStatus("就绪", "Ready"); break;
+                case "正在扫描游戏库…": case "Scanning library…": SetStatus("正在扫描游戏库…", "Scanning library…"); break;
+                case "游戏库已更新": case "Library updated": SetStatus("游戏库已更新", "Library updated"); break;
+                case "Cancelled.": case "已取消。": SetStatus("已取消。", "Cancelled."); break;
+                case "success": case "成功": SetStatus("成功", "success"); break;
+                case "failed": case "失败": SetStatus("失败", "failed"); break;
                 case "正在检查安装环境…": case "Inspecting installation…": _statusText.Text = StageText("inspect"); break;
                 case "正在检查安装条件…": case "Validating installation…": _statusText.Text = StageText("validate"); break;
                 case "正在准备模型…": case "Preparing models…": _statusText.Text = StageText("prepare-model"); break;
@@ -922,9 +941,9 @@ namespace OptScalerNR.Launcher
                 case "操作已结束": case "Operation finished": _statusText.Text = StageText("done"); break;
                 case "正在应用更改…": case "Applying changes…": _statusText.Text = StageText("install"); break;
                 case "目标文件夹已被另一个安装进程锁定。": case "Target folder is locked by another launcher.":
-                    _statusText.Text = L("目标文件夹已被另一个安装进程锁定。", "Target folder is locked by another launcher."); break;
+                    SetStatus("目标文件夹已被另一个安装进程锁定。", "Target folder is locked by another launcher."); break;
                 case "正在从 OptiScaler 官方 Wiki 同步推荐资料…": case "Syncing recommendations from the official OptiScaler Wiki…":
-                    _statusText.Text = L("正在从 OptiScaler 官方 Wiki 同步推荐资料…", "Syncing recommendations from the official OptiScaler Wiki…"); break;
+                    SetStatus("正在从 OptiScaler 官方 Wiki 同步推荐资料…", "Syncing recommendations from the official OptiScaler Wiki…"); break;
             }
         }
 
@@ -1330,7 +1349,7 @@ namespace OptScalerNR.Launcher
             SaveLibraryCache();
             RefreshGameListView();
             if (wasSelected && _gameList != null && _gameList.Items.Count > 0) _gameList.SelectedIndex = 0;
-            if (_statusText != null) _statusText.Text = L("已从列表移除；游戏文件未改动。可通过“添加游戏”重新添加。", "Removed from the list; game files were kept. Use Add Game to add it again.");
+            if (_statusText != null) SetStatus("已从列表移除；游戏文件未改动。可通过“添加游戏”重新添加。", "Removed from the list; game files were kept. Use Add Game to add it again.");
         }
 
         void LaunchSelectedGame()
@@ -1354,7 +1373,7 @@ namespace OptScalerNR.Launcher
                         });
                         if (_statusText != null)
                         {
-                            _statusText.Text = L("已请求 PrismLauncher 启动：" + _selectedGame.DisplayName, "Requested PrismLauncher to launch: " + _selectedGame.DisplayName);
+                            SetStatus("已请求 PrismLauncher 启动：" + _selectedGame.DisplayName, "Requested PrismLauncher to launch: " + _selectedGame.DisplayName);
                         }
                         return;
                     }
@@ -1379,7 +1398,7 @@ namespace OptScalerNR.Launcher
                 Process.Start(psi);
                 if (_statusText != null)
                 {
-                    _statusText.Text = L("已启动游戏：" + _selectedGame.DisplayName, "Launched game: " + _selectedGame.DisplayName);
+                    SetStatus("已启动游戏：" + _selectedGame.DisplayName, "Launched game: " + _selectedGame.DisplayName);
                 }
             }
             catch (Exception ex)
@@ -1820,7 +1839,7 @@ namespace OptScalerNR.Launcher
                 {
                     if (result != null && !string.IsNullOrEmpty(result.LogPath)) _currentLogPath = result.LogPath;
                     if (_statusLed != null) _statusLed.Fill = WarningBrush;
-                    if (_statusText != null) _statusText.Text = L("游戏库扫描失败", "Library scan failed");
+                    if (_statusText != null) SetStatus("游戏库扫描失败", "Library scan failed");
                     return;
                 }
                 var selectionChanged = MergeScannedGames(result.Games);
@@ -2816,7 +2835,7 @@ namespace OptScalerNR.Launcher
                 ReleaseLock();
                 if (_statusLed != null) _statusLed.Fill = MissingBrush;
                 if (_progress != null) _progress.IsIndeterminate = false;
-                if (_statusText != null) _statusText.Text = L("已取消管理员权限授权。", "Administrator elevation was cancelled.");
+                if (_statusText != null) SetStatus("已取消管理员权限授权。", "Administrator elevation was cancelled.");
             }
             catch (Exception ex)
             {
@@ -2874,12 +2893,12 @@ namespace OptScalerNR.Launcher
                 if (result == null)
                 {
                     if (_statusLed != null) _statusLed.Fill = WarningBrush;
-                    if (_statusText != null) _statusText.Text = L("执行失败（退出代码 " + code + "）。", "Worker failed (exit " + code + ").");
+                    if (_statusText != null) SetStatus("执行失败（退出代码 " + code + "）。", "Worker failed (exit " + code + ").");
                 }
                 else if (string.Equals(result.Status, "success", StringComparison.OrdinalIgnoreCase) && code != 0)
                 {
                     if (_statusLed != null) _statusLed.Fill = WarningBrush;
-                    if (_statusText != null) _statusText.Text = L("执行退出代码 " + code + " 与状态 " + result.Status + " 不一致。", "Worker exit " + code + " does not match status " + result.Status);
+                    if (_statusText != null) SetStatus("执行退出代码 " + code + " 与状态 " + result.Status + " 不一致。", "Worker exit " + code + " does not match status " + result.Status);
                 }
                 else
                 {
@@ -3041,7 +3060,7 @@ namespace OptScalerNR.Launcher
                     else if (pick == MessageBoxResult.No) _decisions.ForeignProxy[d.File] = "keep";
                     else
                     {
-                        if (_statusText != null) _statusText.Text = L("已取消。", "Cancelled.");
+                        if (_statusText != null) SetStatus("已取消。", "Cancelled.");
                         return false;
                     }
                 }
@@ -3194,7 +3213,7 @@ namespace OptScalerNR.Launcher
             // even if the process has exited but its result is still queued.
             if (_writeBusy) {
                 e.Cancel = true;
-                if (_statusText != null) _statusText.Text = L("安装或卸载正在进行，请等待完成后关闭。", "Installation or removal is in progress. Wait for completion before closing.");
+                if (_statusText != null) SetStatus("安装或卸载正在进行，请等待完成后关闭。", "Installation or removal is in progress. Wait for completion before closing.");
                 return;
             }
             if (_session != null && _session.IsRunning)

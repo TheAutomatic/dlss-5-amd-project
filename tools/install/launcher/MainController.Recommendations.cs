@@ -210,7 +210,7 @@ namespace OptScalerNR.Launcher
         {
             if(_recommendations==null)return;
             if(_refreshProfilesButton!=null)_refreshProfilesButton.IsEnabled=false;
-            if(_statusText!=null)_statusText.Text=L("正在从 OptiScaler 官方 Wiki 同步推荐资料…","Syncing recommendations from the official OptiScaler Wiki…");
+            if(_statusText!=null)SetStatus("正在从 OptiScaler 官方 Wiki 同步推荐资料…","Syncing recommendations from the official OptiScaler Wiki…");
             if(_statusLed!=null)_statusLed.Fill=WarningBrush;
             try{
                 var outcome=await _recommendations.RefreshAsync();
@@ -229,27 +229,27 @@ namespace OptScalerNR.Launcher
             var kind=colon<0?outcome:outcome.Substring(0,colon);
             switch(kind){
                 case "updated":
-                    if(_statusText!=null)_statusText.Text=string.Format(L("已从 OptiScaler 官方 Wiki 同步 {0} 条游戏推荐规则。","Synced {0} game recommendation rules from the official OptiScaler Wiki."),count);
+                    if(_statusText!=null)SetStatus(string.Format("已从 OptiScaler 官方 Wiki 同步 {0} 条游戏推荐规则。", count), string.Format("Synced {0} game recommendation rules from the official OptiScaler Wiki.", count));
                     if(_statusLed!=null)_statusLed.Fill=ReadyBrush;
                     break;
                 case "not-modified":
-                    if(_statusText!=null)_statusText.Text=string.Format(L("推荐资料已是最新（{0} 条规则）。","Recommendations are already up to date ({0} rules)."),count);
+                    if(_statusText!=null)SetStatus(string.Format("推荐资料已是最新（{0} 条规则）。", count), string.Format("Recommendations are already up to date ({0} rules).", count));
                     if(_statusLed!=null)_statusLed.Fill=ReadyBrush;
                     break;
                 case "offline":
-                    if(_statusText!=null)_statusText.Text=L("无法连接 OptiScaler Wiki，继续使用本地推荐资料。","Could not reach the OptiScaler Wiki; keeping local recommendations.");
+                    if(_statusText!=null)SetStatus("无法连接 OptiScaler Wiki，继续使用本地推荐资料。","Could not reach the OptiScaler Wiki; keeping local recommendations.");
                     if(_statusLed!=null)_statusLed.Fill=WarningBrush;
                     break;
                 case "timeout":
-                    if(_statusText!=null)_statusText.Text=L("连接 OptiScaler Wiki 超时，继续使用本地推荐资料。","Timed out contacting the OptiScaler Wiki; keeping local recommendations.");
+                    if(_statusText!=null)SetStatus("连接 OptiScaler Wiki 超时，继续使用本地推荐资料。","Timed out contacting the OptiScaler Wiki; keeping local recommendations.");
                     if(_statusLed!=null)_statusLed.Fill=WarningBrush;
                     break;
                 case "invalid":
-                    if(_statusText!=null)_statusText.Text=L("OptiScaler Wiki 返回无法解析的内容，继续使用本地推荐资料。","The OptiScaler Wiki returned unusable content; keeping local recommendations.");
+                    if(_statusText!=null)SetStatus("OptiScaler Wiki 返回无法解析的内容，继续使用本地推荐资料。","The OptiScaler Wiki returned unusable content; keeping local recommendations.");
                     if(_statusLed!=null)_statusLed.Fill=WarningBrush;
                     break;
                 case "busy":
-                    if(_statusText!=null)_statusText.Text=L("正在同步推荐资料，请稍候。","Recommendation sync is already running.");
+                    if(_statusText!=null)SetStatus("正在同步推荐资料，请稍候。","Recommendation sync is already running.");
                     break;
             }
         }

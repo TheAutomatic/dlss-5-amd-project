@@ -78,7 +78,7 @@ namespace OptScalerNR.Launcher
         void RefreshProfilesLanguage()
         {
             SetLabel("InstallOptionsHeading", "安装选项（下次安装或更新时生效）", "Install options (applied on the next install or update)");
-            SetLabel("IniHeading", "OptiScaler.ini 共享配置（整文件）", "Shared OptiScaler.ini profiles (whole file)");
+            SetLabel("IniHeading", "配置文件与风格码", "Config files & style codes");
             SetLabel("IniSelectHint", "选择配置后点击“应用所选配置”。仅更改插件时请选择“当前游戏 INI”。", "Select a profile, then Apply selection. Choose Current game INI to apply only the plugin setting.");
             SetLabel("PluginHeading", "第三方插件", "Third-party plugins");
             if (_iniSaveButton != null) _iniSaveButton.Content = L("保存…", "Save…");

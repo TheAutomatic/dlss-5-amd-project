@@ -423,11 +423,14 @@ namespace OptScalerNR.Launcher
                 }
                 if (applyTpl)
                     for (int t = 0; t < templatePaths.Length; t++) MochizukiHotkeysIni.UpdateIniFile(templatePaths[t], updates, true, true);
-                if (_statusText != null)
-                    _statusText.Text = (applyGame && applyTpl)
-                        ? string.Format(L("已更新当前游戏 dlssnr-amd.ini 及 {0} 份启动器模板快捷键。", "Updated current game dlssnr-amd.ini and {0} launcher templates."), templatePaths.Length)
-                        : (applyGame ? L("已更新当前游戏 dlssnr-amd.ini 快捷键。", "Updated current game dlssnr-amd.ini hotkeys.")
-                                     : string.Format(L("已更新 {0} 份启动器默认模板快捷键。", "Updated {0} launcher hotkey templates."), templatePaths.Length));
+                if (applyGame && applyTpl)
+                    SetStatus(string.Format("已更新当前游戏 dlssnr-amd.ini 及 {0} 份启动器模板快捷键。", templatePaths.Length),
+                              string.Format("Updated current game dlssnr-amd.ini and {0} launcher templates.", templatePaths.Length));
+                else if (applyGame)
+                    SetStatus("已更新当前游戏 dlssnr-amd.ini 快捷键。", "Updated current game dlssnr-amd.ini hotkeys.");
+                else
+                    SetStatus(string.Format("已更新 {0} 份启动器默认模板快捷键。", templatePaths.Length),
+                              string.Format("Updated {0} launcher hotkey templates.", templatePaths.Length));
                 return true;
             } catch (UnauthorizedAccessException) {
                 DialogTheme.Show(win, L("没有权限写入目标配置文件（游戏或启动器目录可能位于 Program Files 等受保护位置）。请以管理员身份运行启动器后再试。", "Permission denied writing the configuration file. Run the launcher as Administrator and try again."), win.Title, MessageBoxButton.OK, MessageBoxImage.Error);
@@ -482,7 +485,7 @@ namespace OptScalerNR.Launcher
             var clearButtons = new Button[MochiHotkeySpecs.Length];
             var slotTemplate = CreateKeycapSlotTemplate();
             for (int i = 0; i < MochiHotkeySpecs.Length; i++) {
-                if (i > 0) { var div = new Border { Height = 1 }; div.SetResourceReference(Border.BackgroundProperty, "ThemeBorder"); listStack.Children.Add(div); }
+                if (i > 0) { var div = new Border { Height = 1 }; div.SetResourceReference(Border.BackgroundProperty, "ThemeHairline"); listStack.Children.Add(div); }
                 Button capBtn, clrBtn;
                 listStack.Children.Add(BuildHotkeyRow(ghostStyle, slotTemplate, MochiHotkeySpecs[i], out capBtn, out clrBtn));
                 keyButtons[i] = capBtn; clearButtons[i] = clrBtn;
@@ -524,8 +527,8 @@ namespace OptScalerNR.Launcher
                     keyButtons[i].Content = BuildKeycapContent(currentValues[i], preview, conflict, isCap, held.Length > 0);
                     if (isCap) {
                         keyButtons[i].SetResourceReference(Control.BorderBrushProperty, "ThemeAccent");
-                        keyButtons[i].BorderThickness = new Thickness(1.8);
-                        keyButtons[i].Background = new SolidColorBrush(Color.FromArgb(0x1E, 0xE3, 0x12, 0x2B));
+                        keyButtons[i].BorderThickness = new Thickness(1.5);
+                        keyButtons[i].SetResourceReference(Control.BackgroundProperty, "ThemeAccentSoft");
                     } else {
                         keyButtons[i].SetResourceReference(Control.BorderBrushProperty, conflict ? "ThemeWarning" : "ThemeBorder");
                         keyButtons[i].BorderThickness = new Thickness(conflict ? 1.2 : 1);

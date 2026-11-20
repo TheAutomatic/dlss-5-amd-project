@@ -429,7 +429,7 @@ namespace OptScalerNR.Launcher
                     Directory.CreateDirectory(root);
                     File.Copy(source, destination, true);
                 }
-                if (_statusText != null) _statusText.Text = L("已导入 nvngx_dlssd.dll (310.9.1.0)，OpenRR 已就绪。", "Imported nvngx_dlssd.dll (310.9.1.0); OpenRR is ready.");
+                if (_statusText != null) SetStatus("已导入 nvngx_dlssd.dll (310.9.1.0)，OpenRR 已就绪。", "Imported nvngx_dlssd.dll (310.9.1.0); OpenRR is ready.");
                 RefreshModelImportBar();
                 if (_selectedGame != null && _selectedGame.HasExecutable) InspectGame(_selectedGame);
             } catch (Exception ex) {
@@ -467,7 +467,7 @@ namespace OptScalerNR.Launcher
                 }
                 Directory.CreateDirectory(root);
                 File.Copy(source, destination, true);
-                if (_statusText != null) _statusText.Text = string.Format(L("已导入 {0}，正在重新检查后端…", "Imported {0}; rechecking backends…"), Path.GetFileName(source));
+                if (_statusText != null) SetStatus(string.Format("已导入 {0}，正在重新检查后端…", Path.GetFileName(source)), string.Format("Imported {0}; rechecking backends…", Path.GetFileName(source)));
                 if (_selectedGame != null && _selectedGame.HasExecutable) InspectGame(_selectedGame);
             } catch (Exception ex) {
                 DialogTheme.Show(_window, L("导入失败：", "Import failed: ") + ex.Message, _window.Title);
@@ -830,7 +830,7 @@ namespace OptScalerNR.Launcher
             if (_session == null || !_session.IsRunning) SetBusy(false, "");
             if (_statusLed != null) _statusLed.Fill = ReadyBrush;
             if (_statusText != null && (_session == null || !_session.IsRunning))
-                _statusText.Text = L("成功", "success");
+                SetStatus("成功", "success");
             ApplyInspect(immediateResult, pkgRoot);
             var resume = _resumeInstallAction;
             _resumeInstallAction = "";
