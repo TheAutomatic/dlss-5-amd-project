@@ -16,6 +16,12 @@ namespace OptScalerNR.Launcher
         public static readonly DependencyProperty SuppressEscapeCloseProperty = DependencyProperty.RegisterAttached("SuppressEscapeClose", typeof(bool), typeof(DialogTheme), new FrameworkPropertyMetadata(false));
         public static bool GetSuppressEscapeClose(DependencyObject target) { return (bool)target.GetValue(SuppressEscapeCloseProperty); }
         public static void SetSuppressEscapeClose(DependencyObject target, bool value) { target.SetValue(SuppressEscapeCloseProperty, value); }
+        // Optional 16x16 stroke icon rendered by the shared button templates (MaterialButtonTemplate / IconButton).
+        public static readonly DependencyProperty IconProperty = DependencyProperty.RegisterAttached("Icon", typeof(Geometry), typeof(DialogTheme), new FrameworkPropertyMetadata(null));
+        public static Geometry GetIcon(DependencyObject target) { return (Geometry)target.GetValue(IconProperty); }
+        public static void SetIcon(DependencyObject target, Geometry value) { target.SetValue(IconProperty, value); }
+        static readonly Geometry CloseIcon = Freeze(Geometry.Parse("M 4 4 L 12 12 M 12 4 L 4 12"));
+        static Geometry Freeze(Geometry g) { if (g.CanFreeze) g.Freeze(); return g; }
         static bool keyboardNavigation;
         static DialogTheme()
         {
@@ -89,6 +95,9 @@ namespace OptScalerNR.Launcher
             window.MaxHeight = Math.Max(300, Math.Min(800, SystemParameters.WorkArea.Height - 50));
             window.MaxWidth = Math.Max(300, SystemParameters.WorkArea.Width - 40);
             window.Resources.MergedDictionaries.Add(Resources());
+            // Win11: DWM draws the rounded corners, hairline border and dark-aware frame (NativeFrame keeps
+            // them in sync with theme switches). Win10 keeps the 1px WPF border painted above.
+            NativeFrame.Attach(window, false);
             window.PreviewKeyDown += delegate(object sender, KeyEventArgs e) { if(e.Key == Key.Escape && !GetSuppressEscapeClose(window)) { window.Close(); e.Handled = true; } };
         }
         public static void Primary(Window window, Button button)
@@ -100,10 +109,10 @@ namespace OptScalerNR.Launcher
         {
             var root = new DockPanel();
             root.SetResourceReference(DockPanel.BackgroundProperty, "ThemeSurface");
-            var header = new Border { Padding = new Thickness(20,12,12,12), BorderThickness = new Thickness(0,0,0,1) };
-            header.SetResourceReference(Border.BorderBrushProperty, "ThemeBorder");
+            var header = new Border { Padding = new Thickness(20,10,10,10), BorderThickness = new Thickness(0,0,0,1) };
+            header.SetResourceReference(Border.BorderBrushProperty, "ThemeHairline");
             var row = new DockPanel();
-            var close = new Button { Content = "✕", Padding = new Thickness(10,4,10,4), MinHeight = 30, ToolTip = window.Language.IetfLanguageTag.StartsWith("zh") ? "关闭" : "Close" };
+            var close = CloseButton(window);
             close.Click += delegate { window.Close(); };
             DockPanel.SetDock(close, Dock.Right); row.Children.Add(close);
             row.Children.Add(new TextBlock { Text = window.Title, FontSize = 15, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
@@ -120,18 +129,19 @@ namespace OptScalerNR.Launcher
         {
             var root = new DockPanel();
             root.SetResourceReference(DockPanel.BackgroundProperty, "ThemeSurface");
-            var header = new Border { Padding = new Thickness(20,12,12,12), BorderThickness = new Thickness(0,0,0,1) };
-            header.SetResourceReference(Border.BorderBrushProperty, "ThemeBorder");
+            var header = new Border { Padding = new Thickness(20,10,10,10), BorderThickness = new Thickness(0,0,0,1) };
+            header.SetResourceReference(Border.BorderBrushProperty, "ThemeHairline");
             var row = new DockPanel();
-            var close = new Button { Content = "✕", Padding = new Thickness(10,4,10,4), MinHeight = 30, ToolTip = window.Language.IetfLanguageTag.StartsWith("zh") ? "关闭" : "Close" };
+            var close = CloseButton(window);
             close.Click += delegate { window.Close(); };
             DockPanel.SetDock(close, Dock.Right); row.Children.Add(close);
             row.Children.Add(new TextBlock { Text = window.Title, FontSize = 15, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
             header.Child = row;
             header.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e) { if (e.ButtonState == MouseButtonState.Pressed) { try { window.DragMove(); } catch { } } };
             DockPanel.SetDock(header, Dock.Top); root.Children.Add(header);
-            var footerBorder = new Border { BorderThickness = new Thickness(0,1,0,0), Padding = new Thickness(20,10,20,14) };
-            footerBorder.SetResourceReference(Border.BorderBrushProperty, "ThemeBorder");
+            var footerBorder = new Border { BorderThickness = new Thickness(0,1,0,0), Padding = new Thickness(20,12,20,14) };
+            footerBorder.SetResourceReference(Border.BorderBrushProperty, "ThemeHairline");
+            footerBorder.SetResourceReference(Border.BackgroundProperty, "ThemeLayer");
             footerBorder.Child = footer;
             DockPanel.SetDock(footerBorder, Dock.Bottom); root.Children.Add(footerBorder);
             var viewer = content as ScrollViewer;
@@ -139,6 +149,14 @@ namespace OptScalerNR.Launcher
             viewer.MaxHeight = window.MaxHeight - 64;
             root.Children.Add(viewer);
             window.Content = root;
+        }
+        static Button CloseButton(Window window)
+        {
+            var close = new Button { Width = 32, Height = 32, ToolTip = window.Language.IetfLanguageTag.StartsWith("zh") ? "关闭" : "Close" };
+            close.Style = window.TryFindResource("IconButton") as Style;
+            SetIcon(close, CloseIcon);
+            close.SetResourceReference(Control.ForegroundProperty, "ThemeMuted");
+            return close;
         }
         public static MessageBoxResult Show(Window owner, string text, string caption)
         { return Show(owner, text, caption, MessageBoxButton.OK, MessageBoxImage.Information); }
