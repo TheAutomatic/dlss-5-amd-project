@@ -593,6 +593,7 @@ namespace OptScalerNR.Launcher
             RefreshModelImportBar();
             UpdatePrimaryActionText();
             UpdatePrimaryButtonState();
+            RefreshProxySummary();
         }
 
         void UpdateModeBanners()

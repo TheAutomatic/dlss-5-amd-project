@@ -80,6 +80,10 @@ static class LauncherSmoke
             WaitForInspection();
 
             var list = (ListBox)Find("GameList");
+            if (args.Length > 3 && args[3] == "proxy-modes") {
+                CheckProxyModes(args[1]);
+                return FinishSmoke();
+            }
             Check(_window.FindName("ShowAdvancedOptions") == null, "Settings advanced toggle removed");
             foreach (var name in new[] { "AdvancedProxySection", "AdvancedInstallSection", "AdvancedProfilesSection", "AdvancedLogSection" })
                 Check(((FrameworkElement)Find(name)).IsVisible, "section visible by default: " + name);
@@ -443,16 +447,78 @@ static class LauncherSmoke
             ((Button)Find("PrimaryButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             SelectGame(list, true);
             Check(!(bool)Member(_controller, "_pendingActionsWarned"), "game change clears warning");
+            CheckProxyModes(args[1]);
         }
         catch (Exception ex)
         {
             Fail("exception: " + ex);
         }
+        return FinishSmoke();
+    }
+
+    static int FinishSmoke()
+    {
         try { if (_window != null) _window.Close(); } catch { }
         Pump(200);
         Console.WriteLine(Failures.Count == 0 ? "SMOKE OK" : ("SMOKE FAILED (" + Failures.Count + ")"));
         foreach (var f in Failures) Console.WriteLine("  - " + f);
         return Failures.Count == 0 ? 0 : 1;
+    }
+
+    static void CheckProxyModes(string settingsDirectory)
+    {
+        Invoke("SetTheme", "light");
+        Invoke("SetLanguage", "zh");
+        var previous = Member(_controller, "_selectedGame");
+        var directory = Path.Combine(settingsDirectory, "proxy-mode-game", "64bit");
+        Directory.CreateDirectory(directory);
+        var executable = Path.Combine(directory, "obs64.exe");
+        File.Copy(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "where.exe"), executable, true);
+        var marker = Path.Combine(directory, "amd-presr-install.txt");
+        File.WriteAllText(marker, "installMode=standalone\r\n");
+        var game = Activator.CreateInstance(previous.GetType());
+        SetMember(game, "Id", "manual:proxy-modes");
+        SetMember(game, "Name", "64bit");
+        SetMember(game, "Exe", executable);
+        SetMember(game, "Root", directory);
+        SetMember(game, "Source", "Manual");
+        ((System.Collections.IList)Member(_controller, "_allGames")).Add(game);
+        Call("RefreshGameListView");
+        Call("SelectGame", game);
+        WaitForInspection(false);
+        var required = (Button)Find("ProxyRequiredButton");
+        foreach (var mode in new[] { "standalone", "reshade" }) {
+            ((RadioButton)Find("ModeOptiScalerRadio")).IsChecked = true;
+            Call("SelectProxy", ""); Pump(100);
+            Check((string)Member(_controller, "CurrentSelectedProxy") == "" && required.Visibility == Visibility.Visible, "proxy required for OptiScaler without a proxy: " + mode);
+            ((RadioButton)Find(mode == "standalone" ? "ModeStandaloneRadio" : "ModeReShadeRadio")).IsChecked = true;
+            Pump(100);
+            Console.WriteLine("PROXY_MODE switch " + mode + ": selected=" + Call("GetSelectedBaseMode") + ", proxy='" + Member(_controller, "CurrentSelectedProxy") + "', required=" + required.Visibility);
+            Check(required.Visibility == Visibility.Collapsed, "proxy required hidden after switching to " + mode);
+            if (mode == "standalone") {
+                Check((string)Member(Member(_controller, "_lastInspectResult"), "InstalledMode") == "standalone", "fixture inspection detects installed Standalone");
+                ((ScrollViewer)Find("DetailsScroll")).ScrollToTop(); Pump(100);
+                Shot("proxy-64bit-standalone-light-zh", false);
+                ((ScrollViewer)Find("DetailsScroll")).ScrollToVerticalOffset(360); Pump(100);
+                Shot("proxy-64bit-standalone-guidance-light-zh", false);
+                Call("RefreshProxySummary");
+                Check(required.Visibility == Visibility.Collapsed, "explicit refresh disproves an incorrect mode gate");
+            }
+        }
+        foreach (var installed in new[] { "standalone", "reshade-feeder" }) {
+            Call("SelectGame", previous); WaitForInspection(false);
+            ((RadioButton)Find("ModeOptiScalerRadio")).IsChecked = true;
+            Call("SelectProxy", "");
+            File.WriteAllText(marker, "installMode=" + installed + "\r\n");
+            Call("SelectGame", game); WaitForInspection(false);
+            var expected = installed == "standalone" ? "standalone" : "reshade";
+            Check((string)Call("GetSelectedBaseMode") == expected, "inspection restores installed " + installed);
+            Console.WriteLine("PROXY_MODE restore " + installed + ": selected=" + Call("GetSelectedBaseMode") + ", required=" + required.Visibility);
+            Check(required.Visibility == Visibility.Collapsed, "proxy required hidden after restoring installed " + installed);
+        }
+        Call("SelectGame", (object)null);
+        Check(required.Visibility == Visibility.Collapsed, "no proxy warning without a selected game");
+        Call("SelectGame", previous); WaitForInspection(false);
     }
 
     static double Luminance(Color color)
@@ -694,9 +760,14 @@ static class LauncherSmoke
 
     static void Shot(string name)
     {
+        Shot(name, true);
+    }
+
+    static void Shot(string name, bool settle)
+    {
         try
         {
-            WaitForInspection();
+            if (settle) WaitForInspection();
             var root = (FrameworkElement)_window.Content;
             int w = (int)Math.Ceiling(root.ActualWidth), h = (int)Math.Ceiling(root.ActualHeight);
             if (w < 1 || h < 1) return;
@@ -730,13 +801,18 @@ static class LauncherSmoke
 
     static void WaitForInspection()
     {
+        WaitForInspection(true);
+    }
+
+    static void WaitForInspection(bool refreshText)
+    {
         var end = DateTime.UtcNow.AddSeconds(30);
         while (DateTime.UtcNow < end) {
             var session = Member(_controller, "_session");
             if (session == null && !(bool)Member(_controller, "_presentationBusy") && Member(_controller, "_lastInspectResult") != null) {
                 Pump(100);
                 if (Member(_controller, "_session") == null && !(bool)Member(_controller, "_presentationBusy")) {
-                    Call("RefreshInspectionText");
+                    if (refreshText) Call("RefreshInspectionText");
                     Pump(100);
                     if (Member(_controller, "_session") == null && !(bool)Member(_controller, "_presentationBusy")) return;
                 }
