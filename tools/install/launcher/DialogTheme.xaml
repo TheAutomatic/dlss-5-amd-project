@@ -203,8 +203,24 @@
     <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
     <Setter Property="Template" Value="{StaticResource IconButtonTemplate}"/>
   </Style>
-  <!-- Secondary actions inside the hero banner (kept for compatibility with older references). -->
-  <Style x:Key="HeroButton" TargetType="Button" BasedOn="{StaticResource GhostButton}"/>
+  <Style x:Key="HeroButton" TargetType="Button" BasedOn="{StaticResource GhostButton}">
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="Foreground" Value="{DynamicResource ThemeHeroInk}"/>
+    <Setter Property="BorderThickness" Value="0"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+      <Border x:Name="Body" Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+          <Path Data="{Binding Path=(local:DialogTheme.Icon), RelativeSource={RelativeSource TemplatedParent}}" Width="16" Height="16" Stretch="None" Stroke="{TemplateBinding Foreground}" StrokeThickness="1.3" Margin="0,0,6,0"/>
+          <ContentPresenter VerticalAlignment="Center"/>
+        </StackPanel>
+      </Border>
+      <ControlTemplate.Triggers>
+        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Body" Property="Background" Value="{DynamicResource ThemeHeroHover}"/></Trigger>
+        <Trigger Property="local:DialogTheme.KeyboardFocusVisible" Value="True"><Setter TargetName="Body" Property="BorderBrush" Value="{DynamicResource ThemeHeroInk}"/><Setter TargetName="Body" Property="BorderThickness" Value="1"/></Trigger>
+        <Trigger Property="IsEnabled" Value="False"><Setter Property="Foreground" Value="{DynamicResource ThemeHeroMuted}"/></Trigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
 
   <!-- Win11 ToggleSwitch. Still a CheckBox, so all IsChecked/Checked/Unchecked logic is unchanged. -->
   <Style x:Key="ToggleSwitch" TargetType="CheckBox">
@@ -231,16 +247,16 @@
           <Setter TargetName="Knob" Property="Fill" Value="{DynamicResource ThemeInk}"/>
         </Trigger>
         <Trigger Property="IsChecked" Value="True">
-          <Setter TargetName="Track" Property="Background" Value="{DynamicResource ThemeAccent}"/>
-          <Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource ThemeAccent}"/>
-          <Setter TargetName="Knob" Property="Fill" Value="{DynamicResource ThemeOnAccent}"/>
+          <Setter TargetName="Track" Property="Background" Value="{DynamicResource ThemeInk}"/>
+          <Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource ThemeInk}"/>
+          <Setter TargetName="Knob" Property="Fill" Value="{DynamicResource ThemeOnInk}"/>
           <Trigger.EnterActions><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetName="Knob" Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)" To="20" Duration="0:0:0.14"><DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation></Storyboard></BeginStoryboard></Trigger.EnterActions>
           <Trigger.ExitActions><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetName="Knob" Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)" To="0" Duration="0:0:0.14"><DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation></Storyboard></BeginStoryboard></Trigger.ExitActions>
         </Trigger>
         <MultiTrigger>
           <MultiTrigger.Conditions><Condition Property="IsChecked" Value="True"/><Condition Property="IsMouseOver" Value="True"/></MultiTrigger.Conditions>
-          <Setter TargetName="Track" Property="Background" Value="{DynamicResource ThemeAccentHover}"/>
-          <Setter TargetName="Knob" Property="Fill" Value="{DynamicResource ThemeOnAccent}"/>
+          <Setter TargetName="Track" Property="Background" Value="{DynamicResource ThemeInk}"/>
+          <Setter TargetName="Knob" Property="Fill" Value="{DynamicResource ThemeOnInk}"/>
         </MultiTrigger>
         <Trigger Property="IsPressed" Value="True"><Setter TargetName="Knob" Property="Width" Value="15"/></Trigger>
         <Trigger Property="local:DialogTheme.KeyboardFocusVisible" Value="True"><Setter TargetName="KeyboardRing" Property="Visibility" Value="Visible"/></Trigger>

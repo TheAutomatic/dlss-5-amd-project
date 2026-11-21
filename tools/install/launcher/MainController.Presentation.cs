@@ -26,7 +26,7 @@ namespace OptScalerNR.Launcher
         readonly Dictionary<string, string> _installedModes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         ComboBox _themeCombo;
         Button _themeToggle;
-        static readonly Brush HeroMutedBrush = LauncherTheme.Brush("ThemeMuted");
+        static readonly Brush HeroMutedBrush = LauncherTheme.Brush("ThemeHeroMuted");
         // 16px line icons (stroked by the icon button template).
         static readonly Geometry SunGlyph = Glyph("M 5.25 8 A 2.75 2.75 0 1 1 10.75 8 A 2.75 2.75 0 1 1 5.25 8 Z M 8 1.5 V 3 M 8 13 V 14.5 M 1.5 8 H 3 M 13 8 H 14.5 M 3.4 3.4 L 4.46 4.46 M 11.54 11.54 L 12.6 12.6 M 3.4 12.6 L 4.46 11.54 M 11.54 4.46 L 12.6 3.4");
         static readonly Geometry MoonGlyph = Glyph("M 13.25 9.75 A 5.75 5.75 0 1 1 6.25 2.75 A 4.5 4.5 0 0 0 13.25 9.75 Z");
@@ -48,14 +48,24 @@ namespace OptScalerNR.Launcher
             };
             _themeCombo = (ComboBox)_window.FindName("ThemeCombo");
             _themeToggle = (Button)_window.FindName("ThemeToggle");
-            foreach (var id in new[] { "auto", "light", "dark" })
+            foreach (var id in new[] { "auto", "light", "dark", "classic", "midnight" })
                 _themeCombo.Items.Add(new ComboBoxItem { Tag = id });
             _themeCombo.SelectionChanged += delegate {
                 if (_loadingSettings || _applyingLanguage) return;
                 var item = _themeCombo.SelectedItem as ComboBoxItem;
                 if (item != null) SetTheme((string)item.Tag);
             };
-            _themeToggle.Click += delegate { SetTheme(_theme == "auto" ? "light" : _theme == "light" ? "dark" : "auto"); };
+            _themeToggle.Click += delegate {
+                var menu = new ContextMenu { PlacementTarget = _themeToggle, Placement = PlacementMode.Bottom,
+                    Style = (Style)_window.FindResource("GameContextMenu") };
+                foreach (var id in new[] { "auto", "light", "dark", "classic", "midnight" }) {
+                    var item = new MenuItem { Header = ThemeName(id), Tag = id, IsCheckable = true, IsChecked = id == _theme };
+                    item.Click += delegate(object sender, RoutedEventArgs e) { SetTheme((string)((MenuItem)sender).Tag); };
+                    menu.Items.Add(item);
+                }
+                _themeToggle.ContextMenu = menu;
+                menu.IsOpen = true;
+            };
             ((Button)_window.FindName("LangZh")).Click += delegate { SetLanguage("zh"); };
             ((Button)_window.FindName("LangEn")).Click += delegate { SetLanguage("en"); };
             var addMenu = (Button)_window.FindName("AddMenuButton");
@@ -94,7 +104,7 @@ namespace OptScalerNR.Launcher
         }
         void SetTheme(string theme)
         {
-            if (theme != "auto" && theme != "light" && theme != "dark") return;
+            theme = LauncherTheme.Normalize(theme);
             _theme = theme;
             LauncherTheme.Apply(theme);
             RefreshPresentationLanguage();
@@ -130,7 +140,7 @@ namespace OptScalerNR.Launcher
             ((Button)_window.FindName("LangEn")).ToolTip = L("使用英语", "Use English");
             _themeToggle.Content = _theme == "auto" ? "◐" : _theme == "light" ? "☀" : "☾";
             DialogTheme.SetIcon(_themeToggle, _theme == "auto" ? AutoGlyph : _theme == "light" ? SunGlyph : MoonGlyph);
-            _themeToggle.ToolTip = L("主题：", "Theme: ") + ThemeName(_theme) + L("（点击切换）", " (click to cycle)");
+            _themeToggle.ToolTip = L("外观：", "Appearance: ") + ThemeName(_theme);
             bool previous = _applyingLanguage;
             _applyingLanguage = true;
             try {
@@ -154,6 +164,8 @@ namespace OptScalerNR.Launcher
         }
         string ThemeName(string theme)
         {
+            if (theme == "classic") return L("经典白", "Classic White");
+            if (theme == "midnight") return L("午夜蓝", "Midnight");
             return theme == "light" ? L("浅色", "Light") : theme == "dark" ? L("深色", "Dark") : L("跟随系统", "System (auto)");
         }
         void RefreshHardwareText()
@@ -255,9 +267,8 @@ namespace OptScalerNR.Launcher
         void RefreshHeroState()
         {
             if (_heroKicker == null) return;
-            ((TextBlock)_window.FindName("HeroMonogram")).Text = _selectedGame == null || string.IsNullOrEmpty(_selectedGame.DisplayName) ? "N" : _selectedGame.DisplayName.Substring(0, 1).ToUpperInvariant();
             UpdatePrimaryActionText();
-            _heroKicker.Foreground = PackageDiffers(_selectedGame) ? LauncherTheme.Brush("ThemeWarning") : HeroMutedBrush;
+            _heroKicker.Foreground = HeroMutedBrush;
             _heroKicker.ToolTip = PackageDiffers(_selectedGame) && _primaryButton != null ? _primaryButton.ToolTip : null;
             ((Button)_window.FindName("AddMenuButton")).IsEnabled = PresentationIdle;
             if (!PresentationIdle) ((Popup)_window.FindName("AddMenuPopup")).IsOpen = false;

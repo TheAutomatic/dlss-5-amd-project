@@ -39,6 +39,23 @@ static class LauncherSmoke
         try
         {
             var asm = Assembly.LoadFrom(Path.GetFullPath(args[0]));
+            var paletteType = asm.GetType("OptScalerNR.Launcher.LauncherTheme", true);
+            var normalize = paletteType.GetMethod("Normalize");
+            foreach (var value in new[] { null, "", "unknown" })
+                Check((string)normalize.Invoke(null, new object[] { value }) == "auto", "unknown appearance falls back to auto");
+            foreach (var appearance in new[] { "auto", "light", "dark", "classic", "midnight" })
+                Check((string)normalize.Invoke(null, new object[] { appearance }) == appearance, "appearance accepted: " + appearance);
+            foreach (var appearance in new[] { "light", "dark", "classic", "midnight" }) {
+                paletteType.GetMethod("Apply").Invoke(null, new object[] { appearance });
+                foreach (var pair in new[] { new[] { "ThemeInk", "ThemeCardBg" }, new[] { "ThemeMuted", "ThemeCardBg" },
+                    new[] { "ThemeHeroInk", "ThemeHeroBg" }, new[] { "ThemeHeroMuted", "ThemeHeroBg" },
+                    new[] { "ThemeHeroInk", "ThemeHeroHover" }, new[] { "ThemeDanger", "ThemeDangerBg" } }) {
+                    var a = (Color)paletteType.GetMethod("ColorOf").Invoke(null, new object[] { pair[0] });
+                    var b = (Color)paletteType.GetMethod("ColorOf").Invoke(null, new object[] { pair[1] });
+                    double x = Luminance(a), y = Luminance(b);
+                    Check((Math.Max(x, y) + 0.05) / (Math.Min(x, y) + 0.05) >= 4.5, appearance + " contrast: " + pair[0]);
+                }
+            }
             var type = asm.GetType("OptScalerNR.Launcher.MainController", true);
             var create = type.GetMethod("Create", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public, null,
                 new[] { typeof(string[]), typeof(string) }, null);
@@ -92,6 +109,27 @@ static class LauncherSmoke
                 Check(!((FrameworkElement)Find("SettingsPage")).IsVisible, theme + ": settings overlay closes");
             }
 
+            foreach (var theme in new[] { "classic", "midnight" }) {
+                Invoke("SetTheme", theme);
+                Invoke("SetLanguage", "zh");
+                SelectGame(list, false);
+                ((RadioButton)Find("ModeOptiScalerRadio")).IsChecked = true;
+                Pump(400);
+                AssertLayout(theme + "-zh-optiscaler");
+                Shot(theme + "-zh-optiscaler");
+                ((Button)Find("SettingsTab")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                Pump(300);
+                Shot(theme + "-zh-settings");
+                ((Button)Find("SettingsCloseButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                var toggle = (Button)Find("ThemeToggle");
+                toggle.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                Pump(200);
+                Check(toggle.ContextMenu.IsOpen && toggle.ContextMenu.Items.Count == 5, "appearance menu opens");
+                foreach (MenuItem item in toggle.ContextMenu.Items)
+                    Check(item.IsChecked == ((string)item.Tag == theme), "appearance menu selection: " + item.Tag);
+                toggle.ContextMenu.IsOpen = false;
+            }
+
             // Minimum window size: every key control must stay inside the window.
             foreach (var theme in new[] { "light", "dark" })
             {
@@ -124,6 +162,16 @@ static class LauncherSmoke
         Console.WriteLine(Failures.Count == 0 ? "SMOKE OK" : ("SMOKE FAILED (" + Failures.Count + ")"));
         foreach (var f in Failures) Console.WriteLine("  - " + f);
         return Failures.Count == 0 ? 0 : 1;
+    }
+
+    static double Luminance(Color color)
+    {
+        return 0.2126 * Linear(color.R) + 0.7152 * Linear(color.G) + 0.0722 * Linear(color.B);
+    }
+    static double Linear(byte channel)
+    {
+        double value = channel / 255.0;
+        return value <= 0.04045 ? value / 12.92 : Math.Pow((value + 0.055) / 1.055, 2.4);
     }
 
     // Top of the details pane plus two scrolled pages so the lower sections are reviewable too.

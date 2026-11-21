@@ -287,12 +287,12 @@
             <ControlTemplate.Triggers>
               <Trigger Property="local:DialogTheme.KeyboardFocusVisible" Value="True"><Setter TargetName="KeyboardRing" Property="Visibility" Value="Visible"/></Trigger>
               <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="#C42B1C"/>
-                <Setter TargetName="Glyph" Property="Stroke" Value="White"/>
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ThemeCloseHover}"/>
+                <Setter TargetName="Glyph" Property="Stroke" Value="{DynamicResource ThemeOnAccent}"/>
               </Trigger>
               <Trigger Property="IsPressed" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="#B3C42B1C"/>
-                <Setter TargetName="Glyph" Property="Stroke" Value="White"/>
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ThemeClosePressed}"/>
+                <Setter TargetName="Glyph" Property="Stroke" Value="{DynamicResource ThemeOnAccent}"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -401,8 +401,8 @@
       <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
       <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,12,0">
         <Border Width="22" Height="22" CornerRadius="6" Margin="0,0,10,0" SnapsToDevicePixels="True">
-          <Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#FF4458" Offset="0"/><GradientStop Color="#C40E1E" Offset="1"/></LinearGradientBrush></Border.Background>
-          <Path Data="M 0.75 9.25 V 0.75 L 6.25 9.25 V 0.75" Width="7" Height="10" Stretch="None" Stroke="White" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              <Border.Background><SolidColorBrush Color="{Binding Color, Source={StaticResource ThemeInk}}"/></Border.Background>
+              <Path Data="M 0.75 9.25 V 0.75 L 6.25 9.25 V 0.75" Width="7" Height="10" Stretch="None" Stroke="{DynamicResource ThemeOnInk}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
         <TextBlock Text="OptiScaler NR" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
         <Border x:Name="VersionBadge" VerticalAlignment="Center" Background="Transparent" Margin="8,1,0,0">
@@ -547,46 +547,39 @@
           <StackPanel Margin="24,20,20,28">
 
             <!-- ===== Hero ===== -->
-            <Border x:Name="HeroCard" CornerRadius="8" Height="186" Background="{DynamicResource ThemeCardBg}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="1" ClipToBounds="True">
+            <Border x:Name="HeroCard" CornerRadius="8" Height="186" Background="{DynamicResource ThemeHeroBg}" BorderBrush="{DynamicResource ThemeHeroBg}" BorderThickness="1" ClipToBounds="True">
               <Grid>
-                <Border Background="{DynamicResource ThemeHeroTint}" IsHitTestVisible="False">
-                  <Border.OpacityMask><LinearGradientBrush StartPoint="0,0" EndPoint="1,0"><GradientStop Color="#00000000" Offset="0.15"/><GradientStop Color="#FF000000" Offset="1"/></LinearGradientBrush></Border.OpacityMask>
-                </Border>
-                <Ellipse Width="460" Height="460" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,-200,-170,-200" IsHitTestVisible="False">
-                  <Ellipse.Fill><RadialGradientBrush><GradientStop Color="#26E3122B" Offset="0"/><GradientStop Color="#00E3122B" Offset="1"/></RadialGradientBrush></Ellipse.Fill>
-                </Ellipse>
-                <TextBlock x:Name="HeroMonogram" Text="N" FontSize="200" FontWeight="Black" Foreground="{DynamicResource ThemeInk}" Opacity="0.045" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,-60,40,-60" IsHitTestVisible="False"/>
                 <Image x:Name="HeroBgImage" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center" CacheMode="BitmapCache" IsHitTestVisible="False">
                   <Image.OpacityMask><LinearGradientBrush StartPoint="0,0" EndPoint="1,0"><GradientStop Color="#00000000" Offset="0.2"/><GradientStop Color="#B3000000" Offset="0.62"/><GradientStop Color="#FF000000" Offset="1"/></LinearGradientBrush></Image.OpacityMask>
                 </Image>
                 <!-- Theme-coloured scrim keeps title text readable over artwork in both light and dark. -->
-                <Border Background="{DynamicResource ThemeCardBg}" IsHitTestVisible="False">
+                <Border Background="{DynamicResource ThemeHeroBg}" IsHitTestVisible="False">
                   <Border.OpacityMask><LinearGradientBrush StartPoint="0,0" EndPoint="1,0"><GradientStop Color="#F2000000" Offset="0"/><GradientStop Color="#B3000000" Offset="0.42"/><GradientStop Color="#00000000" Offset="0.85"/></LinearGradientBrush></Border.OpacityMask>
                 </Border>
                 <Grid Margin="24,20,20,16">
                   <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                   <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                   <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
-                    <TextBlock x:Name="HeroKicker" Foreground="{DynamicResource ThemeMuted}" FontSize="11.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                    <TextBlock x:Name="HeroTitle" FontSize="24" FontWeight="SemiBold" Foreground="{DynamicResource ThemeInk}" Margin="0,4,0,4" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
-                    <TextBlock x:Name="HeroMeta" Foreground="{DynamicResource ThemeMuted}" FontSize="12" TextWrapping="Wrap" MaxHeight="36" TextTrimming="CharacterEllipsis"/>
-                    <TextBlock x:Name="HeroPath" Foreground="{DynamicResource ThemeFaint}" FontSize="11" TextTrimming="CharacterEllipsis" Margin="0,6,0,0" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                    <TextBlock x:Name="HeroKicker" Foreground="{DynamicResource ThemeHeroMuted}" FontSize="11.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="HeroTitle" FontSize="24" FontWeight="SemiBold" Foreground="{DynamicResource ThemeHeroInk}" Margin="0,4,0,4" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                    <TextBlock x:Name="HeroMeta" Foreground="{DynamicResource ThemeHeroMuted}" FontSize="12" TextWrapping="Wrap" MaxHeight="36" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="HeroPath" Foreground="{DynamicResource ThemeHeroMuted}" FontSize="11" TextTrimming="CharacterEllipsis" Margin="0,6,0,0" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
                   </StackPanel>
                   <Button x:Name="PrimaryButton" Grid.Column="1" Style="{DynamicResource PrimaryButton}" Height="40" MinWidth="196" MaxWidth="300" VerticalAlignment="Center" Padding="20,0" IsEnabled="False"/>
                   <DockPanel Grid.Row="1" Grid.ColumnSpan="2" Margin="0,16,0,0" LastChildFill="False">
-                    <Button x:Name="LaunchGameButton" Style="{DynamicResource GhostButton}" Height="30" Padding="10,0,12,0" IsEnabled="False"
+                    <Button x:Name="LaunchGameButton" Style="{DynamicResource HeroButton}" Height="30" Padding="10,0,12,0" IsEnabled="False"
                             local:DialogTheme.Icon="M 5 3.25 L 12.5 8 L 5 12.75 Z"/>
-                    <Button x:Name="ManageGameButton" Style="{DynamicResource GhostButton}" Height="30" Padding="10,0,12,0" Margin="8,0,0,0" IsEnabled="False"
+                    <Button x:Name="ManageGameButton" Style="{DynamicResource HeroButton}" Height="30" Padding="10,0,12,0" Margin="8,0,0,0" IsEnabled="False"
                             local:DialogTheme.Icon="M 10.5 2.5 L 13.5 5.5 L 5.5 13.5 H 2.5 V 10.5 Z M 9 4 L 12 7"/>
-                    <Button x:Name="OpenFolderButton" Style="{DynamicResource GhostButton}" Height="30" Padding="10,0,12,0" Margin="8,0,0,0"
+                    <Button x:Name="OpenFolderButton" Style="{DynamicResource HeroButton}" Height="30" Padding="10,0,12,0" Margin="8,0,0,0"
                             local:DialogTheme.Icon="M 1.75 4.25 A 1 1 0 0 1 2.75 3.25 H 6 L 7.5 4.75 H 13.25 A 1 1 0 0 1 14.25 5.75 V 12 A 1 1 0 0 1 13.25 13 H 2.75 A 1 1 0 0 1 1.75 12 Z"/>
                     <Border Width="1" Height="18" Background="{DynamicResource ThemeHairline}" Margin="14,0,6,0" VerticalAlignment="Center"/>
-                    <Button x:Name="UninstallButton" Style="{DynamicResource DangerButton}" Height="30" Padding="8,0,10,0" IsEnabled="False"
+                    <Button x:Name="UninstallButton" Style="{DynamicResource HeroButton}" Height="30" Padding="8,0,10,0" IsEnabled="False"
                             local:DialogTheme.Icon="M 2.5 4.25 H 13.5 M 6 4.25 V 2.75 H 10 V 4.25 M 4 4.25 L 4.75 13.5 H 11.25 L 12 4.25 M 6.75 6.75 V 11 M 9.25 6.75 V 11"/>
                   </DockPanel>
                 </Grid>
-                <ProgressBar x:Name="Progress" Height="3" VerticalAlignment="Bottom" Foreground="{DynamicResource ThemeAccent}" Background="Transparent" BorderThickness="0"/>
-                <Grid Visibility="Collapsed"><TextBlock x:Name="HeroPosterInitial"/><Image x:Name="HeroPosterImage"/></Grid>
+                <ProgressBar x:Name="Progress" Height="3" VerticalAlignment="Bottom" Foreground="{DynamicResource ThemeHeroMuted}" Background="Transparent" BorderThickness="0"/>
+                <Grid Visibility="Collapsed"><TextBlock x:Name="HeroPosterInitial"/><Image x:Name="HeroPosterImage"/><TextBlock x:Name="HeroMonogram"/></Grid>
               </Grid>
             </Border>
 
@@ -736,13 +729,13 @@
                     <TextBlock x:Name="OpenRrCollapsedText" Text="当前模式仅适用 DLSSNR-AMD；OpenRR / OptiPatcher 已自动屏蔽" FontSize="12" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center" TextWrapping="Wrap"/>
                   </DockPanel>
                 </Border>
-                <Border x:Name="ModelImportBar" Background="{DynamicResource ThemeAccentSoft}" BorderBrush="{DynamicResource ThemeAccentBorder}" BorderThickness="1" CornerRadius="8" Margin="0,8,0,0" Visibility="Collapsed">
+                <Border x:Name="ModelImportBar" Background="{DynamicResource ThemeDangerBg}" BorderBrush="{DynamicResource ThemeDanger}" BorderThickness="1" CornerRadius="8" Margin="0,8,0,0" Visibility="Collapsed">
                   <Grid>
-                    <Border Width="3" CornerRadius="1.5" Margin="0,10" HorizontalAlignment="Left" Background="{DynamicResource ThemeAccent}"/>
                     <DockPanel Margin="16,10,12,10">
                       <Button x:Name="ModelImportButton" DockPanel.Dock="Right" Style="{DynamicResource GhostButton}" Height="30" FontSize="12" FontWeight="SemiBold" Padding="10,0,12,0" Margin="12,0,0,0" VerticalAlignment="Center"
                               local:DialogTheme.Icon="M 8 2.5 V 10 M 5 7 L 8 10 L 11 7 M 3 8.5 V 13.5 H 13 V 8.5"/>
-                      <TextBlock x:Name="ModelImportText" Foreground="{DynamicResource ThemeInk}" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                      <TextBlock DockPanel.Dock="Left" Text="⚠" Foreground="{DynamicResource ThemeDanger}" FontSize="16" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                      <TextBlock x:Name="ModelImportText" Foreground="{DynamicResource ThemeDanger}" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
                     </DockPanel>
                   </Grid>
                 </Border>

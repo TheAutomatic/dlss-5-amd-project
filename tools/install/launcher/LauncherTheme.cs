@@ -21,19 +21,36 @@ namespace OptScalerNR.Launcher
             "ThemeCanvas", "ThemeLayer", "ThemeSidebar", "ThemeCardBg", "ThemeCardHover", "ThemeHairline", "ThemeFaint",
             "ThemeAccentHover", "ThemeAccentPressed", "ThemeAccentSoft", "ThemeAccentBorder", "ThemeAccentText",
             "ThemeDanger", "ThemeDangerBg", "ThemeInputBg", "ThemeControl", "ThemeControlHover", "ThemeControlPressed",
-            "ThemeScrim", "ThemeHeroTint", "ThemeSelected", "ThemeOverlay" };
+            "ThemeScrim", "ThemeHeroTint", "ThemeSelected", "ThemeOverlay",
+            "ThemeHeroBg", "ThemeHeroInk", "ThemeHeroMuted", "ThemeHeroHover", "ThemeOnInk", "ThemeCloseHover", "ThemeClosePressed" };
         static readonly string[] Light = {
             "#F3F3F3", "#FFFFFF", "#F6F6F6", "#1B1B1B", "#5F5F5F", "#E1E1E1", "#E3122B", "#EFEFEF", "#0F7B0F", "#E3F4E1", "#9D5D00", "#FFF4CE", "#FFFFFF",
-            "#F3F3F3", "#F9F9F9", "#F3F3F3", "#FFFFFF", "#FBFBFB", "#E5E5E5", "#8A8A8A",
+            "#F3F3F3", "#F9F9F9", "#F3F3F3", "#FFFFFF", "#FBFBFB", "#E5E5E5", "#696969",
             "#CC1027", "#B00E22", "#FDEFF1", "#F3BCC4", "#C50F24",
-            "#C42B1C", "#FDE7E9", "#FFFFFF", "#FBFBFB", "#F4F4F4", "#EDEDED",
-            "#59000000", "#FCEEF0", "#EAEAEA", "#FFFFFF" };
+            "#A82418", "#FFF0DA", "#FFFFFF", "#FBFBFB", "#F4F4F4", "#EDEDED",
+            "#59000000", "#FCEEF0", "#EAEAEA", "#FFFFFF",
+            "#101522", "#F0F6FC", "#B8C3D4", "#293344", "#FFFFFF", "#C42B1C", "#A82418" };
         static readonly string[] Dark = {
             "#202020", "#2B2B2B", "#323232", "#F3F3F3", "#ADADAD", "#3D3D3D", "#E3122B", "#383838", "#6CCB5F", "#1E3320", "#F2C661", "#3D3218", "#FFFFFF",
             "#202020", "#272727", "#202020", "#2D2D2D", "#323232", "#383838", "#8B8B8B",
             "#F0283F", "#C8102A", "#3A262A", "#6B3039", "#FF7B8A",
-            "#FF99A4", "#442726", "#2A2A2A", "#333333", "#3B3B3B", "#2E2E2E",
-            "#8C000000", "#36252A", "#3A3A3A", "#000000" };
+            "#FFD18A", "#3D3218", "#2A2A2A", "#333333", "#3B3B3B", "#2E2E2E",
+            "#8C000000", "#36252A", "#3A3A3A", "#000000",
+            "#181818", "#F3F3F3", "#BDBDBD", "#383838", "#202020", "#C42B1C", "#A82418" };
+        static readonly string[] Classic = {
+            "#FFFFFF", "#FFFFFF", "#F7F8FB", "#0D1220", "#66708A", "#E7E9F0", "#E3122B", "#ECEFF5", "#128445", "#EAF7EF", "#94500A", "#FDF6E7", "#FFFFFF",
+            "#FFFFFF", "#FFFFFF", "#FFFFFF", "#F7F8FB", "#ECEFF5", "#F7F8FB", "#66708A",
+            "#CC1027", "#B00E22", "#FDEFF1", "#F3BCC4", "#C50F24",
+            "#A82418", "#FFF0DA", "#FFFFFF", "#F7F8FB", "#ECEFF5", "#E7E9F0",
+            "#59000000", "#FCEEF0", "#ECEFF5", "#FFFFFF",
+            "#101522", "#F0F6FC", "#B8C3D4", "#293344", "#FFFFFF", "#C42B1C", "#A82418" };
+        static readonly string[] Midnight = {
+            "#0E1117", "#161B22", "#1F242D", "#F0F6FC", "#9BA8BA", "#30363D", "#E3122B", "#29313E", "#4ADE80", "#172E23", "#FFCA70", "#392D18", "#FFFFFF",
+            "#0E1117", "#161B22", "#0E1117", "#1F242D", "#29313E", "#30363D", "#9BA8BA",
+            "#F0283F", "#C8102A", "#35232D", "#6B3039", "#FF7B8A",
+            "#FFD18A", "#392D18", "#161B22", "#1F242D", "#29313E", "#30363D",
+            "#8C000000", "#35232D", "#29313E", "#000000",
+            "#101522", "#F0F6FC", "#B8C3D4", "#293344", "#0E1117", "#C42B1C", "#A82418" };
         // With a Mica backdrop the outer layers become (semi) transparent so DWM material shows through.
         static readonly string[] MicaKeys = { "ThemeCanvas", "ThemeSidebar", "ThemeLayer" };
         static readonly string[] MicaLight = { "#00000000", "#00000000", "#B3FAFAFA" };
@@ -47,6 +64,7 @@ namespace OptScalerNR.Launcher
         static string _mode = "auto";
         public static bool IsDark { get; private set; }
         public static bool MicaActive { get; private set; }
+        public static bool AllowsMica { get { return _mode != "classic" && _mode != "midnight"; } }
         // Raised after every palette change (explicit switch, system auto change, Mica toggle).
         public static event EventHandler Changed;
         static LauncherTheme()
@@ -69,7 +87,7 @@ namespace OptScalerNR.Launcher
         }
         public static string Normalize(string value)
         {
-            return value == "light" || value == "dark" ? value : "auto";
+            return value == "light" || value == "dark" || value == "classic" || value == "midnight" ? value : "auto";
         }
         public static void SetMica(bool active)
         {
@@ -80,8 +98,8 @@ namespace OptScalerNR.Launcher
         public static void Apply(string mode)
         {
             _mode = Normalize(mode);
-            bool light = mode == "light";
-            if (mode != "light" && mode != "dark")
+            bool light = _mode == "light" || _mode == "classic";
+            if (_mode == "auto")
             {
                 try
                 {
@@ -91,10 +109,10 @@ namespace OptScalerNR.Launcher
                 catch { light = true; }
             }
             IsDark = !light;
-            var palette = light ? Light : Dark;
+            var palette = _mode == "classic" ? Classic : _mode == "midnight" ? Midnight : light ? Light : Dark;
             for (int i = 0; i < Keys.Length; i++)
                 Colors[i].Color = (Color)ColorConverter.ConvertFromString(palette[i]);
-            if (MicaActive)
+            if (MicaActive && AllowsMica)
             {
                 var mica = light ? MicaLight : MicaDark;
                 for (int m = 0; m < MicaKeys.Length; m++)
@@ -192,7 +210,6 @@ namespace OptScalerNR.Launcher
                     int corner = main ? DWMWCP_ROUND : DWMWCP_ROUNDSMALL;
                     DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref corner, sizeof(int));
                 }
-                if (main && MicaSupported) TryEnableMica(window, hwnd);
             }
             catch { }
             ApplyColors(window);
@@ -227,6 +244,28 @@ namespace OptScalerNR.Launcher
             if (hwnd == IntPtr.Zero) return;
             try
             {
+                bool main;
+                lock (Windows) main = Windows.Exists(delegate(Entry entry) {
+                    Window target;
+                    return entry.Main && entry.Window.TryGetTarget(out target) && ReferenceEquals(target, window);
+                });
+                if (main && MicaSupported) {
+                    if (LauncherTheme.AllowsMica) {
+                        if (!LauncherTheme.MicaActive) TryEnableMica(window, hwnd);
+                    } else {
+                        int backdrop = 1; // DWMSBT_NONE
+                        DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ref backdrop, sizeof(int));
+                        var margins = new Margins();
+                        DwmExtendFrameIntoClientArea(hwnd, ref margins);
+                        var chrome = WindowChrome.GetWindowChrome(window);
+                        if (chrome != null) {
+                            chrome = (WindowChrome)chrome.Clone();
+                            chrome.GlassFrameThickness = new Thickness(0);
+                            WindowChrome.SetWindowChrome(window, chrome);
+                        }
+                        LauncherTheme.SetMica(false);
+                    }
+                }
                 int dark = LauncherTheme.IsDark ? 1 : 0;
                 if (Build >= 18985) DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
                 else if (Build >= 17763) DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, ref dark, sizeof(int));
