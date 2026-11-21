@@ -39,13 +39,15 @@ cur_tpl = template_names(xaml.read_text(encoding='utf-8-sig'))
 base_tpl = template_names(base_text.lstrip('\ufeff'))
 
 errors = []
+baseline_renames = {'OpenRrAuthorButton': 'OpenRrAsiButton'}
 for n, tags in base.items():
     if n in base_tpl:
         continue
-    if n not in cur or n in cur_tpl:
+    current_name = baseline_renames.get(n, n)
+    if current_name not in cur or current_name in cur_tpl:
         errors.append('MISSING baseline x:Name %s (%s)' % (n, tags[0]))
-    elif cur[n][0] != tags[0]:
-        errors.append('TYPE CHANGED %s: %s -> %s' % (n, tags[0], cur[n][0]))
+    elif cur[current_name][0] != tags[0]:
+        errors.append('TYPE CHANGED %s: %s -> %s' % (n, tags[0], cur[current_name][0]))
 
 for n, tags in cur.items():
     if len(tags) > 1 and n not in cur_tpl:

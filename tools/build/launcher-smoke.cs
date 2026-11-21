@@ -80,6 +80,13 @@ static class LauncherSmoke
             WaitForInspection();
 
             var list = (ListBox)Find("GameList");
+            if (args.Length > 3 && args[3] == "community-links") {
+                Invoke("SetTheme", "light");
+                Invoke("SetLanguage", "zh");
+                ((Button)Find("SettingsTab")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent)); Pump(150);
+                Shot("community-links-light-zh", false);
+                return FinishSmoke();
+            }
             if (args.Length > 3 && args[3] == "proxy-modes") {
                 CheckProxyModes(args[1]);
                 return FinishSmoke();
@@ -448,6 +455,7 @@ static class LauncherSmoke
             SelectGame(list, true);
             Check(!(bool)Member(_controller, "_pendingActionsWarned"), "game change clears warning");
             CheckProxyModes(args[1]);
+            CheckCommunityLinks();
         }
         catch (Exception ex)
         {
@@ -463,6 +471,30 @@ static class LauncherSmoke
         Console.WriteLine(Failures.Count == 0 ? "SMOKE OK" : ("SMOKE FAILED (" + Failures.Count + ")"));
         foreach (var f in Failures) Console.WriteLine("  - " + f);
         return Failures.Count == 0 ? 0 : 1;
+    }
+
+    static void CheckCommunityLinks()
+    {
+        var names = new[] { "GithubButton", "OpenRrAsiButton", "RtxRemixMcPatchButton", "MochizukiAuthorButton", "BilibiliButton" };
+        var urls = new[] { "https://github.com/TheAutomatic/dlss-5-amd-project", "https://github.com/TheAutomatic/OpenRR-ASI", "https://github.com/TheAutomatic/rtx-remix-minecraft-amd-patch", "https://gitlab.com/mochizuki0323/DLSSNR-AMD", "https://space.bilibili.com/291088" };
+        var panel = (WrapPanel)VisualTreeHelper.GetParent((Button)Find(names[0]));
+        Check(panel.Children.Count == names.Length && _window.FindName("OpenRrAuthorButton") == null, "community links replace the old OpenRR button");
+        for (int i = 0; i < names.Length; i++) {
+            var button = (Button)Find(names[i]);
+            Check(ReferenceEquals(panel.Children[i], button) && (string)button.ToolTip == urls[i], "community link order and URL: " + names[i]);
+            var store = typeof(UIElement).GetProperty("EventHandlersStore", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(button, null);
+            var handlers = (Array)store.GetType().GetMethod("GetRoutedEventHandlers", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic).Invoke(store, new object[] { ButtonBase.ClickEvent });
+            Check(handlers.Length > 0, "community link click wired: " + names[i]);
+        }
+        foreach (var language in new[] { "en", "zh" }) {
+            Invoke("SetLanguage", language);
+            Check((string)((Button)Find("OpenRrAsiButton")).Content == "OpenRR-ASI", "OpenRR community label: " + language);
+            Check((string)((Button)Find("RtxRemixMcPatchButton")).Content == (language == "zh" ? "RTX Remix MC 补丁" : "RTX Remix MC patch"), "RTX Remix community label: " + language);
+        }
+        Invoke("SetTheme", "light");
+        ((Button)Find("SettingsTab")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent)); Pump(150);
+        Shot("community-links-light-zh", false);
+        ((Button)Find("SettingsCloseButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
     }
 
     static void CheckProxyModes(string settingsDirectory)

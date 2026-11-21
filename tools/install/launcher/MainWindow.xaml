@@ -1085,11 +1085,13 @@
               <WrapPanel>
                 <Button x:Name="GithubButton" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,8,8" ToolTip="https://github.com/TheAutomatic/dlss-5-amd-project"
                         local:DialogTheme.Icon="M 9 2.5 H 13.5 V 7 M 13.5 2.5 L 7.5 8.5 M 11.5 9.5 V 13.5 H 2.5 V 4.5 H 6.5"/>
-                <Button x:Name="BilibiliButton" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,8,8" ToolTip="https://space.bilibili.com/291088"
+                <Button x:Name="OpenRrAsiButton" Content="OpenRR-ASI" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,8,8" ToolTip="https://github.com/TheAutomatic/OpenRR-ASI"
+                        local:DialogTheme.Icon="M 9 2.5 H 13.5 V 7 M 13.5 2.5 L 7.5 8.5 M 11.5 9.5 V 13.5 H 2.5 V 4.5 H 6.5"/>
+                <Button x:Name="RtxRemixMcPatchButton" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,8,8" ToolTip="https://github.com/TheAutomatic/rtx-remix-minecraft-amd-patch"
                         local:DialogTheme.Icon="M 9 2.5 H 13.5 V 7 M 13.5 2.5 L 7.5 8.5 M 11.5 9.5 V 13.5 H 2.5 V 4.5 H 6.5"/>
                 <Button x:Name="MochizukiAuthorButton" Content="mochizuki0323" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,8,8" ToolTip="https://gitlab.com/mochizuki0323/DLSSNR-AMD"
                         local:DialogTheme.Icon="M 9 2.5 H 13.5 V 7 M 13.5 2.5 L 7.5 8.5 M 11.5 9.5 V 13.5 H 2.5 V 4.5 H 6.5"/>
-                <Button x:Name="OpenRrAuthorButton" Content="Storm / OpenRR" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,8,8" ToolTip="https://github.com/Storm-2026/OpenNR-RR"
+                <Button x:Name="BilibiliButton" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,8,8" ToolTip="https://space.bilibili.com/291088"
                         local:DialogTheme.Icon="M 9 2.5 H 13.5 V 7 M 13.5 2.5 L 7.5 8.5 M 11.5 9.5 V 13.5 H 2.5 V 4.5 H 6.5"/>
               </WrapPanel>
             </StackPanel>

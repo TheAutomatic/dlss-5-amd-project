@@ -257,7 +257,7 @@ namespace OptScalerNR.Launcher
             if (githubBtn != null) githubBtn.Click += (s, e) => OpenUrl("https://github.com/TheAutomatic/dlss-5-amd-project");
             var bilibiliBtn = window.FindName("BilibiliButton") as Button;
             if (bilibiliBtn != null) bilibiliBtn.Click += (s, e) => OpenUrl("https://space.bilibili.com/291088");
-            foreach (var name in new[] { "MochizukiAuthorButton", "OpenRrAuthorButton" }) {
+            foreach (var name in new[] { "OpenRrAsiButton", "RtxRemixMcPatchButton", "MochizukiAuthorButton" }) {
                 var author = window.FindName(name) as Button;
                 if (author != null) author.Click += (s, e) => OpenUrl((string)((Button)s).ToolTip);
             }
@@ -723,6 +723,7 @@ namespace OptScalerNR.Launcher
                     "Leave blank by default (uses launcher folder); only set when running outside the extracted package.");
                 SetLabel("CommunityHeading", "关于与社区", "About & Community");
                 SetLabel("GithubButton", "GitHub · 项目主页", "GitHub · Repository");
+                SetLabel("RtxRemixMcPatchButton", "RTX Remix MC 补丁", "RTX Remix MC patch");
                 SetLabel("BilibiliButton", "Bilibili · 作者主页", "Bilibili · Channel");
                 if (_selectedGame == null)
                 {
