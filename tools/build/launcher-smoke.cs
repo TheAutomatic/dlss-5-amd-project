@@ -72,6 +72,14 @@ static class LauncherSmoke
             var list = (ListBox)Find("GameList");
             Check(list.Items.Count >= 2, "fake library loaded (" + list.Items.Count + " items)");
 
+            var backendChecked = ((CheckBox)Find("MochiCheck")).IsChecked;
+            var backendReason = ((TextBlock)Find("MochiReason")).Text;
+            foreach (var appearance in new[] { "classic", "midnight", "light", "dark" }) {
+                Invoke("SetTheme", appearance);
+                Check(((CheckBox)Find("MochiCheck")).IsChecked == backendChecked, "appearance preserves backend selection: " + appearance);
+                Check(((TextBlock)Find("MochiReason")).Text == backendReason, "appearance preserves backend status: " + appearance);
+            }
+
             foreach (var theme in new[] { "light", "dark" })
             {
                 Invoke("SetTheme", theme);

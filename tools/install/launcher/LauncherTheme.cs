@@ -34,7 +34,7 @@ namespace OptScalerNR.Launcher
             "#202020", "#2B2B2B", "#323232", "#F3F3F3", "#ADADAD", "#3D3D3D", "#E3122B", "#383838", "#6CCB5F", "#1E3320", "#F2C661", "#3D3218", "#FFFFFF",
             "#202020", "#272727", "#202020", "#2D2D2D", "#323232", "#383838", "#8B8B8B",
             "#F0283F", "#C8102A", "#3A262A", "#6B3039", "#FF7B8A",
-            "#FFD18A", "#3D3218", "#2A2A2A", "#333333", "#3B3B3B", "#2E2E2E",
+            "#FF99A4", "#442726", "#2A2A2A", "#333333", "#3B3B3B", "#2E2E2E",
             "#8C000000", "#36252A", "#3A3A3A", "#000000",
             "#181818", "#F3F3F3", "#BDBDBD", "#383838", "#202020", "#C42B1C", "#A82418" };
         static readonly string[] Classic = {
@@ -48,9 +48,9 @@ namespace OptScalerNR.Launcher
             "#0E1117", "#161B22", "#1F242D", "#F0F6FC", "#9BA8BA", "#30363D", "#E3122B", "#29313E", "#4ADE80", "#172E23", "#FFCA70", "#392D18", "#FFFFFF",
             "#0E1117", "#161B22", "#0E1117", "#1F242D", "#29313E", "#30363D", "#9BA8BA",
             "#F0283F", "#C8102A", "#35232D", "#6B3039", "#FF7B8A",
-            "#FFD18A", "#392D18", "#161B22", "#1F242D", "#29313E", "#30363D",
+            "#FF99A4", "#442726", "#161B22", "#1F242D", "#29313E", "#30363D",
             "#8C000000", "#35232D", "#29313E", "#000000",
-            "#101522", "#F0F6FC", "#B8C3D4", "#293344", "#0E1117", "#C42B1C", "#A82418" };
+            "#1B2638", "#F0F6FC", "#B8C3D4", "#293344", "#0E1117", "#C42B1C", "#A82418" };
         // With a Mica backdrop the outer layers become (semi) transparent so DWM material shows through.
         static readonly string[] MicaKeys = { "ThemeCanvas", "ThemeSidebar", "ThemeLayer" };
         static readonly string[] MicaLight = { "#00000000", "#00000000", "#B3FAFAFA" };

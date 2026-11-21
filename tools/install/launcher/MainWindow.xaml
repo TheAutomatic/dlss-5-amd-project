@@ -401,8 +401,8 @@
       <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
       <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,12,0">
         <Border Width="22" Height="22" CornerRadius="6" Margin="0,0,10,0" SnapsToDevicePixels="True">
-              <Border.Background><SolidColorBrush Color="{Binding Color, Source={StaticResource ThemeInk}}"/></Border.Background>
-              <Path Data="M 0.75 9.25 V 0.75 L 6.25 9.25 V 0.75" Width="7" Height="10" Stretch="None" Stroke="{DynamicResource ThemeOnInk}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          <Border.Background><SolidColorBrush Color="{Binding Color, Source={StaticResource ThemeAccent}}"/></Border.Background>
+          <Path Data="M 0.75 9.25 V 0.75 L 6.25 9.25 V 0.75" Width="7" Height="10" Stretch="None" Stroke="{DynamicResource ThemeOnAccent}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
         <TextBlock Text="OptiScaler NR" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
         <Border x:Name="VersionBadge" VerticalAlignment="Center" Background="Transparent" Margin="8,1,0,0">
