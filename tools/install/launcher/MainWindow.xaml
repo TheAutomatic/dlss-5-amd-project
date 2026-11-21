@@ -717,31 +717,32 @@
                     <TextBlock x:Name="OpenRrCollapsedText" Text="当前模式仅适用 DLSSNR-AMD；OpenRR / OptiPatcher 已自动屏蔽" FontSize="12" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center" TextWrapping="Wrap"/>
                   </DockPanel>
                 </Border>
-                <Border x:Name="BeforeInstallChecklist" Style="{StaticResource Card}" BorderThickness="0" Margin="0,12,0,0" Padding="16,12" Visibility="Collapsed">
-                  <StackPanel>
-                    <TextBlock x:Name="BeforeInstallHeading" FontWeight="SemiBold" Foreground="{DynamicResource ThemeInk}" Margin="0,0,0,6"/>
-                    <StackPanel x:Name="MissingPackageItems"/>
-                <Border x:Name="ModelImportBar" Margin="0,4,0,0" Visibility="Collapsed">
-                  <Grid>
-                    <DockPanel>
-                      <Button x:Name="ModelImportButton" DockPanel.Dock="Right" Style="{DynamicResource CardAction}" Height="30" FontSize="12" FontWeight="SemiBold" Padding="10,0,12,0" Margin="12,0,0,0" VerticalAlignment="Center"
-                              local:DialogTheme.Icon="M 8 2.5 V 10 M 5 7 L 8 10 L 11 7 M 3 8.5 V 13.5 H 13 V 8.5"/>
-                      <TextBlock Text="⚠" Foreground="{DynamicResource ThemeDanger}" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                      <TextBlock x:Name="ModelImportText" Foreground="{DynamicResource ThemeDanger}" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
-                    </DockPanel>
-                  </Grid>
+                <Border x:Name="OpenRrUnsupportedBar" Style="{StaticResource InfoBar}" Margin="0,8,0,0" Visibility="Collapsed">
+                  <DockPanel>
+                    <Button x:Name="UnlockOpenRrBtn" DockPanel.Dock="Right" Style="{DynamicResource CardAction}" Margin="12,0,0,0" Content="强制解锁"/>
+                    <Path Width="16" Height="16" Stretch="None" Stroke="{DynamicResource ThemeMuted}" StrokeThickness="1.2" Margin="0,0,10,0" VerticalAlignment="Center"
+                          Data="M 3.75 7.25 H 12.25 V 13.75 H 3.75 Z M 5.5 7.25 V 5 A 2.5 2.5 0 0 1 10.5 5 V 7.25"/>
+                    <TextBlock x:Name="OpenRrUnsupportedText" FontSize="12" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                  </DockPanel>
                 </Border>
-                    <DockPanel x:Name="OpenRrModelImportRow" Margin="0,4,0,0" Visibility="Collapsed">
-                      <Button x:Name="OpenRrImportButton" DockPanel.Dock="Right" Style="{DynamicResource CardAction}" Margin="12,0,0,0"/>
-                      <TextBlock Text="⚠" Foreground="{DynamicResource ThemeDanger}" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                      <TextBlock x:Name="OpenRrModelImportText" FontSize="12" Foreground="{DynamicResource ThemeDanger}" TextWrapping="Wrap" VerticalAlignment="Center"/>
-                    </DockPanel>
-                    <Border x:Name="OpenRrUnsupportedBar" Margin="0,4,0,0" Visibility="Collapsed">
-                      <DockPanel>
-                        <Button x:Name="UnlockOpenRrBtn" DockPanel.Dock="Right" Style="{DynamicResource CardAction}" Margin="12,0,0,0" Content="强制解锁"/>
-                        <TextBlock Text="ℹ" Foreground="{DynamicResource ThemeMuted}" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                        <TextBlock x:Name="OpenRrUnsupportedText" FontSize="12" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center" TextWrapping="Wrap"/>
-                      </DockPanel>
+                <Border x:Name="BeforeInstallChecklist" Margin="0,24,0,0" Visibility="Collapsed">
+                  <StackPanel>
+                    <TextBlock x:Name="BeforeInstallHeading" Style="{StaticResource SectionHeader}" Margin="2,0,0,10"/>
+                    <Border x:Name="PendingActionsCard" Style="{StaticResource Card}">
+                      <StackPanel>
+                        <StackPanel x:Name="MissingPackageItems"/>
+                        <Border x:Name="ModelImportBar" Margin="0,4,0,4" Visibility="Collapsed">
+                          <DockPanel>
+                            <Button x:Name="ModelImportButton" DockPanel.Dock="Right" Style="{DynamicResource GhostButton}" Height="30" FontSize="12" Padding="10,0,12,0" Margin="12,0,0,0" VerticalAlignment="Center"
+                                    local:DialogTheme.Icon="M 8 2.5 V 10 M 5 7 L 8 10 L 11 7 M 3 8.5 V 13.5 H 13 V 8.5"/>
+                            <TextBlock x:Name="ModelImportText" Foreground="{DynamicResource ThemeInk}" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                          </DockPanel>
+                        </Border>
+                        <DockPanel x:Name="OpenRrModelImportRow" Margin="0,4,0,4" Visibility="Collapsed">
+                          <Button x:Name="OpenRrImportButton" DockPanel.Dock="Right" Style="{DynamicResource GhostButton}" Height="30" FontSize="12" Margin="12,0,0,0"/>
+                          <TextBlock x:Name="OpenRrModelImportText" FontSize="12" Foreground="{DynamicResource ThemeInk}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                        </DockPanel>
+                      </StackPanel>
                     </Border>
                   </StackPanel>
                 </Border>

@@ -412,12 +412,12 @@ namespace OptScalerNR.Launcher
                         missing.Add(L("缺少组件：", "Missing component: ") + file);
             }
             foreach (var text in missing) {
-                var row = new DockPanel { Margin = new Thickness(0, 4, 0, 0) };
-                var button = new Button { Content = L("获取完整安装包", "Get full package"), Style = (Style)_window.FindResource("CardAction"), Margin = new Thickness(12, 0, 0, 0), IsEnabled = PresentationIdle };
+                var row = new DockPanel { Margin = new Thickness(0, 4, 0, 4) };
+                var button = new Button { Content = L("获取完整安装包", "Get full package"), Style = (Style)_window.FindResource("GhostButton"), Height = 30, Margin = new Thickness(12, 0, 0, 0), IsEnabled = PresentationIdle };
                 DockPanel.SetDock(button, Dock.Right);
                 button.Click += delegate { OpenUrl("https://github.com/TheAutomatic/dlss-5-amd-project/releases/latest"); };
                 row.Children.Add(button);
-                row.Children.Add(new TextBlock { Text = "⚠ " + text, FontSize = 12, Foreground = LauncherTheme.Brush("ThemeDanger"), VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap });
+                row.Children.Add(new TextBlock { Text = text, FontSize = 12, Foreground = LauncherTheme.Brush("ThemeInk"), VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap });
                 items.Children.Add(row);
             }
             bool openRrMissing = _selectedGame != null && _selectedGame.HasExecutable && IsOptiScalerSelectedMode() && !IsOpenRrUnsupportedLocked() && _openRrToggle != null && _openRrToggle.IsChecked == true && !HasValidOpenRrDlssd();
@@ -428,8 +428,7 @@ namespace OptScalerNR.Launcher
             ((Border)_window.FindName("OpenRrUnsupportedBar")).Visibility = locked ? Visibility.Visible : Visibility.Collapsed;
             SetLabel("BeforeInstallHeading", "还差这几步", "Before you install");
             bool blocking = missing.Count > 0 || _modelImportBar.Visibility == Visibility.Visible || openRrMissing;
-            ((Border)_window.FindName("BeforeInstallChecklist")).Background = blocking ? LauncherTheme.Brush("ThemeDangerBg") : System.Windows.Media.Brushes.Transparent;
-            ((Border)_window.FindName("BeforeInstallChecklist")).Visibility = missing.Count > 0 || _modelImportBar.Visibility == Visibility.Visible || openRrMissing || locked ? Visibility.Visible : Visibility.Collapsed;
+            ((Border)_window.FindName("BeforeInstallChecklist")).Visibility = blocking ? Visibility.Visible : Visibility.Collapsed;
         }
 
         void PickOpenRrDlssdFile()

@@ -91,6 +91,12 @@ static class LauncherSmoke
                 Invoke("SetTheme", appearance);
                 Check(((Border)Find("MochiCard")).BorderThickness == new Thickness(appearance == "classic" ? 0 : 1), "card border follows appearance: " + appearance);
                 Check(((Border)Find("MochiBadge")).BorderThickness == new Thickness(0), "status is borderless: " + appearance);
+                var pending = (Border)Find("PendingActionsCard");
+                Check(pending.BorderThickness == new Thickness(appearance == "classic" ? 0 : 1), "pending card uses standard border: " + appearance);
+                Check(((SolidColorBrush)pending.Background).Color == ((SolidColorBrush)_window.FindResource("ThemeCardBg")).Color, "pending card uses normal surface: " + appearance);
+                Check(((SolidColorBrush)((TextBlock)Find("ModelImportText")).Foreground).Color == ((SolidColorBrush)_window.FindResource("ThemeInk")).Color, "pending title uses normal ink: " + appearance);
+                Check(((SolidColorBrush)((TextBlock)Find("OpenRrUnsupportedText")).Foreground).Color == ((SolidColorBrush)_window.FindResource("ThemeMuted")).Color, "game-trait lock uses muted ink: " + appearance);
+                Check(((SolidColorBrush)((Border)Find("OpenRrUnsupportedBar")).Background).Color.A == 0, "game-trait lock is unfilled: " + appearance);
                 Check(((CheckBox)Find("MochiCheck")).IsChecked == backendChecked, "appearance preserves backend selection: " + appearance);
                 Check(((TextBlock)Find("MochiReason")).Text == backendReason, "appearance preserves backend status: " + appearance);
             }
@@ -236,7 +242,8 @@ static class LauncherSmoke
             Check(((ComboBox)Find("LangCombo")).Items.Count == 2, "language selector retained in Settings");
             Check(((TextBlock)Find("MochiHint")).Visibility == Visibility.Collapsed, "duplicate backend hints hidden");
             Check(((Border)Find("BeforeInstallChecklist")).IsVisible, "prerequisite checklist visible");
-            Check(((SolidColorBrush)((Border)Find("BeforeInstallChecklist")).Background).Color.A > 0, "blocking prerequisites use one filled checklist");
+            Check(!((Border)Find("BeforeInstallChecklist")).IsAncestorOf((Border)Find("OpenRrUnsupportedBar")), "game-trait lock is outside pending actions");
+            Check(((Border)Find("BackendSection")).IsAncestorOf((Border)Find("OpenRrUnsupportedBar")), "game-trait lock is in quality plugins");
             Check(((System.Windows.Documents.Hyperlink)Find("WikiDetailsLink")).NavigateUri.Scheme == "https", "Wiki details use a navigable URL");
             Call("SetStatus", "库已刷新", "Library refreshed");
             Invoke("SetLanguage", "en");
@@ -251,10 +258,11 @@ static class LauncherSmoke
             Check(((FrameworkElement)Find("StatusLed")).IsVisible, "specific status retains dot");
             Call("SetStatus", "", "");
             Check(!((FrameworkElement)Find("ModeStandaloneTag")).IsVisible && !((FrameworkElement)Find("ModeReShadeTag")).IsVisible, "redundant mode badges removed");
-            foreach (var name in new[] { "MochiHotkeysButton", "MochiShareCodeButton", "ModelImportButton" }) {
+            foreach (var name in new[] { "MochiHotkeysButton", "MochiShareCodeButton", "UnlockOpenRrBtn" }) {
                 var button = (Button)Find(name);
                 Check(button.BorderThickness == new Thickness(0) && ((SolidColorBrush)button.Background).Color.A == 0, "secondary action is borderless: " + name);
             }
+            Check(((Button)Find("ModelImportButton")).BorderThickness == new Thickness(1), "pending model action uses rounded secondary button");
 
             var selectedGame = Member(_controller, "_selectedGame");
             var cacheDir = Member(_controller, "_nativeDlssdCacheDir");
@@ -293,12 +301,15 @@ static class LauncherSmoke
             Call("RefreshModelImportBar");
             Check(((StackPanel)Find("MissingPackageItems")).Children.Count == 1, "duplicate missing components deduplicated");
             Check(((TextBlock)((DockPanel)((StackPanel)Find("MissingPackageItems")).Children[0]).Children[1]).Text.Contains("runtime.dll"), "component checklist identifies missing file");
+            var packageRow = (DockPanel)((StackPanel)Find("MissingPackageItems")).Children[0];
+            Check(!((TextBlock)packageRow.Children[1]).Text.Contains("⚠") && ((SolidColorBrush)((TextBlock)packageRow.Children[1]).Foreground).Color == ((SolidColorBrush)_window.FindResource("ThemeInk")).Color, "package title is calm normal ink");
+            Check(((Button)packageRow.Children[0]).BorderThickness == new Thickness(1), "package action is a proper secondary button");
             SetMember(backend, "MissingPackageFiles", new string[0]);
             Call("RefreshModelImportBar");
             Check(((Border)Find("BeforeInstallChecklist")).Visibility == Visibility.Collapsed, "no prerequisites means no checklist");
             SetMember(_controller, "_nativeDlssdCacheVal", false);
             Call("RefreshModelImportBar");
-            Check(((Border)Find("BeforeInstallChecklist")).IsVisible && ((SolidColorBrush)((Border)Find("BeforeInstallChecklist")).Background).Color.A == 0, "lock-only notice has no filled banner");
+            Check(((Border)Find("BeforeInstallChecklist")).Visibility == Visibility.Collapsed && ((Border)Find("OpenRrUnsupportedBar")).Visibility == Visibility.Visible, "lock-only state has a neutral plugin row but no pending block");
             SetMember(_controller, "_nativeDlssdCacheVal", true);
             SetMember(backend, "Hints", new[] { "mochi-unsupported-source" });
             Call("RefreshModelImportBar");
