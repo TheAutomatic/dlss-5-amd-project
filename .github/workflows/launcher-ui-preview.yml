@@ -1,21 +1,21 @@
 # Launcher UI preview: compile (C# 5 / .NET Framework csc), check the XAML/FindName contract, run the STA smoke
 # test (light/dark x zh/en x 4 install modes, settings overlay, 1020x660) and upload PNG previews.
+# Runs on PRs touching the Windows launcher, or manually via workflow_dispatch (never on ordinary pushes).
 name: launcher-ui-preview
 
 on:
-  push:
-    branches:
-      - 'feat/**'
+  pull_request:
     paths:
       - 'tools/install/launcher/**'
       - 'tools/build/build-launcher.ps1'
       - 'tools/build/launcher-smoke.*'
       - 'tools/build/check-launcher-xaml.py'
       - '.github/workflows/launcher-ui-preview.yml'
-  pull_request:
-    paths:
-      - 'tools/install/launcher/**'
   workflow_dispatch:
+
+concurrency:
+  group: launcher-ui-preview-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -60,4 +60,5 @@ jobs:
           path: |
             exports/launcher-smoke/*.png
             exports/launcher/OptiScalerNRLauncher.exe
+          retention-days: 7
           if-no-files-found: warn
