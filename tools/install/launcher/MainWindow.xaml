@@ -735,7 +735,10 @@
                           <DockPanel>
                             <Button x:Name="ModelImportButton" DockPanel.Dock="Right" Style="{DynamicResource GhostButton}" Height="30" FontSize="12" Padding="10,0,12,0" Margin="12,0,0,0" VerticalAlignment="Center"
                                     local:DialogTheme.Icon="M 8 2.5 V 10 M 5 7 L 8 10 L 11 7 M 3 8.5 V 13.5 H 13 V 8.5"/>
-                            <TextBlock x:Name="ModelImportText" Foreground="{DynamicResource ThemeInk}" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                            <StackPanel VerticalAlignment="Center">
+                              <TextBlock x:Name="ModelImportText" Foreground="{DynamicResource ThemeInk}" FontSize="12" TextWrapping="Wrap"/>
+                              <TextBlock x:Name="ModelImportRequirement" Foreground="{DynamicResource ThemeMuted}" FontSize="11" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                            </StackPanel>
                           </DockPanel>
                         </Border>
                         <DockPanel x:Name="OpenRrModelImportRow" Margin="0,4,0,4" Visibility="Collapsed">

@@ -108,6 +108,7 @@ static class LauncherSmoke
                 {
                     Invoke("SetLanguage", lang);
                     SelectGame(list, false);
+                    CheckMochizukiImportCopy(lang);
                     foreach (var mode in new[] { "ModeOptiScalerRadio", "ModeStandaloneRadio", "ModeReShadeRadio" })
                     {
                         ((RadioButton)Find(mode)).IsChecked = true;
@@ -312,6 +313,7 @@ static class LauncherSmoke
             SetMember(backend, "MissingPackageFiles", new string[0]);
             Call("RefreshModelImportBar");
             Check(((Border)Find("BeforeInstallChecklist")).Visibility == Visibility.Collapsed, "no prerequisites means no checklist");
+            Check(!((TextBlock)Find("ModelImportRequirement")).IsVisible, "model filename detail hides with resolved item");
             Check(!(bool)Member(_controller, "_pendingActionsWarned") && !((Border)Find("PendingActionsCard")).HasAnimatedProperties, "resolution clears warning and animation");
             SetMember(_controller, "_nativeDlssdCacheVal", false);
             Call("RefreshModelImportBar");
@@ -320,6 +322,8 @@ static class LauncherSmoke
             SetMember(backend, "Hints", new[] { "mochi-unsupported-source" });
             Call("RefreshModelImportBar");
             Check(((TextBlock)Find("ModelImportText")).Text.Contains("unsupported"), "unsupported model source has actionable checklist item");
+            CheckMochizukiImportCopy("en");
+            Check(((TextBlock)Find("ModelImportRequirement")).IsVisible, "unsupported model source retains filename/version guidance");
             SetMember(backend, "MissingPackageFiles", savedMissing);
             SetMember(backend, "Hints", savedHints);
             SetMember(inspection, "PackageRoot", savedPackageRoot);
@@ -340,6 +344,10 @@ static class LauncherSmoke
                 Check(Math.Abs(card.Opacity - 1) < 0.001, "pulse finishes at steady opacity: " + theme);
                 Check(((SolidColorBrush)card.Background).Color == ((SolidColorBrush)_window.FindResource("ThemeDangerBg")).Color && ((SolidColorBrush)card.BorderBrush).Color == ((SolidColorBrush)_window.FindResource("ThemeDanger")).Color, "warning uses danger colors: " + theme);
                 Check(((SolidColorBrush)((TextBlock)Find("ModelImportText")).Foreground).Color == ((SolidColorBrush)_window.FindResource("ThemeDanger")).Color, "model item uses danger ink: " + theme);
+                Check(((SolidColorBrush)((TextBlock)Find("ModelImportRequirement")).Foreground).Color == ((SolidColorBrush)_window.FindResource("ThemeDanger")).Color, "warned model requirement uses danger ink: " + theme);
+                double requirementInk = Luminance(((SolidColorBrush)((TextBlock)Find("ModelImportRequirement")).Foreground).Color);
+                double warningSurface = Luminance(((SolidColorBrush)card.Background).Color);
+                Check((Math.Max(requirementInk, warningSurface) + 0.05) / (Math.Min(requirementInk, warningSurface) + 0.05) >= 4.5, "warned model requirement contrast: " + theme);
                 Check(((SolidColorBrush)((TextBlock)Find("OpenRrUnsupportedText")).Foreground).Color == ((SolidColorBrush)_window.FindResource("ThemeMuted")).Color, "game-trait lock stays neutral when warned: " + theme);
                 var bounds = card.TransformToAncestor((ScrollViewer)Find("DetailsScroll")).TransformBounds(new Rect(card.RenderSize));
                 Check(bounds.Bottom <= ((ScrollViewer)Find("DetailsScroll")).ActualHeight + 1, "pending warning scrolled into view: " + theme);
@@ -389,6 +397,20 @@ static class LauncherSmoke
         scroll.ScrollToVerticalOffset(scroll.ViewportHeight * 0.9); Pump(250); Shot(name + "-2");
         scroll.ScrollToBottom(); Pump(250); Shot(name + "-3");
         scroll.ScrollToTop(); Pump(150);
+    }
+
+    static void CheckMochizukiImportCopy(string language)
+    {
+        var requirement = (TextBlock)Find("ModelImportRequirement");
+        var button = (Button)Find("ModelImportButton");
+        Check(requirement.Text == (language == "zh" ? "需要 nvngx_dlssnr.dll（310.9.16 或 310.8.0）" : "Needs nvngx_dlssnr.dll (310.9.16 or 310.8.0)"), "model filename and versions: " + language);
+        Check((string)button.Content == (language == "zh" ? "导入 dlssnr.dll…" : "Import dlssnr.dll…"), "model button names DLL: " + language);
+        Check(((string)button.ToolTip).Contains(language == "zh" ? "复制到启动器目录" : "copied into the launcher folder"), "model button explains copy destination: " + language);
+        var picker = (Microsoft.Win32.OpenFileDialog)Call("CreateMochizukiSourcePicker");
+        Check(picker.Filter == "nvngx_dlssnr.dll|nvngx_dlssnr.dll" && picker.CheckFileExists && picker.RestoreDirectory, "Mochizuki picker filters to exact source DLL");
+        Check(picker.Title.Contains("nvngx_dlssnr.dll"), "Mochizuki picker names source DLL");
+        Check(((TextBlock)Find("ModeOptiDesc")).Text == (language == "zh" ? "大多数场景选这个" : "Best for most cases"), "OptiScaler mode recommendation: " + language);
+        Check(((TextBlock)Find("ModeReShadeDesc")).Text == (language == "zh" ? "推荐老游戏和 DX9 游戏" : "Best for older and DX9 games"), "ReShade mode recommendation: " + language);
     }
 
     static object Find(string name)

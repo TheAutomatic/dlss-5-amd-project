@@ -682,13 +682,13 @@ namespace OptScalerNR.Launcher
             SetLabel("InstallModeHeading", "安装模式", "Installation Mode");
             SetLabel("ModeOptiTitle", "OptiScaler", "OptiScaler");
             SetLabel("ModeOptiTag", "推荐", "Default");
-            SetCardDescription("ModeOptiDesc", "大多数新游戏选这个", "For most modern games", "DLSS / FSR / XeSS 现代游戏 · 支持 OpenRR / OptiPatcher", "Modern DLSS / FSR / XeSS games · OpenRR & OptiPatcher");
+            SetCardDescription("ModeOptiDesc", "大多数场景选这个", "Best for most cases", "DLSS / FSR / XeSS 现代游戏 · 支持 OpenRR / OptiPatcher", "Modern DLSS / FSR / XeSS games · OpenRR & OptiPatcher");
             SetLabel("ModeStandaloneTitle", "独立直通", "Standalone");
             SetLabel("ModeStandaloneTag", "直通", "Direct");
             SetCardDescription("ModeStandaloneDesc", "视频播放器、OBS 等非游戏程序", "Video players, OBS and other apps", "DX11/12 / Vulkan · 视频 / OBS / 任意程序 · 免超分接管", "DX11/12 / Vulkan · video players, OBS, generic apps");
             SetLabel("ModeReShadeTitle", "ReShade 兼容模式", "ReShade Compatible");
             SetLabel("ModeReShadeTag", "经典兼容", "Legacy");
-            SetCardDescription("ModeReShadeDesc", "老游戏和 DX9 游戏", "Older games and DX9 games", "DX9 (DXVK) / DX10-12 / Vulkan 老游戏 · 支持 LumeniteFX", "DX9 (DXVK) / DX10-12 / Vulkan legacy games · LumeniteFX");
+            SetCardDescription("ModeReShadeDesc", "推荐老游戏和 DX9 游戏", "Best for older and DX9 games", "DX9 (DXVK) / DX10-12 / Vulkan 老游戏 · 支持 LumeniteFX", "DX9 (DXVK) / DX10-12 / Vulkan legacy games · LumeniteFX");
             SetLabel("RtxRemixMcTitle", "RTX Remix for Minecraft Java", "RTX Remix for Minecraft Java");
             SetLabel("RtxRemixMcTag", "专用模式", "Dedicated");
             SetCardDescription("RtxRemixMcDesc", "自动部署并备份原文件，卸载可还原。建议只开 OpenRR。", "Auto-deploys with backups. Uninstall restores originals. Use OpenRR only.",

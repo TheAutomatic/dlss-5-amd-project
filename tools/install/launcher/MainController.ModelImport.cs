@@ -34,8 +34,11 @@ namespace OptScalerNR.Launcher
 
         void RefreshModelImportLanguage()
         {
-            if (_modelImportButton != null)
-                _modelImportButton.Content = L("导入模型源…", "Import model source…");
+            if (_modelImportButton != null) {
+                _modelImportButton.Content = L("导入 dlssnr.dll…", "Import dlssnr.dll…");
+                _modelImportButton.ToolTip = L("选择 nvngx_dlssnr.dll；文件会复制到启动器目录，对所有游戏生效。", "Choose nvngx_dlssnr.dll; the file is copied into the launcher folder and applies to every game.");
+            }
+            SetLabel("ModelImportRequirement", "需要 nvngx_dlssnr.dll（310.9.16 或 310.8.0）", "Needs nvngx_dlssnr.dll (310.9.16 or 310.8.0)");
             if (_openRrImportButton != null)
                 _openRrImportButton.Content = L("导入 nvngx_dlssd.dll…", "Import nvngx_dlssd.dll…");
             RefreshModelImportBar();
@@ -417,6 +420,7 @@ namespace OptScalerNR.Launcher
                     if (title != null) title.Foreground = ink;
                 }
             _modelImportText.Foreground = ink;
+            ((TextBlock)_window.FindName("ModelImportRequirement")).Foreground = LauncherTheme.Brush(_pendingActionsWarned ? "ThemeDanger" : "ThemeMuted");
             ((TextBlock)_window.FindName("OpenRrModelImportText")).Foreground = ink;
             if (!_pendingActionsWarned) card.BeginAnimation(UIElement.OpacityProperty, null);
             else if (pulse) card.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(1, 0.4, TimeSpan.FromSeconds(0.25)) {
@@ -502,22 +506,28 @@ namespace OptScalerNR.Launcher
             }
         }
 
-        void PickModelSourceFile()
+        OpenFileDialog CreateMochizukiSourcePicker()
         {
-            if (IniBusyLike()) return;
-            var directory = Path.GetDirectoryName(_selectedGame.Exe);
+            var directory = _selectedGame != null && !string.IsNullOrEmpty(_selectedGame.Exe) ? Path.GetDirectoryName(_selectedGame.Exe) : null;
             var picker = new OpenFileDialog {
-                Title = L("选择模型源文件（复制到启动器目录）", "Choose a model source file (copied into the launcher folder)"),
-                Filter = L("模型源文件|nvngx_dlssnr.dll;nvngx_dlssd.dll|DLL (*.dll)|*.dll", "Model sources|nvngx_dlssnr.dll;nvngx_dlssd.dll|DLL (*.dll)|*.dll"),
+                Title = L("选择 nvngx_dlssnr.dll（复制到启动器目录）", "Choose nvngx_dlssnr.dll (copied into the launcher folder)"),
+                Filter = "nvngx_dlssnr.dll|nvngx_dlssnr.dll",
                 CheckFileExists = true, RestoreDirectory = true
             };
             if (!string.IsNullOrEmpty(directory)) picker.InitialDirectory = directory;
+            return picker;
+        }
+
+        void PickModelSourceFile()
+        {
+            if (IniBusyLike()) return;
+            var picker = CreateMochizukiSourcePicker();
             if (picker.ShowDialog(_window) != true) return;
             try {
                 var source = picker.FileName;
-                // PE validation for DLL/EXE; weight BINs are plain data the installer hash-checks.
-                if (!source.EndsWith(".bin", StringComparison.OrdinalIgnoreCase))
-                    ValidateModelSourcePe(source);
+                if (!string.Equals(Path.GetFileName(source), "nvngx_dlssnr.dll", StringComparison.OrdinalIgnoreCase))
+                    throw new IOException(L("请选择名为 nvngx_dlssnr.dll 的文件。", "Please choose a file named nvngx_dlssnr.dll."));
+                ValidateModelSourcePe(source);
                 var root = ResolveImportRoot();
                 var destination = Path.Combine(root, Path.GetFileName(source));
                 if (string.Equals(Path.GetFullPath(source), Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase)) {
