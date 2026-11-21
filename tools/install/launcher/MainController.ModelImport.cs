@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media.Animation;
 using Microsoft.Win32;
 
 namespace OptScalerNR.Launcher
@@ -33,8 +34,11 @@ namespace OptScalerNR.Launcher
 
         void RefreshModelImportLanguage()
         {
-            if (_modelImportButton != null)
-                _modelImportButton.Content = L("导入模型源文件…", "Import model source file…");
+            if (_modelImportButton != null) {
+                _modelImportButton.Content = L("导入 dlssnr.dll…", "Import dlssnr.dll…");
+                _modelImportButton.ToolTip = L("选择 nvngx_dlssnr.dll；文件会复制到启动器目录，对所有游戏生效。", "Choose nvngx_dlssnr.dll; the file is copied into the launcher folder and applies to every game.");
+            }
+            SetLabel("ModelImportRequirement", "需要 nvngx_dlssnr.dll（310.9.16 或 310.8.0）", "Needs nvngx_dlssnr.dll (310.9.16 or 310.8.0)");
             if (_openRrImportButton != null)
                 _openRrImportButton.Content = L("导入 nvngx_dlssd.dll…", "Import nvngx_dlssd.dll…");
             RefreshModelImportBar();
@@ -46,7 +50,7 @@ namespace OptScalerNR.Launcher
         // by an import and stay out of this bar.
         static bool BackendHintsContain(BackendInfo backend, params string[] needles)
         {
-            if (backend.Hints == null) return false;
+            if (backend == null || backend.Hints == null) return false;
             foreach (var hint in backend.Hints)
                 foreach (var needle in needles)
                     if (string.Equals(hint, needle, StringComparison.OrdinalIgnoreCase)) return true;
@@ -343,22 +347,17 @@ namespace OptScalerNR.Launcher
             {
                 _openRrStatusText.Text = L("已关闭", "Off");
                 _openRrStatusText.Foreground = MissingBrush;
-                _openRrBadge.Background = MissingBg;
-                _openRrBadge.BorderBrush = MissingBorder;
             }
             else if (hasDlssd)
             {
                 _openRrStatusText.Text = isPlaceholderAsi ? L("占位符待替换 · nvngx_dlssd.dll 已就绪", "Placeholder ASI · nvngx_dlssd.dll Ready") : L("已就绪 · nvngx_dlssd.dll 310.9.1", "Ready · nvngx_dlssd.dll 310.9.1");
                 _openRrStatusText.Foreground = ReadyBrush;
-                _openRrBadge.Background = ReadyBg;
-                _openRrBadge.BorderBrush = ReadyBorder;
             }
             else
             {
-                _openRrStatusText.Text = isPlaceholderAsi ? L("openrr.asi 占位符 · 待导入 nvngx_dlssd.dll", "Placeholder ASI · Needs nvngx_dlssd.dll") : L("待导入 nvngx_dlssd.dll (310.9.1.0)", "Needs nvngx_dlssd.dll (310.9.1.0)");
+                _openRrStatusText.Text = L("待准备", "Setup needed");
+                _openRrStatusText.ToolTip = isPlaceholderAsi ? L("openrr.asi 是占位文件，请替换后导入模型源。", "openrr.asi is a placeholder; replace it and import a model source.") : "nvngx_dlssd.dll 310.9.1.0";
                 _openRrStatusText.Foreground = WarningBrush;
-                _openRrBadge.Background = MissingBg;
-                _openRrBadge.BorderBrush = WarningBrush;
             }
             if (_openRrImportButton != null)
             {
@@ -373,13 +372,7 @@ namespace OptScalerNR.Launcher
             {
                 _openRrAutoSpoofToggle.Visibility = (enabled && !isRtxMc) ? Visibility.Visible : Visibility.Collapsed;
                 _openRrAutoSpoofToggle.IsEnabled = PresentationIdle && enabled && optiActive;
-                _openRrAutoSpoofToggle.Content = optiActive
-                    ? L(
-                        "实验性：减少全局显卡伪装（Dxgi=auto，配合 OptiPatcher 保持真实 A 卡身份）",
-                        "Experimental: Reduce global GPU spoofing (Dxgi=auto, keeps native AMD adapter with OptiPatcher)")
-                    : L(
-                        "实验性：减少全局显卡伪装（需先启用 OptiPatcher；仅少量游戏支持）",
-                        "Experimental: Reduce global GPU spoofing (requires OptiPatcher; only a few games are supported)");
+                _openRrAutoSpoofToggle.Content = L("实验性：减少全局显卡伪装", "Experimental: Reduce global GPU spoofing");
                 _selectingOpenRrSpoof = true;
                 try { _openRrAutoSpoofToggle.IsChecked = wantAutoSpoof; }
                 finally { _selectingOpenRrSpoof = false; }
@@ -391,20 +384,96 @@ namespace OptScalerNR.Launcher
                         "需先启用 OptiPatcher 才能减少全局显卡伪装（当前游戏不支持或未勾选 OptiPatcher，自动保持完整伪装）。",
                         "Requires OptiPatcher enabled to reduce global GPU spoofing (OptiPatcher is unsupported or unchecked; full spoofing stays active).");
             }
-            SetLabel("OpenRrDescription",
-                "适合 RX 9000 系列，实验性支持 RX 7000 / RDNA3（仅限光线重建游戏）",
-                "For RX 9000 series; experimental RX 7000 / RDNA3 (Ray Reconstruction games only)");
+            RefreshGpuHints();
         }
         void RefreshModelImportBar()
         {
             RefreshOpenRrCard();
             if (_modelImportBar == null) return;
             string message = null;
-            var needs = _selectedGame != null && _selectedGame.HasExecutable && SelectedBackendNeedsImport(out message);
-            var visible = needs;
+            var backend = FindBackend("mochizuki");
+            var visible = _selectedGame != null && _selectedGame.HasExecutable && IsBackendSelected("mochizuki") && backend != null && BackendHintsContain(backend, "mochi-source", "mochi-unsupported-source");
             _modelImportBar.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-            if (_modelImportText != null) _modelImportText.Text = message ?? "";
+            if (_modelImportText != null) {
+                _modelImportText.Text = backend != null && BackendHintsContain(backend, "mochi-unsupported-source") ? L("更换不支持的 Mochizuki 模型源", "Replace unsupported Mochizuki model source") : L("缺少 Mochizuki 模型源", "Mochizuki model source missing");
+                if (visible) SelectedBackendNeedsImport(out message);
+                _modelImportText.ToolTip = message;
+            }
             if (_modelImportButton != null) _modelImportButton.IsEnabled = visible && PresentationIdle;
+            RefreshInstallChecklist();
+        }
+
+        bool _pendingActionsWarned;
+        string _pendingWarningContext;
+
+        void ApplyPendingActionsWarning(bool pulse)
+        {
+            var card = (Border)_window.FindName("PendingActionsCard");
+            card.SetResourceReference(Border.BackgroundProperty, _pendingActionsWarned ? "ThemeDangerBg" : "ThemeCardBg");
+            card.SetResourceReference(Border.BorderBrushProperty, _pendingActionsWarned ? "ThemeDanger" : "ThemeHairline");
+            if (_pendingActionsWarned) card.BorderThickness = new Thickness(1);
+            else card.SetResourceReference(Border.BorderThicknessProperty, "ThemeCardBorderThickness");
+            var ink = LauncherTheme.Brush(_pendingActionsWarned ? "ThemeDanger" : "ThemeInk");
+            foreach (DockPanel row in ((StackPanel)_window.FindName("MissingPackageItems")).Children)
+                foreach (var child in row.Children) {
+                    var title = child as TextBlock;
+                    if (title != null) title.Foreground = ink;
+                }
+            _modelImportText.Foreground = ink;
+            ((TextBlock)_window.FindName("ModelImportRequirement")).Foreground = LauncherTheme.Brush(_pendingActionsWarned ? "ThemeDanger" : "ThemeMuted");
+            ((TextBlock)_window.FindName("OpenRrModelImportText")).Foreground = ink;
+            if (!_pendingActionsWarned) card.BeginAnimation(UIElement.OpacityProperty, null);
+            else if (pulse) card.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(1, 0.4, TimeSpan.FromSeconds(0.25)) {
+                AutoReverse = true, RepeatBehavior = new RepeatBehavior(3), FillBehavior = FillBehavior.Stop
+            });
+        }
+
+        bool WarnPendingActions()
+        {
+            RefreshModelImportBar();
+            var pending = (Border)_window.FindName("BeforeInstallChecklist");
+            if (pending.Visibility != Visibility.Visible) return false;
+            _pendingActionsWarned = true;
+            _pendingWarningContext = ModeKey() + "|" + GetSelectedInstallMode();
+            ApplyPendingActionsWarning(true);
+            pending.UpdateLayout();
+            pending.BringIntoView();
+            return true;
+        }
+
+        void RefreshInstallChecklist()
+        {
+            var items = (StackPanel)_window.FindName("MissingPackageItems");
+            items.Children.Clear();
+            var missing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var result = _lastInspectResult;
+            if (_selectedGame != null && _selectedGame.HasExecutable && result != null) {
+                if (string.IsNullOrEmpty(result.PackageRoot)) missing.Add(L("缺少安装包", "Installation package missing"));
+                else if (result.Backends != null) foreach (var backend in result.Backends)
+                    if (backend != null && IsBackendSelected(backend.Id)) foreach (var file in backend.MissingPackageFiles ?? new string[0])
+                        missing.Add(L("缺少组件：", "Missing component: ") + file);
+            }
+            foreach (var text in missing) {
+                var row = new DockPanel { Margin = new Thickness(0, 4, 0, 4) };
+                var button = new Button { Content = L("获取完整安装包", "Get full package"), Style = (Style)_window.FindResource("GhostButton"), Height = 30, Margin = new Thickness(12, 0, 0, 0), IsEnabled = PresentationIdle };
+                DockPanel.SetDock(button, Dock.Right);
+                button.Click += delegate { OpenUrl("https://github.com/TheAutomatic/dlss-5-amd-project/releases/latest"); };
+                row.Children.Add(button);
+                row.Children.Add(new TextBlock { Text = text, FontSize = 12, Foreground = LauncherTheme.Brush("ThemeInk"), VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap });
+                items.Children.Add(row);
+            }
+            bool openRrMissing = _selectedGame != null && _selectedGame.HasExecutable && IsOptiScalerSelectedMode() && !IsOpenRrUnsupportedLocked() && _openRrToggle != null && _openRrToggle.IsChecked == true && !HasValidOpenRrDlssd();
+            ((DockPanel)_window.FindName("OpenRrModelImportRow")).Visibility = openRrMissing ? Visibility.Visible : Visibility.Collapsed;
+            SetLabel("OpenRrModelImportText", "缺少 OpenRR 模型源", "OpenRR model source missing");
+            ((TextBlock)_window.FindName("OpenRrModelImportText")).ToolTip = "nvngx_dlssd.dll 310.9.1.0";
+            bool locked = _selectedGame != null && _selectedGame.HasExecutable && IsOpenRrUnsupportedLocked();
+            ((Border)_window.FindName("OpenRrUnsupportedBar")).Visibility = locked ? Visibility.Visible : Visibility.Collapsed;
+            SetLabel("BeforeInstallHeading", "还差这几步", "Before you install");
+            bool blocking = missing.Count > 0 || _modelImportBar.Visibility == Visibility.Visible || openRrMissing;
+            if (_pendingWarningContext != ModeKey() + "|" + GetSelectedInstallMode() || (!blocking && result != null))
+                _pendingActionsWarned = false;
+            ((Border)_window.FindName("BeforeInstallChecklist")).Visibility = blocking ? Visibility.Visible : Visibility.Collapsed;
+            ApplyPendingActionsWarning(false);
         }
 
         void PickOpenRrDlssdFile()
@@ -429,7 +498,7 @@ namespace OptScalerNR.Launcher
                     Directory.CreateDirectory(root);
                     File.Copy(source, destination, true);
                 }
-                if (_statusText != null) _statusText.Text = L("已导入 nvngx_dlssd.dll (310.9.1.0)，OpenRR 已就绪。", "Imported nvngx_dlssd.dll (310.9.1.0); OpenRR is ready.");
+                if (_statusText != null) SetStatus("已导入 nvngx_dlssd.dll (310.9.1.0)，OpenRR 已就绪。", "Imported nvngx_dlssd.dll (310.9.1.0); OpenRR is ready.");
                 RefreshModelImportBar();
                 if (_selectedGame != null && _selectedGame.HasExecutable) InspectGame(_selectedGame);
             } catch (Exception ex) {
@@ -437,22 +506,28 @@ namespace OptScalerNR.Launcher
             }
         }
 
-        void PickModelSourceFile()
+        OpenFileDialog CreateMochizukiSourcePicker()
         {
-            if (IniBusyLike()) return;
-            var directory = Path.GetDirectoryName(_selectedGame.Exe);
+            var directory = _selectedGame != null && !string.IsNullOrEmpty(_selectedGame.Exe) ? Path.GetDirectoryName(_selectedGame.Exe) : null;
             var picker = new OpenFileDialog {
-                Title = L("选择模型源文件（复制到启动器目录）", "Choose a model source file (copied into the launcher folder)"),
-                Filter = L("模型源文件|nvngx_dlssnr.dll;nvngx_dlssd.dll|DLL (*.dll)|*.dll", "Model sources|nvngx_dlssnr.dll;nvngx_dlssd.dll|DLL (*.dll)|*.dll"),
+                Title = L("选择 nvngx_dlssnr.dll（复制到启动器目录）", "Choose nvngx_dlssnr.dll (copied into the launcher folder)"),
+                Filter = "nvngx_dlssnr.dll|nvngx_dlssnr.dll",
                 CheckFileExists = true, RestoreDirectory = true
             };
             if (!string.IsNullOrEmpty(directory)) picker.InitialDirectory = directory;
+            return picker;
+        }
+
+        void PickModelSourceFile()
+        {
+            if (IniBusyLike()) return;
+            var picker = CreateMochizukiSourcePicker();
             if (picker.ShowDialog(_window) != true) return;
             try {
                 var source = picker.FileName;
-                // PE validation for DLL/EXE; weight BINs are plain data the installer hash-checks.
-                if (!source.EndsWith(".bin", StringComparison.OrdinalIgnoreCase))
-                    ValidateModelSourcePe(source);
+                if (!string.Equals(Path.GetFileName(source), "nvngx_dlssnr.dll", StringComparison.OrdinalIgnoreCase))
+                    throw new IOException(L("请选择名为 nvngx_dlssnr.dll 的文件。", "Please choose a file named nvngx_dlssnr.dll."));
+                ValidateModelSourcePe(source);
                 var root = ResolveImportRoot();
                 var destination = Path.Combine(root, Path.GetFileName(source));
                 if (string.Equals(Path.GetFullPath(source), Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase)) {
@@ -467,7 +542,7 @@ namespace OptScalerNR.Launcher
                 }
                 Directory.CreateDirectory(root);
                 File.Copy(source, destination, true);
-                if (_statusText != null) _statusText.Text = string.Format(L("已导入 {0}，正在重新检查后端…", "Imported {0}; rechecking backends…"), Path.GetFileName(source));
+                if (_statusText != null) SetStatus(string.Format("已导入 {0}，正在重新检查后端…", Path.GetFileName(source)), string.Format("Imported {0}; rechecking backends…", Path.GetFileName(source)));
                 if (_selectedGame != null && _selectedGame.HasExecutable) InspectGame(_selectedGame);
             } catch (Exception ex) {
                 DialogTheme.Show(_window, L("导入失败：", "Import failed: ") + ex.Message, _window.Title);
@@ -830,7 +905,7 @@ namespace OptScalerNR.Launcher
             if (_session == null || !_session.IsRunning) SetBusy(false, "");
             if (_statusLed != null) _statusLed.Fill = ReadyBrush;
             if (_statusText != null && (_session == null || !_session.IsRunning))
-                _statusText.Text = L("成功", "success");
+                SetStatus("", "");
             ApplyInspect(immediateResult, pkgRoot);
             var resume = _resumeInstallAction;
             _resumeInstallAction = "";

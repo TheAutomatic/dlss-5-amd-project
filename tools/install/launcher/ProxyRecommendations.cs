@@ -65,6 +65,7 @@ namespace OptScalerNR.Launcher
         static readonly Regex ShortFormLeadExpression = new Regex(@"(?:use|using|as|install|installing|rename|renamed|works|working|filename|filenames|name)\s+$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
         static readonly Regex BridgeExpression = new Regex(@"^(?:[\s,`]*(?:with|on|in|is|are|does|and|or|to|the|game|mode|inputs?|outputs?|fg))*[\s,`]*$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
         static readonly Regex SentenceExpression = new Regex(@"\.(?=[ \t])", RegexOptions.Compiled);
+        static readonly Regex XboxExpression = new Regex(@"\bXbox\b", RegexOptions.Compiled);
         static readonly Regex SeparatorCellExpression = new Regex(@"^:?-+:?$", RegexOptions.Compiled);
         static readonly string[] BeforeNegativeCues = {
             "do not use", "don't use", "dont use", "does not use", "doesn't use", "not use", "never use",
@@ -136,9 +137,9 @@ namespace OptScalerNR.Launcher
             { "disable EAC", "禁用 EAC" },
             { "anti-cheat", "反作弊" },
             { "anti cheat", "反作弊" },
-            { "For Xbox Gamepass version", "XBOX GamePass 版" },
-            { "for Xbox version", "XBOX 版" },
-            { "Xbox version", "XBOX 版" },
+            { "For XBOX Gamepass version", "XBOX GamePass 版" },
+            { "for XBOX version", "XBOX 版" },
+            { "XBOX version", "XBOX 版" },
             { "Gamepass version", "GamePass 版" },
             { "MS Store", "微软商店" },
             { "For Linux", "Linux 下" },
@@ -603,6 +604,7 @@ namespace OptScalerNR.Launcher
             text = text.Replace("**", "").Replace("__", "").Replace("+++", "").Replace("<s>", "").Replace("</s>", "");
             text = text.Replace("<br />", "; ").Replace("<br/>", "; ").Replace("<br>", "; ");
             text = text.Replace("\uD83D\uDC27", "Linux: ");
+            text = XboxExpression.Replace(text, "XBOX");
             text = CollapseWhitespace(text);
             return Truncate(text.Trim(' ', ';', ',', '.', '\u3001', '\uff0c', '\uff1b'), 480);
         }

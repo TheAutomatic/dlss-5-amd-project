@@ -15,6 +15,63 @@ namespace OptScalerNR.Launcher
     public sealed partial class MainController
     {
         string _theme = "auto";
+        enum GpuFamily { Unknown, Rdna4, Rdna3, Rdna2, OtherAmd, NonAmd }
+        GpuFamily _gpuFamily;
+        string _detectedAdapterName;
+
+        static GpuFamily ClassifyGpu(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return GpuFamily.Unknown;
+            if (!ContainsHardwareText(name, "AMD") && !ContainsHardwareText(name, "Radeon"))
+                return ContainsHardwareText(name, "NVIDIA") || ContainsHardwareText(name, "Intel") ? GpuFamily.NonAmd : GpuFamily.Unknown;
+            var match = System.Text.RegularExpressions.Regex.Match(name, @"\bRX\s*(\d{4})(?!\d)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (match.Success) {
+                switch (match.Groups[1].Value[0]) {
+                    case '9': return GpuFamily.Rdna4;
+                    case '7': return GpuFamily.Rdna3;
+                    case '6': return GpuFamily.Rdna2;
+                }
+            }
+            return GpuFamily.OtherAmd;
+        }
+        void SetDetectedAdapter(string name)
+        {
+            _detectedAdapterName = name;
+            _gpuFamily = ClassifyGpu(name);
+            _hardwareDetails = string.IsNullOrWhiteSpace(name) ? null : name;
+            _hardwareWindowsDriver = null;
+            _hardwareComplete = true;
+            RefreshHardwareText();
+            RefreshGpuHints();
+        }
+        void RefreshGpuHints()
+        {
+            bool unknown = _gpuFamily == GpuFamily.Unknown;
+            bool mochiSupported = _gpuFamily == GpuFamily.Rdna4 || _gpuFamily == GpuFamily.Rdna3;
+            SetGpuHint("MochiDescription", mochiSupported ? "" : unknown ? L("适合 RX 7000 / 9000 系列", "For RX 7000 / 9000 series")
+                : _gpuFamily == GpuFamily.Rdna2 ? L("RX 6000 请使用旧版 Mochizuki", "RX 6000: use legacy Mochizuki")
+                : L("当前显卡不在 Mochizuki 支持范围内", "This GPU is not supported by Mochizuki"), !unknown && !mochiSupported);
+            SetGpuHint("OpenRrDescription", _gpuFamily == GpuFamily.Rdna4 ? "" : unknown ? L("适合 RX 9000；RX 7000 为实验性支持", "For RX 9000; experimental on RX 7000")
+                : _gpuFamily == GpuFamily.Rdna3 ? L("RX 7000 为实验性支持", "Experimental on RX 7000")
+                : L("当前显卡不在 OpenRR 支持范围内", "This GPU is not supported by OpenRR"), !unknown && _gpuFamily != GpuFamily.Rdna3 && _gpuFamily != GpuFamily.Rdna4);
+        }
+        void SetGpuHint(string name, string text, bool warning)
+        {
+            var label = (TextBlock)_window.FindName(name);
+            label.Text = text;
+            label.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+            label.Foreground = LauncherTheme.Brush(warning ? "ThemeWarning" : "ThemeMuted");
+            label.ToolTip = _detectedAdapterName;
+        }
+        void SetCardDescription(string name, string zh, string en, string detailsZh, string detailsEn)
+        {
+            SetLabel(name, zh, en);
+            var label = (TextBlock)_window.FindName(name);
+            label.TextWrapping = TextWrapping.NoWrap;
+            label.TextTrimming = TextTrimming.CharacterEllipsis;
+            ((FrameworkElement)label.Parent).ToolTip = L(detailsZh, detailsEn);
+        }
+        bool _profilesExpanded, _installLogExpanded;
         bool _closed, _presentationBusy, _hardwareStarted, _hardwareComplete;
         string _presentationAction = "", _hardwareDetails, _hardwareWindowsDriver;
         int _packageComparisonGeneration;
@@ -26,23 +83,62 @@ namespace OptScalerNR.Launcher
         readonly Dictionary<string, string> _installedModes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         ComboBox _themeCombo;
         Button _themeToggle;
-        static readonly Brush HeroMutedBrush = new SolidColorBrush(Color.FromRgb(204, 213, 228));
+        static readonly Brush HeroMutedBrush = LauncherTheme.Brush("ThemeHeroMuted");
+        // 16px line icons (stroked by the icon button template).
+        static readonly Geometry SunGlyph = Glyph("M 5.25 8 A 2.75 2.75 0 1 1 10.75 8 A 2.75 2.75 0 1 1 5.25 8 Z M 8 1.5 V 3 M 8 13 V 14.5 M 1.5 8 H 3 M 13 8 H 14.5 M 3.4 3.4 L 4.46 4.46 M 11.54 11.54 L 12.6 12.6 M 3.4 12.6 L 4.46 11.54 M 11.54 4.46 L 12.6 3.4");
+        static readonly Geometry MoonGlyph = Glyph("M 13.25 9.75 A 5.75 5.75 0 1 1 6.25 2.75 A 4.5 4.5 0 0 0 13.25 9.75 Z");
+        static readonly Geometry AutoGlyph = Glyph("M 2.25 8 A 5.75 5.75 0 1 1 13.75 8 A 5.75 5.75 0 1 1 2.25 8 Z M 8 2.25 V 13.75 M 8 5 H 12.9 M 8 8 H 13.75 M 8 11 H 12.9");
+        // 10px caption glyphs (match the XAML defaults of MaxBtn).
+        static readonly Geometry MaximizeGlyph = Glyph("M 1.5 0.5 H 8.5 A 1 1 0 0 1 9.5 1.5 V 8.5 A 1 1 0 0 1 8.5 9.5 H 1.5 A 1 1 0 0 1 0.5 8.5 V 1.5 A 1 1 0 0 1 1.5 0.5 Z");
+        static readonly Geometry RestoreGlyph = Glyph("M 2.5 2.5 H 7.5 A 1 1 0 0 1 8.5 3.5 V 8.5 A 1 1 0 0 1 7.5 9.5 H 1.5 A 1 1 0 0 1 0.5 8.5 V 3.5 A 1 1 0 0 1 1.5 2.5 Z M 2.5 0.5 H 8.5 A 1 1 0 0 1 9.5 1.5 V 7.5");
+        static Geometry Glyph(string data)
+        {
+            var g = Geometry.Parse(data);
+            g.Freeze();
+            return g;
+        }
         void InitPresentation()
         {
+            _logView.TextChanged += delegate { RefreshSectionCards(); };
+            ((Button)_window.FindName("ProfilesExpandButton")).Click += delegate {
+                _profilesExpanded = !_profilesExpanded;
+                RefreshSectionCards();
+                SaveSettings();
+            };
+            ((Button)_window.FindName("InstallLogExpandButton")).Click += delegate {
+                _installLogExpanded = !_installLogExpanded;
+                RefreshSectionCards();
+                SaveSettings();
+            };
+            ((Button)_window.FindName("ProxyRequiredButton")).Click += delegate {
+                ((StackPanel)_window.FindName("ProxyDetails")).Visibility = Visibility.Visible;
+                RefreshProxySummary();
+                ((Border)_window.FindName("ProxyCard")).BringIntoView();
+            };
             var hero = (Border)_window.FindName("HeroCard");
             hero.SizeChanged += delegate {
-                hero.Clip = new RectangleGeometry(new Rect(0, 0, hero.ActualWidth, hero.ActualHeight), 18, 18);
+                hero.Clip = new RectangleGeometry(new Rect(0, 0, hero.ActualWidth, hero.ActualHeight), 8, 8);
             };
             _themeCombo = (ComboBox)_window.FindName("ThemeCombo");
             _themeToggle = (Button)_window.FindName("ThemeToggle");
-            foreach (var id in new[] { "auto", "light", "dark" })
+            foreach (var id in new[] { "auto", "light", "dark", "classic", "midnight" })
                 _themeCombo.Items.Add(new ComboBoxItem { Tag = id });
             _themeCombo.SelectionChanged += delegate {
                 if (_loadingSettings || _applyingLanguage) return;
                 var item = _themeCombo.SelectedItem as ComboBoxItem;
                 if (item != null) SetTheme((string)item.Tag);
             };
-            _themeToggle.Click += delegate { SetTheme(_theme == "auto" ? "light" : _theme == "light" ? "dark" : "auto"); };
+            _themeToggle.Click += delegate {
+                var menu = new ContextMenu { PlacementTarget = _themeToggle, Placement = PlacementMode.Bottom,
+                    Style = (Style)_window.FindResource("GameContextMenu") };
+                foreach (var id in new[] { "auto", "light", "dark", "classic", "midnight" }) {
+                    var item = new MenuItem { Header = ThemeName(id), Tag = id, IsCheckable = true, IsChecked = id == _theme };
+                    item.Click += delegate(object sender, RoutedEventArgs e) { SetTheme((string)((MenuItem)sender).Tag); };
+                    menu.Items.Add(item);
+                }
+                _themeToggle.ContextMenu = menu;
+                menu.IsOpen = true;
+            };
             ((Button)_window.FindName("LangZh")).Click += delegate { SetLanguage("zh"); };
             ((Button)_window.FindName("LangEn")).Click += delegate { SetLanguage("en"); };
             var addMenu = (Button)_window.FindName("AddMenuButton");
@@ -53,6 +149,17 @@ namespace OptScalerNR.Launcher
             var addRtxRemixMc = (Button)_window.FindName("AddRtxRemixMcButton");
             if (addRtxRemixMc != null) addRtxRemixMc.Click += delegate { addPopup.IsOpen = false; };
             ((Button)_window.FindName("SettingsCloseButton")).Click += delegate { SwitchTab(false); };
+            // Settings overlay: click on the scrim (outside the card) or press Esc to close.
+            var settingsPage = (FrameworkElement)_window.FindName("SettingsPage");
+            settingsPage.MouseLeftButtonDown += delegate(object sender, System.Windows.Input.MouseButtonEventArgs e) {
+                if (ReferenceEquals(e.OriginalSource, settingsPage)) { SwitchTab(false); e.Handled = true; }
+            };
+            _window.PreviewKeyDown += delegate(object sender, System.Windows.Input.KeyEventArgs e) {
+                if (e.Key == System.Windows.Input.Key.Escape && settingsPage.Visibility == Visibility.Visible) {
+                    SwitchTab(false);
+                    e.Handled = true;
+                }
+            };
             ((Button)_window.FindName("RefreshBackendsButton")).Click += delegate {
                 if (PresentationIdle && _selectedGame != null && _selectedGame.HasExecutable) InspectGame(_selectedGame);
             };
@@ -70,7 +177,7 @@ namespace OptScalerNR.Launcher
         }
         void SetTheme(string theme)
         {
-            if (theme != "auto" && theme != "light" && theme != "dark") return;
+            theme = LauncherTheme.Normalize(theme);
             _theme = theme;
             LauncherTheme.Apply(theme);
             RefreshPresentationLanguage();
@@ -85,24 +192,30 @@ namespace OptScalerNR.Launcher
         }
         void RefreshPresentationLanguage()
         {
+            RefreshSectionCards();
+            RefreshProxySummary();
             SetLabel("ThemeHeading", "外观主题", "Appearance");
             SetLabel("LangZh", "中", "ZH");
-            SetLabel("AddMenuButton", "添加游戏 ▾", "Add game ▾");
+            SetLabel("AddMenuButton", "添加", "Add");
+            ((Button)_window.FindName("AddMenuButton")).ToolTip = L("添加游戏、文件夹或 RTX Remix 实例", "Add a game, folder or RTX Remix instance");
+            SetLabel("SearchPlaceholder", "搜索游戏或程序路径", "Search games or paths");
+            _settingsTab.ToolTip = L("设置", "Settings");
             SetLabel("SettingsCloseButton", "完成", "Done");
             ((Button)_window.FindName("RefreshBackendsButton")).ToolTip = L("重新检查后端与模型来源（不下载、不提取）", "Recheck backends and model sources (no download or extraction)");
-            SetLabel("QuickLogButton", "诊断日志", "Diagnostic log");
+            SetLabel("QuickLogButton", "安装日志", "Install log");
             SetLabel("PackLogButton", "打包日志", "Pack logs");
             ((Button)_window.FindName("PackLogButton")).ToolTip =
                 L("收集所选游戏的 OptiScaler/mochizuki 日志与配置、系统信息（GPU/驱动/内存）和近两天的驱动与崩溃事件，打包成压缩包放到桌面。",
                   "Collect the selected game's OptiScaler/mochizuki logs and configs, a system summary (GPU/driver/RAM) and the last two days of driver and crash events into a zip on your desktop.");
-            SetLabel("DiagnosticsHeading", "配置与运行库兼容诊断", "Configuration & Runtime Compatibility");
+            SetLabel("DiagnosticsHeading", "安装选项", "Install options");
             _searchBox.ToolTip = L("搜索游戏或程序路径", "Search games or executable paths");
             _refreshButton.ToolTip = L("刷新游戏库", "Refresh game library");
             _refreshButton.Content = "↻";
             ((Button)_window.FindName("LangZh")).ToolTip = L("使用简体中文", "Use Chinese");
             ((Button)_window.FindName("LangEn")).ToolTip = L("使用英语", "Use English");
             _themeToggle.Content = _theme == "auto" ? "◐" : _theme == "light" ? "☀" : "☾";
-            _themeToggle.ToolTip = L("主题：", "Theme: ") + ThemeName(_theme) + L("（点击切换）", " (click to cycle)");
+            DialogTheme.SetIcon(_themeToggle, _theme == "auto" ? AutoGlyph : _theme == "light" ? SunGlyph : MoonGlyph);
+            _themeToggle.ToolTip = L("外观：", "Appearance: ") + ThemeName(_theme);
             bool previous = _applyingLanguage;
             _applyingLanguage = true;
             try {
@@ -113,15 +226,51 @@ namespace OptScalerNR.Launcher
             } finally { _applyingLanguage = previous; }
             var zh = (Button)_window.FindName("LangZh");
             var en = (Button)_window.FindName("LangEn");
-            zh.Background = LauncherTheme.Brush(_language == "zh" ? "ThemeSurface" : "ThemeSubtle");
-            en.Background = LauncherTheme.Brush(_language == "en" ? "ThemeSurface" : "ThemeSubtle");
+            // Segmented control: the selected segment is a raised card, the other one stays flat.
+            zh.Background = _language == "zh" ? LauncherTheme.Brush("ThemeCardBg") : Brushes.Transparent;
+            en.Background = _language == "en" ? LauncherTheme.Brush("ThemeCardBg") : Brushes.Transparent;
+            zh.FontWeight = _language == "zh" ? FontWeights.SemiBold : FontWeights.Normal;
+            en.FontWeight = _language == "en" ? FontWeights.SemiBold : FontWeights.Normal;
+            zh.Foreground = LauncherTheme.Brush(_language == "zh" ? "ThemeInk" : "ThemeMuted");
+            en.Foreground = LauncherTheme.Brush(_language == "en" ? "ThemeInk" : "ThemeMuted");
             RefreshDiagnosticModeUI();
             RefreshHardwareText();
+            RefreshGpuHints();
             RefreshHeroState();
         }
         string ThemeName(string theme)
         {
+            if (theme == "classic") return L("经典白", "Classic White");
+            if (theme == "midnight") return L("午夜蓝", "Midnight");
             return theme == "light" ? L("浅色", "Light") : theme == "dark" ? L("深色", "Dark") : L("跟随系统", "System (auto)");
+        }
+        void RefreshSectionCards()
+        {
+            ((StackPanel)_window.FindName("ProfilesCardBody")).Visibility = _profilesExpanded ? Visibility.Visible : Visibility.Collapsed;
+            ((StackPanel)_window.FindName("InstallLogCardBody")).Visibility = _installLogExpanded ? Visibility.Visible : Visibility.Collapsed;
+            ((System.Windows.Shapes.Path)_window.FindName("ProfilesChevron")).RenderTransform = new RotateTransform(_profilesExpanded ? 90 : 0);
+            ((System.Windows.Shapes.Path)_window.FindName("InstallLogChevron")).RenderTransform = new RotateTransform(_installLogExpanded ? 90 : 0);
+            ((Button)_window.FindName("ProfilesExpandButton")).ToolTip = _profilesExpanded ? L("收起 OptiScaler 配置", "Collapse OptiScaler config") : L("展开 OptiScaler 配置", "Expand OptiScaler config");
+            ((Button)_window.FindName("InstallLogExpandButton")).ToolTip = _installLogExpanded ? L("收起安装日志", "Collapse install log") : L("展开安装日志", "Expand install log");
+            if (!_profilesExpanded) ((Popup)_window.FindName("ProfileMorePopup")).IsOpen = false;
+            SetLabel("ProfilesSummary", string.IsNullOrEmpty(_iniSelectedProfile) ? "当前游戏 OptiScaler.ini" : _iniSelectedProfile,
+                string.IsNullOrEmpty(_iniSelectedProfile) ? "Current game OptiScaler.ini" : _iniSelectedProfile);
+            ((TextBlock)_window.FindName("ProfilesSummary")).ToolTip = ((TextBlock)_window.FindName("ProfilesSummary")).Text;
+            var text = _logView == null ? "" : _logView.Text;
+            var lines = text.Length == 0 ? 0 : text.TrimEnd('\r', '\n').Split('\n').Length;
+            SetLabel("LogPreviewHeading", lines == 0 ? "暂无日志" : lines + " 行", lines == 0 ? "No log entries" : lines + " lines");
+        }
+        void RefreshProxySummary()
+        {
+            var proxy = CurrentSelectedProxy;
+            string manual;
+            bool hasManual = _selectedGame != null && _proxyChoices.TryGetValue(_selectedGame.Id, out manual) && ProxyRecommendations.Supports(manual);
+            var profile = _recommendations == null || _selectedGame == null ? null : _recommendations.Match(_selectedGame);
+            var origin = hasManual ? L(" · 手动选择", " · Manual") : profile != null ? L(" · Wiki 推荐", " · Wiki recommended") : L(" · 本地检测", " · Local detection");
+            SetLabel("ProxySummary", "代理：" + (string.IsNullOrEmpty(proxy) ? "未选择" : proxy + origin), "Proxy: " + (string.IsNullOrEmpty(proxy) ? "Not selected" : proxy + origin));
+            var required = (Button)_window.FindName("ProxyRequiredButton");
+            required.Content = L("⚠ 尚无可用代理，请选择代理…", "⚠ No proxy available. Choose a proxy…");
+            required.Visibility = _selectedGame != null && _selectedGame.HasExecutable && IsOptiScalerSelectedMode() && !IsRtxRemixMinecraftSelected() && string.IsNullOrEmpty(proxy) ? Visibility.Visible : Visibility.Collapsed;
         }
         void RefreshHardwareText()
         {
@@ -210,6 +359,7 @@ namespace OptScalerNR.Launcher
                 _window.Dispatcher.BeginInvoke(new Action(delegate {
                     if (_closed) return;
                     var adapter = completed.Result;
+                    SetDetectedAdapter(adapter == null ? null : adapter.Name);
                     if (adapter != null) {
                         _hardwareDetails = adapter.Name + (string.IsNullOrWhiteSpace(adapter.RadeonVersion) ? "" : " · Adrenalin " + adapter.RadeonVersion.Trim());
                         _hardwareWindowsDriver = adapter.WindowsDriver;
@@ -222,9 +372,8 @@ namespace OptScalerNR.Launcher
         void RefreshHeroState()
         {
             if (_heroKicker == null) return;
-            ((TextBlock)_window.FindName("HeroMonogram")).Text = _selectedGame == null || string.IsNullOrEmpty(_selectedGame.DisplayName) ? "N" : _selectedGame.DisplayName.Substring(0, 1).ToUpperInvariant();
             UpdatePrimaryActionText();
-            _heroKicker.Foreground = PackageDiffers(_selectedGame) ? LauncherTheme.Brush("ThemeWarning") : HeroMutedBrush;
+            _heroKicker.Foreground = HeroMutedBrush;
             _heroKicker.ToolTip = PackageDiffers(_selectedGame) && _primaryButton != null ? _primaryButton.ToolTip : null;
             ((Button)_window.FindName("AddMenuButton")).IsEnabled = PresentationIdle;
             if (!PresentationIdle) ((Popup)_window.FindName("AddMenuPopup")).IsOpen = false;
@@ -241,9 +390,11 @@ namespace OptScalerNR.Launcher
             bool missing = string.IsNullOrEmpty(r.PackageRoot);
             if (r.Backends != null) foreach (var backend in r.Backends)
                 if (backend != null && IsBackendSelected(backend.Id) && backend.MissingPackageFiles != null && backend.MissingPackageFiles.Length > 0) missing = true;
-            if (missing) { _heroKicker.Text = L("安装包不完整 · 请检查设置", "Package incomplete · Check settings"); return; }
+            string importMessage;
+            missing |= SelectedBackendNeedsImport(out importMessage);
+            if (missing) { _heroKicker.Text = L("待准备", "Setup needed"); return; }
             _heroKicker.Text = _selectedGame.Installed ? (PackageDiffers(_selectedGame)
-                ? L("已安装 · 版本不同", "Installed · Version differs")
+                ? L("已安装 · 可更新", "Installed · Update available")
                 : PackageStatusText(_selectedGame)) : L("准备就绪 · 可安装", "Ready to install");
         }
         bool PresentationIdle
@@ -293,7 +444,7 @@ namespace OptScalerNR.Launcher
             bool? different;
             if (!TryGetPackageDifference(game, out different)) return L("正在核对版本…", "Checking version…") + tag;
             if (!different.HasValue) return L("已安装 · 版本未知", "Installed · Version unknown") + tag;
-            return (different.Value ? L("版本不同", "Version differs") : L("已安装", "Installed")) + tag;
+            return (different.Value ? L("可更新", "Update available") : L("已安装", "Installed")) + tag;
         }
         void DetectPackageUpdate(LauncherResult result, string requestedPackageRoot)
         {

@@ -10,7 +10,7 @@
 
 **特别感谢**：各位用户的测试与反馈意见。
 
-本项目提供图形化启动器（**`OptiScalerNRLauncher.exe`**），支持自动扫描 Steam / Epic / GOG / Xbox 游戏库、结合 PE 导入表与 OptiScaler Wiki 智能推荐注入代理、一键离线提取/合成模型权重，按需勾选并部署 **官方原版 OptiScaler** 与两大 AMD 神经网络插件——**DLSS 神经渲染 (`dlssnr-amd.asi`)** 和 **DLSS 光线重建 (`openrr-amd.asi`)**，同时内置 INI 配置预设与 `MZ5` 画风分享码管理，让 **AMD 显卡** 在各类 DX11 / DX12 / Vulkan 游戏中原生运行 DLSS 神经渲染与 DLSS 光线重建（Ray Reconstruction）。
+本项目提供图形化启动器（**`OptiScalerNRLauncher.exe`**），支持自动扫描 Steam / Epic / GOG / XBOX 游戏库、结合 PE 导入表与 OptiScaler Wiki 智能推荐注入代理、一键离线提取/合成模型权重，按需勾选并部署 **官方原版 OptiScaler** 与两大 AMD 神经网络插件——**DLSS 神经渲染 (`dlssnr-amd.asi`)** 和 **DLSS 光线重建 (`openrr-amd.asi`)**，同时内置 INI 配置预设与 `MZ5` 画风分享码管理，让 **AMD 显卡** 在各类 DX11 / DX12 / Vulkan 游戏中原生运行 DLSS 神经渲染与 DLSS 光线重建（Ray Reconstruction）。
 
 **项目主页：[github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 

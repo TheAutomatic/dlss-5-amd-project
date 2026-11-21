@@ -136,10 +136,10 @@ namespace OptScalerNR.Launcher
         {
             bool busy=_writeBusy||(_session!=null&&_session.IsRunning&&(_presentationBusy||!_session.CanKill))||_folderScan!=null;
             bool canManage=_selectedGame!=null&&!busy;
-            if(_addFolderButton!=null){_addFolderButton.Content=L("+ 添加文件夹","+ Add Folder");_addFolderButton.IsEnabled=!busy;}
-            if(_addRtxRemixMcButton!=null){_addRtxRemixMcButton.Content=L("+ 添加 RTX Remix Minecraft 实例…","+ Add RTX Remix Minecraft Instance…");_addRtxRemixMcButton.IsEnabled=!busy;}
+            if(_addFolderButton!=null){_addFolderButton.Content=L("添加文件夹…","Add folder…");_addFolderButton.IsEnabled=!busy;}
+            if(_addRtxRemixMcButton!=null){_addRtxRemixMcButton.Content=L("添加 RTX Remix Minecraft 实例…","Add RTX Remix Minecraft instance…");_addRtxRemixMcButton.IsEnabled=!busy;}
             if(_manageGameButton!=null){
-                _manageGameButton.Content=_folderScan!=null?L("取消扫描","Cancel scan"):L("管理 ▾","Manage ▾");
+                _manageGameButton.Content=_folderScan!=null?L("取消扫描","Cancel scan"):L("管理","Manage");
                 _manageGameButton.IsEnabled=_folderScan!=null||canManage;
                 if(!canManage&&_manageGameMenu!=null)_manageGameMenu.IsOpen=false;
             }
@@ -163,7 +163,7 @@ namespace OptScalerNR.Launcher
                 {
                     System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("steam://rungameid/" + appId) { UseShellExecute = true });
                     if (_statusText != null)
-                        _statusText.Text = L("已请求 Steam 启动：" + _selectedGame.DisplayName, "Requested Steam to launch: " + _selectedGame.DisplayName);
+                        SetStatus("已请求 Steam 启动：" + _selectedGame.DisplayName, "Requested Steam to launch: " + _selectedGame.DisplayName);
                 }
             }
             catch (Exception ex)
