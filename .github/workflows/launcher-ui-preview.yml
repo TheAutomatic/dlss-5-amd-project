@@ -1,0 +1,72 @@
+# Launcher UI preview: compile (C# 5 / .NET Framework csc), check the XAML/FindName contract, run the STA smoke
+# test (light/dark x zh/en x 4 install modes, settings overlay, 1020x660) and upload PNG previews.
+# Runs on PRs touching the Windows launcher, or manually via workflow_dispatch (never on ordinary pushes).
+name: launcher-ui-preview
+
+on:
+  pull_request:
+    paths:
+      - 'tools/install/launcher/**'
+      - 'tools/install/launcher-worker.ps1'
+      - 'tools/install/library-scan.ps1'
+      - 'tools/install/install.ps1'
+      - 'tools/build/launcher-regression.ps1'
+      - 'tools/build/build-launcher.ps1'
+      - 'tools/build/launcher-smoke.*'
+      - 'tools/build/check-launcher-xaml.py'
+      - '.github/workflows/launcher-ui-preview.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: launcher-ui-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Build launcher
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $log = powershell -NoProfile -ExecutionPolicy Bypass -File tools\build\build-launcher.ps1 2>&1 | Out-String
+          Write-Host $log
+          if ($LASTEXITCODE -ne 0) { throw "build failed" }
+          if ($log -match 'warning CS\d+') { throw "compiler warnings found" }
+
+      - name: XAML / FindName contract
+        shell: pwsh
+        run: python tools/build/check-launcher-xaml.py origin/v2.0
+
+      - name: Launcher and installer regressions
+        shell: pwsh
+        run: powershell -NoProfile -STA -ExecutionPolicy Bypass -File tools/build/launcher-regression.ps1
+
+      - name: STA smoke test + previews
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools\build\launcher-smoke.ps1 -OutDir exports\launcher-smoke
+
+      - name: Upload previews
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: launcher-ui-preview
+          path: |
+            exports/launcher-smoke/*.png
+            exports/launcher/OptiScalerNRLauncher.exe
+          retention-days: 7
+          if-no-files-found: warn
