@@ -23,7 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import desktop, library
+from . import addons, desktop, library
 from .jobs import JobRunner, build_command, path_ok_for_dll
 from .package import MODELS, Package
 from .state import State
@@ -97,7 +97,7 @@ class App:
     def public_game(self, g: dict) -> dict:
         snap = self.state.snapshot()
         keys = ("id", "source", "store", "appid", "name", "folder", "installDir", "exe", "exeBits", "folderBits",
-                "status", "missing", "manual", "override")
+                "status", "hasNativeDlssd", "missing", "manual", "override")
         out = {k: g.get(k) for k in keys}
         out["art"] = {k: True for k in (g.get("art") or {})}
         out["record"] = snap["installs"].get(g["folder"]) if g["status"]["installed"] else None
@@ -159,35 +159,74 @@ class App:
             raise ApiError(400, "route_unavailable",
                            "The OptiScaler route is only in the 64-bit (x86_64) package." if route == "optiscaler"
                            else "This route is not available.")
+        want_nr = True if route != "optiscaler" else bool(body.get("nr", True))
+        want_openrr = bool(body.get("openrr"))
+        want_optipatcher = bool(body.get("optipatcher"))
+        openrr_spoof = "auto" if body.get("openrrSpoof") == "auto" else "full"
+        if want_openrr:
+            if route != "optiscaler" or not self.pkg.has_openrr:
+                raise ApiError(400, "openrr_unavailable",
+                               "OpenRR is only available on the 64-bit (x86_64) OptiScaler route.")
+        if want_optipatcher:
+            if route != "optiscaler" or not self.pkg.has_optipatcher:
+                raise ApiError(400, "optipatcher_unavailable",
+                               "OptiPatcher is only available on the 64-bit (x86_64) OptiScaler route.")
+        if route == "optiscaler" and not want_nr and not want_openrr:
+            raise ApiError(400, "plugin_required", "Select at least one plugin (Mochizuki NR or OpenRR).")
+
         model = body.get("model") or None
         if model is not None and model not in MODELS:
             raise ApiError(400, "bad_model", "unknown model: %s" % model)
         style = "wilsjo2" if body.get("style") == "wilsjo2" else "renodx"
         lumenite = bool(body.get("lumenite")) and route != "optiscaler"
         dll = (body.get("dll") or "").strip() or None
-        if dll:
-            dll = os.path.expanduser(dll)
-            if not path_ok_for_dll(dll):
-                raise ApiError(400, "dll_invalid", "Not an nvngx_dlssnr.dll or .zip file: %s" % dll)
-        elif not self.pkg.model_status()["ready"] and not body.get("skipModelCheck"):
-            raise ApiError(400, "model_required",
-                           "The package has no model yet: choose NVIDIA's nvngx_dlssnr.dll (310.9.16 or 310.8.0) "
-                           "or a zip containing it. It is needed only the first time.")
-        cmd = build_command(self.pkg, folder, "install", route, model, style, lumenite, dll)
-        meta = {"gameId": g["id"], "name": g["name"], "folder": folder, "route": route, "model": model or "CC_SMALL_FP8",
-                "style": style, "lumenite": lumenite, "withDll": bool(dll)}
-        choices = {"route": route, "model": model or "CC_SMALL_FP8", "style": style, "lumenite": lumenite}
+        dlssd = (body.get("dlssd") or "").strip() or None
+        if want_nr:
+            if dll:
+                dll = os.path.expanduser(dll)
+                if not path_ok_for_dll(dll):
+                    raise ApiError(400, "dll_invalid", "Not an nvngx_dlssnr.dll or .zip file: %s" % dll)
+            elif not self.pkg.model_status()["ready"] and not body.get("skipModelCheck"):
+                raise ApiError(400, "model_required",
+                               "The package has no model yet: choose NVIDIA's nvngx_dlssnr.dll (310.9.16 or 310.8.0) "
+                               "or a zip containing it. It is needed only the first time.")
+        if want_openrr and dlssd:
+            dlssd = os.path.expanduser(dlssd)
+            if not path_ok_for_dll(dlssd):
+                raise ApiError(400, "dlssd_invalid", "Not an nvngx_dlssd.dll or .zip file: %s" % dlssd)
+
+        cmd = build_command(self.pkg, folder, "install", route, model, style, lumenite, dll) if want_nr else None
+        runner = None if want_nr else (lambda log: addons.install_optiscaler_only(self.pkg, Path(folder), log))
+        post_step = None
+        if route == "optiscaler" and (want_openrr or want_optipatcher):
+            post_step = lambda log: addons.apply_optiscaler_addons(  # noqa: E731
+                self.pkg, Path(folder), want_nr, want_openrr, openrr_spoof, want_optipatcher, dlssd, log
+            )
+
+        meta = {
+            "gameId": g["id"], "name": g["name"], "folder": folder, "route": route,
+            "model": (model or "CC_SMALL_FP8") if want_nr else None,
+            "style": style, "lumenite": lumenite, "withDll": bool(dll),
+            "nr": want_nr, "openrr": want_openrr, "openrrSpoof": openrr_spoof, "optipatcher": want_optipatcher,
+        }
+        choices = {
+            "route": route, "model": model or "CC_SMALL_FP8", "style": style, "lumenite": lumenite,
+            "nr": want_nr, "openrr": want_openrr, "openrrSpoof": openrr_spoof, "optipatcher": want_optipatcher,
+        }
         self.state.update(lambda d: d["choices"].__setitem__(g["id"], choices))
 
         def done(job):
             if job.exit_code == 0:
-                rec = {"route": route, "model": meta["model"], "style": style, "lumenite": lumenite,
-                       "launch": job.result.get("launch"), "launchAlt": job.result.get("launchAlt"),
-                       "gameId": g["id"], "name": g["name"], "time": int(time.time()),
-                       "package": str(self.pkg.root), "arch": self.pkg.arch}
+                rec = {
+                    "route": route, "model": meta["model"], "style": style, "lumenite": lumenite,
+                    "nr": want_nr, "openrr": want_openrr, "openrrSpoof": openrr_spoof, "optipatcher": want_optipatcher,
+                    "launch": job.result.get("launch"), "launchAlt": job.result.get("launchAlt"),
+                    "gameId": g["id"], "name": g["name"], "time": int(time.time()),
+                    "package": str(self.pkg.root), "arch": self.pkg.arch,
+                }
                 self.state.update(lambda d: d["installs"].__setitem__(folder, rec))
             self.refresh_game(g["id"])
-        return self._start("install", cmd, meta, done)
+        return self._start("install", cmd, meta, done, post_step=post_step, runner=runner)
 
     def start_simple(self, kind: str, body: dict):
         g = self.game(str(body.get("id") or ""))
@@ -205,9 +244,10 @@ class App:
             self.refresh_game(g["id"])
         return self._start(kind, cmd, meta, done)
 
-    def _start(self, kind, cmd, meta, done):
+    def _start(self, kind, cmd, meta, done, post_step=None, runner=None):
         try:
-            job = self.jobs.start(kind, cmd, meta, cwd=str(self.pkg.root), on_done=done)
+            job = self.jobs.start(kind, cmd, meta, cwd=str(self.pkg.root), on_done=done,
+                                  post_step=post_step, runner=runner)
         except RuntimeError:
             raise ApiError(409, "busy", "Another operation is still running.")
         return {"job": job.to_dict()}
@@ -257,7 +297,7 @@ class App:
                 continue
             if is_dir:
                 entries.append({"name": e.name, "dir": True})
-            elif mode == "model" and e.name.lower().endswith((".dll", ".zip")):
+            elif mode in ("model", "dlssd") and e.name.lower().endswith((".dll", ".zip")):
                 try:
                     size = e.stat().st_size
                 except OSError:
@@ -277,6 +317,7 @@ class App:
             "package": self.pkg.info(),
             "model": self.pkg.model_status() if self.pkg.ok else {"aardwold": "missing", "small": "missing",
                                                                     "ready": False, "complete": False},
+            "dlssd": self.pkg.dlssd_status() if self.pkg.ok else {"cached": False, "path": None},
             "settings": snap["settings"],
             "defaultLang": default_lang(),
             "desktopInstalled": d_path.exists(),
@@ -494,7 +535,8 @@ class Handler(BaseHTTPRequestHandler):
     def api_browse(self, q, b):
         mode = (q.get("mode") or ["dir"])[0]
         hidden = (q.get("hidden") or ["0"])[0] == "1"
-        res = self.app.browse((q.get("path") or [""])[0] or None, "model" if mode == "model" else "dir", hidden)
+        safe_mode = mode if mode in ("model", "dlssd") else "dir"
+        res = self.app.browse((q.get("path") or [""])[0] or None, safe_mode, hidden)
         res["places"] = self.app.places()
         return res
 

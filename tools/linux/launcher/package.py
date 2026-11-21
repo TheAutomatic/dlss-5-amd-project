@@ -107,6 +107,24 @@ class Package:
         return bool(self.root and (self.root / "optiscaler").is_dir())
 
     @property
+    def has_openrr(self) -> bool:
+        return bool(
+            self.root
+            and (self.root / "optiscaler" / "asi" / "openrr-amd.asi").is_file()
+            and (self.root / "openrr-amd").is_dir()
+        )
+
+    @property
+    def openrr_version(self) -> str:
+        if self.meta.get("openrrVersion"):
+            return str(self.meta["openrrVersion"])
+        return "0.1.7plus" if self.has_openrr else ""
+
+    @property
+    def has_optipatcher(self) -> bool:
+        return bool(self.root and (self.root / "optiscaler" / "asi" / "OptiPatcher.asi").is_file())
+
+    @property
     def version(self) -> str:
         if self.meta.get("version"):
             return str(self.meta["version"])
@@ -175,6 +193,21 @@ class Package:
             "complete": aard == "ok" and small == "ok",
         }
 
+    def dlssd_status(self) -> dict:
+        """State of user-supplied nvngx_dlssd.dll cached in this package for OpenRR."""
+        if not self.root or not self.has_openrr:
+            return {"cached": False, "path": None}
+        for cand in (self.root / "openrr-amd" / "nvngx_dlssd.dll", self.root / "nvngx_dlssd.dll"):
+            if cand.is_file():
+                try:
+                    with open(cand, "rb") as f:
+                        head = f.read(2)
+                    if head == b"MZ":
+                        return {"cached": True, "path": str(cand)}
+                except OSError:
+                    pass
+        return {"cached": False, "path": None}
+
     def info(self) -> dict:
         return {
             "ok": self.ok,
@@ -183,6 +216,8 @@ class Package:
             "bits": self.bits,
             "version": self.version,
             "upstreamVersion": self.upstream_version,
+            "openrr": {"available": self.has_openrr, "version": self.openrr_version},
+            "optipatcher": self.has_optipatcher,
             "routes": self.routes(),
             "models": list(MODELS),
         }

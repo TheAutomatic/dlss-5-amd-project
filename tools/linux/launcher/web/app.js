@@ -28,8 +28,20 @@ const STR = {
     rd_dx9: 'Same as Vulkan / D3D9, plus the depth direction that old D3D9 games need.',
     only64: 'x86_64 package only — OptiScaler is 64-bit. Use the 64-bit package for this route.',
     current: 'Installed',
-    sec_route: 'Install route', sec_options: 'Options', sec_model: 'Model', sec_launch: 'Steam launch options',
+    sec_route: 'Install route', sec_plugins: 'ASI plugins (OptiScaler)', sec_options: 'Options', sec_model: 'Model', sec_launch: 'Steam launch options',
     sec_output: 'Installer output',
+    p_nr: 'Mochizuki NR (Neural Rendering)', p_nr_d: 'DLSS 5 Neural Rendering plugin (dlssnr-amd.asi). Requires nvngx_dlssnr.dll on first install.',
+    p_openrr: 'OpenRR {ver} (Ray Reconstruction)',
+    p_openrr_d: 'DLSS Ray Reconstruction on AMD RX 9000 (RDNA4) & experimental RX 7000 (RDNA3), Mesa RADV ≥ 26.3.',
+    p_dlssd_yes: 'Native DLSSD detected', p_dlssd_no: 'No native DLSSD detected',
+    p_spoof: 'Reduce global GPU spoofing (Dxgi=auto)',
+    p_spoof_d: 'Keeps native AMD adapter identity when paired with OptiPatcher (experimental).',
+    p_optipatcher: 'OptiPatcher', p_optipatcher_d: 'Optional DLSS spoofing enhancement plugin (OptiPatcher.asi).',
+    dlssd_ok: 'nvngx_dlssd.dll cached in this package', dlssd_ok_d: 'Copied into openrr-amd/ automatically during install.',
+    dlssd_game: 'Game folder already has nvngx_dlssd.dll', dlssd_game_d: 'Used automatically, or pick a 310.9.1.0 nvngx_dlssd.dll below to cache in this package.',
+    dlssd_need: 'nvngx_dlssd.dll (310.9.1.0) not cached yet',
+    dlssd_need_d: 'Optional now, required in game for OpenRR. Pick nvngx_dlssd.dll (310.9.1.0) or a zip containing it to cache in this package.',
+    dlssd_ph: '/path/to/nvngx_dlssd.dll or .zip', other_dlssd: 'Use another DLL',
     o_model: 'Starting network',
     o_model_d: 'All four networks are installed and switchable in game (Ctrl+F11). This sets the one the game starts with.',
     m_CC_SMALL_FP8: 'CC_SMALL_FP8 — default (310.9.16)', m_CC_SMALL_FP8_EXPERIMENTAL: 'CC_SMALL_FP8_EXPERIMENTAL — faster, experimental',
@@ -52,7 +64,7 @@ const STR = {
     out_idle: 'Nothing yet. The installer’s output appears here.', clear: 'Clear',
     j_install: 'Installing', j_remove: 'Uninstalling', j_logs: 'Packing logs', j_done: 'Finished', j_failed: 'Failed',
     sum_install: 'Will install <b>{route}</b> into this folder', sum_re: 'Installed: <b>{route}</b> — reinstall replaces it',
-    sum_need_model: 'Choose the model file first', sum_busy: 'Working…',
+    sum_need_model: 'Choose the model file first', sum_need_plugin: 'Enable Mochizuki NR or OpenRR first', sum_busy: 'Working…',
     w_bits: '{exe} is {b}-bit, but this is the {pb}-bit package. Its DLLs will not load — use the OptiScaler NR Linux {other} package.',
     w_bits_t: 'Bitness mismatch', w_foreign_t: 'Another mod', w_foreign: '{file} is in the game folder but was not installed by OptiScaler NR. Installing replaces it.',
     w_noexe_t: 'No game exe', w_noexe: 'No Windows .exe was found here. Use “Change…” to pick the folder that holds the game’s exe (for Unreal games: <project>/Binaries/Win64).',
@@ -60,15 +72,15 @@ const STR = {
     ok_install: 'Installed {route}', ok_remove: 'Uninstalled', ok_logs: 'Logs packed', failed_t: 'Failed',
     ok_install_d: 'Add the Steam launch options below, then start the game.', ok_remove_d: 'Every file recorded in dlssnr-amd-install.txt was removed.',
     open_logs: 'Show file',
-    cf_title: 'Uninstall from {name}?', cf_text: 'Every file listed in dlssnr-amd-install.txt is deleted, including dlssnr-amd.ini and the logs. Game files that the installation overwrote are not restored.',
+    cf_title: 'Uninstall from {name}?', cf_text: 'Every file listed in dlssnr-amd-install.txt is deleted, including INI files and logs. Game files that the installation overwrote are not restored.',
     cancel: 'Cancel', close: 'Close',
     set_appearance: 'Appearance', set_lang: 'Language', set_theme: 'Theme', light: 'Light', dark: 'Dark', system: 'System',
-    set_pkg: 'Package', set_ver: 'Version', set_arch: 'Architecture', set_up: 'DLSSNR-AMD', set_path: 'Folder', set_model: 'Model cache',
+    set_pkg: 'Package', set_ver: 'Version', set_arch: 'Architecture', set_up: 'DLSSNR-AMD', set_openrr: 'OpenRR', set_path: 'Folder', set_model: 'Model cache',
     set_int: 'Integration', set_desktop: 'App menu entry', set_desktop_d: 'Adds “OptiScaler NR” to your application menu (~/.local/share/applications).',
     add: 'Add', remove: 'Remove', set_quit: 'Quit launcher', set_quit_d: 'Stops the local server. Closing this window does the same after a moment.',
     quit: 'Quit', open: 'Open',
     mc_ok: 'cached', mc_missing: 'missing', mc_bad: 'damaged',
-    fb_dir: 'Choose the game folder', fb_model: 'Choose nvngx_dlssnr.dll or a zip', fb_selDir: 'Use this folder', fb_select: 'Select',
+    fb_dir: 'Choose the game folder', fb_model: 'Choose nvngx_dlssnr.dll or a zip', fb_dlssd: 'Choose nvngx_dlssd.dll (310.9.1.0) or a zip', fb_selDir: 'Use this folder', fb_select: 'Select',
     fb_up: 'Up', fb_go: 'Go', fb_hidden: 'Show hidden', fb_empty: 'This folder is empty.', fb_noitems: 'No .dll or .zip files here.',
     pl_home: 'Home', pl_downloads: 'Downloads', pl_desktop: 'Desktop', pl_documents: 'Documents', pl_steam: 'Steam library', pl_drive: 'Drive',
     lib_empty: 'No games found', lib_empty_d: 'Steam, Heroic and Lutris libraries are scanned automatically. You can add any game folder by hand.',
@@ -77,6 +89,10 @@ const STR = {
     notice: 'This tool is free. If you paid for it, request a refund and report the seller.',
     stopped: 'The launcher has stopped', stopped_d: 'You can close this window.', lost: 'Connection to the launcher lost — retrying…',
     e_model_required: 'Choose nvngx_dlssnr.dll (or its zip) first — the package has no model yet.',
+    e_plugin_required: 'Enable at least one plugin (Mochizuki NR or OpenRR).',
+    e_openrr_unavailable: 'OpenRR is only available on the x86_64 OptiScaler route.',
+    e_optipatcher_unavailable: 'OptiPatcher is only available on the x86_64 OptiScaler route.',
+    e_dlssd_invalid: 'That is not an nvngx_dlssd.dll or .zip file.',
     e_route_unavailable: 'The OptiScaler route is only in the x86_64 package.', e_busy: 'Another operation is still running.',
     e_dll_invalid: 'That is not an nvngx_dlssnr.dll or .zip file.', e_folder_missing: 'The game folder does not exist.',
     bits: '{b}-bit', exe: 'exe', manualAdded: 'Game added', desktopAdded: 'Menu entry added', desktopRemoved: 'Menu entry removed',
@@ -89,13 +105,25 @@ const STR = {
     st_installed: '已安装', st_not: '未安装', st_foreign: '检测到其他模组', st_noexe: '未找到 Windows exe', st_missing: '文件夹不存在',
     r_optiscaler: 'OptiScaler', r_reshade: 'ReShade Feeder', r_vulkan: 'ReShade Feeder · Vulkan', r_dx9: 'ReShade Feeder · D3D9 深度',
     rs_optiscaler: 'OptiScaler', rs_reshade: 'ReShade D3D10–12', rs_vulkan: 'ReShade Vulkan/D3D9', rs_dx9: 'ReShade D3D9 深度',
-    rd_optiscaler: '适用于有 DLSS、FSR 或 XeSS 选项的游戏。OptiScaler 负责超分，NR 作为其插件运行，画质最佳。',
+    rd_optiscaler: '适用于有 DLSS、FSR 或 XeSS 选项的游戏。OptiScaler 负责超分，NR / OpenRR 作为其插件运行，画质最佳。',
     rd_reshade: '适用于没有可用超分选项的 D3D10 / 11 / 12 游戏。ReShade + VORT 运动矢量。',
     rd_vulkan: '适用于 Vulkan 游戏，或 D3D9 游戏（Proton 下 DXVK 会把 D3D9 转为 Vulkan）。',
     rd_dx9: '与 Vulkan / D3D9 相同，并加入老 D3D9 游戏所需的深度方向设置。',
     only64: '仅 x86_64 包提供 —— OptiScaler 只有 64 位。此路线请使用 64 位包。',
     current: '已安装',
-    sec_route: '安装路线', sec_options: '选项', sec_model: '模型', sec_launch: 'Steam 启动选项', sec_output: '安装程序输出',
+    sec_route: '安装路线', sec_plugins: 'ASI 插件选择（神经渲染 & 光线重建）', sec_options: '选项', sec_model: '模型', sec_launch: 'Steam 启动选项', sec_output: '安装程序输出',
+    p_nr: 'Mochizuki NR（神经渲染）', p_nr_d: 'DLSS 5 神经渲染插件（dlssnr-amd.asi），首次安装需要 nvngx_dlssnr.dll。',
+    p_openrr: 'OpenRR {ver}（光线重建）',
+    p_openrr_d: '适用于 RX 9000（RDNA4）及实验性 RX 7000（RDNA3），需 Mesa RADV ≥ 26.3（仅限光线重建游戏）。',
+    p_dlssd_yes: '已检测到原生 DLSSD', p_dlssd_no: '未检测到原生 DLSSD',
+    p_spoof: '减少全局显卡伪装（Dxgi=auto）',
+    p_spoof_d: '实验性：配合 OptiPatcher 保持真实 A 卡身份。',
+    p_optipatcher: 'OptiPatcher', p_optipatcher_d: '可选的 DLSS 伪装增强插件（OptiPatcher.asi）。',
+    dlssd_ok: 'nvngx_dlssd.dll 已缓存在此包中', dlssd_ok_d: '安装 OpenRR 时会自动复制到游戏 openrr-amd/ 目录。',
+    dlssd_game: '游戏目录中已有 nvngx_dlssd.dll', dlssd_game_d: '安装时会自动复制，也可在下方选择 310.9.1.0 版缓存到此包中。',
+    dlssd_need: '尚未缓存 nvngx_dlssd.dll（310.9.1.0）',
+    dlssd_need_d: '现在可选，但游戏内启用 OpenRR 需要它。选择 nvngx_dlssd.dll（310.9.1.0）或包含它的 zip 即可缓存到此包。',
+    dlssd_ph: '/路径/nvngx_dlssd.dll 或 .zip', other_dlssd: '使用其他 DLL',
     o_model: '启动网络', o_model_d: '四个网络都会安装，游戏中可随时切换（Ctrl+F11）。此处仅设置游戏启动时使用的网络。',
     m_CC_SMALL_FP8: 'CC_SMALL_FP8 —— 默认（310.9.16）', m_CC_SMALL_FP8_EXPERIMENTAL: 'CC_SMALL_FP8_EXPERIMENTAL —— 更快，实验性',
     m_CC_SILVER_AARDWOLD: 'CC_SILVER_AARDWOLD —— 310.8.0 网络', m_CC_SILVER_AARDWOLD_OPTIMIZED: 'CC_SILVER_AARDWOLD_OPTIMIZED —— 更快（RX 9000）',
@@ -115,7 +143,7 @@ const STR = {
     out_idle: '暂无输出。安装程序的输出会显示在这里。', clear: '清空',
     j_install: '正在安装', j_remove: '正在卸载', j_logs: '正在打包日志', j_done: '已完成', j_failed: '失败',
     sum_install: '将把 <b>{route}</b> 安装到此文件夹', sum_re: '已安装：<b>{route}</b> —— 重新安装将替换它',
-    sum_need_model: '请先选择模型文件', sum_busy: '处理中…',
+    sum_need_model: '请先选择模型文件', sum_need_plugin: '请至少启用 Mochizuki NR 或 OpenRR', sum_busy: '处理中…',
     w_bits: '{exe} 是 {b} 位程序，而这是 {pb} 位包，其 DLL 无法加载 —— 请使用 OptiScaler NR Linux {other} 包。',
     w_bits_t: '位数不匹配', w_foreign_t: '其他模组', w_foreign: '游戏文件夹中有 {file}，但并非 OptiScaler NR 安装。安装会替换它。',
     w_noexe_t: '未找到游戏 exe', w_noexe: '此处没有找到 Windows .exe。请用“更改…”选择游戏 exe 所在的文件夹（虚幻引擎游戏：<项目>/Binaries/Win64）。',
@@ -123,15 +151,15 @@ const STR = {
     ok_install: '已安装 {route}', ok_remove: '已卸载', ok_logs: '日志已打包', failed_t: '失败',
     ok_install_d: '将下方的 Steam 启动选项填入后即可启动游戏。', ok_remove_d: 'dlssnr-amd-install.txt 中记录的所有文件均已删除。',
     open_logs: '显示文件',
-    cf_title: '从 {name} 卸载？', cf_text: '将删除 dlssnr-amd-install.txt 中列出的所有文件（包括 dlssnr-amd.ini 和日志）。安装时被覆盖的游戏文件不会恢复。',
+    cf_title: '从 {name} 卸载？', cf_text: '将删除 dlssnr-amd-install.txt 中列出的所有文件（包括配置文件和日志）。安装时被覆盖的游戏文件不会恢复。',
     cancel: '取消', close: '关闭',
     set_appearance: '外观', set_lang: '语言', set_theme: '主题', light: '浅色', dark: '深色', system: '跟随系统',
-    set_pkg: '安装包', set_ver: '版本', set_arch: '架构', set_up: 'DLSSNR-AMD', set_path: '位置', set_model: '模型缓存',
+    set_pkg: '安装包', set_ver: '版本', set_arch: '架构', set_up: 'DLSSNR-AMD', set_openrr: 'OpenRR', set_path: '位置', set_model: '模型缓存',
     set_int: '系统集成', set_desktop: '应用菜单项', set_desktop_d: '将“OptiScaler NR”添加到应用菜单（~/.local/share/applications）。',
     add: '添加', remove: '移除', set_quit: '退出启动器', set_quit_d: '停止本地服务。关闭此窗口片刻后也会自动退出。',
     quit: '退出', open: '打开',
     mc_ok: '已缓存', mc_missing: '缺失', mc_bad: '已损坏',
-    fb_dir: '选择游戏文件夹', fb_model: '选择 nvngx_dlssnr.dll 或 zip', fb_selDir: '使用此文件夹', fb_select: '选择',
+    fb_dir: '选择游戏文件夹', fb_model: '选择 nvngx_dlssnr.dll 或 zip', fb_dlssd: '选择 nvngx_dlssd.dll（310.9.1.0）或 zip', fb_selDir: '使用此文件夹', fb_select: '选择',
     fb_up: '上一级', fb_go: '前往', fb_hidden: '显示隐藏文件', fb_empty: '此文件夹为空。', fb_noitems: '这里没有 .dll 或 .zip 文件。',
     pl_home: '主目录', pl_downloads: '下载', pl_desktop: '桌面', pl_documents: '文档', pl_steam: 'Steam 库', pl_drive: '磁盘',
     lib_empty: '没有找到游戏', lib_empty_d: '会自动扫描 Steam、Heroic 和 Lutris 游戏库，也可以手动添加任意游戏文件夹。',
@@ -140,6 +168,10 @@ const STR = {
     notice: '本工具完全免费，如果你是付费购买的，请立即退款并举报',
     stopped: '启动器已停止', stopped_d: '现在可以关闭此窗口。', lost: '与启动器的连接已断开，正在重试…',
     e_model_required: '请先选择 nvngx_dlssnr.dll（或其 zip）—— 安装包中还没有模型。',
+    e_plugin_required: '请至少启用 Mochizuki NR 或 OpenRR 其中一个插件。',
+    e_openrr_unavailable: 'OpenRR 仅在 x86_64 包的 OptiScaler 路线中提供。',
+    e_optipatcher_unavailable: 'OptiPatcher 仅在 x86_64 包的 OptiScaler 路线中提供。',
+    e_dlssd_invalid: '这不是 nvngx_dlssd.dll 或 .zip 文件。',
     e_route_unavailable: 'OptiScaler 路线仅在 x86_64 包中提供。', e_busy: '另一个操作仍在进行中。',
     e_dll_invalid: '这不是 nvngx_dlssnr.dll 或 .zip 文件。', e_folder_missing: '游戏文件夹不存在。',
     bits: '{b} 位', exe: 'exe', manualAdded: '已添加游戏', desktopAdded: '已添加菜单项', desktopRemoved: '已移除菜单项',
@@ -263,17 +295,29 @@ function shortStatus(g) {
 
 function formFor(g) {
   if (!S.forms[g.id]) {
-    const routes = pkg().routes || {};
+    const p = pkg();
+    const routes = p.routes || {};
     const c = g.choices || {};
     const st = g.status || {};
+    const hasOpenRr = !!(p.openrr && p.openrr.available);
     let route = c.route || st.route || (routes.optiscaler && routes.optiscaler.available ? 'optiscaler' : 'reshade-feeder');
     if (routes[route] && !routes[route].available) route = 'reshade-feeder';
+    const defOpenRr = hasOpenRr && (
+      c.openrr !== undefined ? !!c.openrr :
+      st.installed ? !!st.openrr : !!g.hasNativeDlssd
+    );
+    const defNr = c.nr !== undefined ? !!c.nr : (st.installed && st.route === 'optiscaler' ? !!st.nr : true);
     S.forms[g.id] = {
       route,
       model: c.model || st.model || 'CC_SMALL_FP8',
       style: c.style || st.style || 'renodx',
       lumenite: !!c.lumenite,
+      nr: defNr,
+      openrr: defOpenRr,
+      openrrSpoof: c.openrrSpoof || st.openrrSpoof || 'full',
+      optipatcher: !!(p.optipatcher && (c.optipatcher !== undefined ? c.optipatcher : st.optipatcher)),
       dll: '', showDll: false,
+      dlssd: '', showDlssd: false,
     };
     if (!MODELS.includes(S.forms[g.id].model)) S.forms[g.id].model = 'CC_SMALL_FP8';
   }
@@ -371,6 +415,9 @@ function renderDetail() {
   const st = gameState(g);
   const routes = p.routes || {};
   const model = (S.info && S.info.model) || { ready: false };
+  const dlssdInfo = (S.info && S.info.dlssd) || { cached: false };
+  const hasOpenRr = !!(p.openrr && p.openrr.available);
+  const hasOptiPatcher = !!p.optipatcher;
   const installed = g.status.installed;
   const jobHere = S.job && S.job.meta && S.job.meta.gameId === g.id;
   const running = busy();
@@ -381,8 +428,14 @@ function renderDetail() {
     ? `<div class="bg" style="background-image:url('${artUrl(g.id, 'hero')}')"></div>`
     : `<div class="bg" style="${tileStyle(g.name, false)}"></div><div class="wm" style="color:hsl(${hashHue(g.name)} 30% var(--tile-ink));opacity:.16">${esc(initial(g.name))}</div>`;
   const bitsTag = g.exeBits ? `<span class="tag" title="${esc(g.exe || '')}">${esc(t('bits', { b: g.exeBits }))} ${esc(t('exe'))}</span>` : '';
+  const installedPlugins = [];
+  if (installed && g.status.route === 'optiscaler') {
+    if (g.status.nr) installedPlugins.push('NR');
+    if (g.status.openrr) installedPlugins.push('OpenRR');
+    if (g.status.optipatcher) installedPlugins.push('OptiPatcher');
+  }
   const stateLine = st.route
-    ? `<span class="dot ok"></span><b>${esc(t('st_installed'))}</b><span>·</span><span>${esc(routeName(st.route))}</span>${g.status.model ? `<span>·</span><span>${esc(g.status.model)}</span>` : ''}`
+    ? `<span class="dot ok"></span><b>${esc(t('st_installed'))}</b><span>·</span><span>${esc(routeName(st.route))}</span>${installedPlugins.length ? `<span>·</span><span>${esc(installedPlugins.join(' + '))}</span>` : ''}${g.status.model && g.status.nr ? `<span>·</span><span>${esc(g.status.model)}</span>` : ''}`
     : `<span class="dot ${st.cls}"></span><span>${esc(t(st.key))}</span>`;
 
   // alerts
@@ -412,19 +465,62 @@ function renderDetail() {
         <div class="d">${esc(reason ? t('only64') : t('rd_' + ROUTE_KEY[r]))}</div></div></button>`;
   }).join('');
 
-  // options
   const opti = f.route === 'optiscaler';
+  const wantNr = !opti || !hasOpenRr || f.nr;
+  const wantOpenRr = opti && hasOpenRr && f.openrr;
+  const wantOptiPatcher = opti && hasOptiPatcher && f.optipatcher;
+
+  // ASI plugins section (OptiScaler route on x86_64 when OpenRR is bundled)
+  let pluginsSec = '';
+  if (opti && hasOpenRr) {
+    const dlssdBadge = g.hasNativeDlssd
+      ? `<span class="mstat ok" style="margin-left:8px">${icon('checkCircle')}${esc(t('p_dlssd_yes'))}</span>`
+      : `<span class="mstat missing" style="margin-left:8px">${icon('info')}${esc(t('p_dlssd_no'))}</span>`;
+    let dlssdRow = '';
+    if (wantOpenRr) {
+      const hasCached = !!dlssdInfo.cached;
+      const dTitle = hasCached ? t('dlssd_ok') : g.hasNativeDlssd ? t('dlssd_game') : t('dlssd_need');
+      const dDesc = hasCached ? t('dlssd_ok_d') : g.hasNativeDlssd ? t('dlssd_game_d') : t('dlssd_need_d');
+      const dIcon = hasCached ? 'checkCircle' : g.hasNativeDlssd ? 'info' : 'warn';
+      const dColor = hasCached ? 'var(--success)' : g.hasNativeDlssd ? 'var(--muted)' : 'var(--warning)';
+      const showDInput = !hasCached || f.showDlssd;
+      dlssdRow = `
+        <div class="row">${icon('shield')}<div><div class="t">${esc(t('p_spoof'))}</div><div class="d">${esc(t('p_spoof_d'))}</div></div>
+          <div class="ctl"><button class="switch" role="switch" aria-checked="${f.openrrSpoof === 'auto'}" data-act="openrr-spoof"><span class="lbl">${esc(f.openrrSpoof === 'auto' ? t('on') : t('off'))}</span><span class="track"><span class="knob"></span></span></button></div></div>
+        <div class="row ${showDInput ? 'stack' : ''}"><span style="color:${dColor}">${icon(dIcon, 'lg')}</span>
+          <div><div class="t">${esc(dTitle)}</div><div class="d">${esc(dDesc)}</div></div>
+          ${showDInput ? `<div class="full"><input class="input mono" id="dlssd" spellcheck="false" placeholder="${esc(t('dlssd_ph'))}" value="${esc(f.dlssd)}">
+            <button class="btn" data-act="browse-dlssd">${icon('folder', 'sm')}${esc(t('browse'))}</button>
+            ${hasCached ? `<button class="btn subtle" data-act="toggle-dlssd">${esc(t('hide'))}</button>` : ''}</div>`
+          : `<div class="ctl"><button class="btn subtle sm" data-act="toggle-dlssd">${esc(t('other_dlssd'))}</button></div>`}
+        </div>`;
+    }
+    const patcherRow = hasOptiPatcher ? `
+      <div class="row">${icon('wand')}<div><div class="t">${esc(t('p_optipatcher'))}</div><div class="d">${esc(t('p_optipatcher_d'))}</div></div>
+        <div class="ctl"><button class="switch" role="switch" aria-checked="${wantOptiPatcher}" data-act="optipatcher"><span class="lbl">${esc(wantOptiPatcher ? t('on') : t('off'))}</span><span class="track"><span class="knob"></span></span></button></div></div>` : '';
+    pluginsSec = `<section class="section"><div class="section-head"><h3>${esc(t('sec_plugins'))}</h3></div>
+      <div class="card">
+        <div class="row">${icon('chip')}<div><div class="t">${esc(t('p_nr'))}</div><div class="d">${esc(t('p_nr_d'))}</div></div>
+          <div class="ctl"><button class="switch" role="switch" aria-checked="${f.nr}" data-act="toggle-nr"><span class="lbl">${esc(f.nr ? t('on') : t('off'))}</span><span class="track"><span class="knob"></span></span></button></div></div>
+        <div class="row">${icon('layers')}<div><div class="t">${esc(t('p_openrr', { ver: p.openrr.version || '0.1.7plus' }))}${dlssdBadge}</div><div class="d">${esc(t('p_openrr_d'))}</div></div>
+          <div class="ctl"><button class="switch" role="switch" aria-checked="${f.openrr}" data-act="toggle-openrr"><span class="lbl">${esc(f.openrr ? t('on') : t('off'))}</span><span class="track"><span class="knob"></span></span></button></div></div>
+        ${dlssdRow}
+        ${patcherRow}
+      </div></section>`;
+  }
+
+  // options (NR options; dimmed when NR is disabled on OptiScaler route)
   const options = `
     <div class="card">
-      <div class="row">${icon('chip')}<div><div class="t">${esc(t('o_model'))}</div><div class="d">${esc(t('o_model_d'))}</div></div>
-        <div class="ctl"><select class="select" id="sel-model" aria-label="${esc(t('o_model'))}">${MODELS.map((m) => `<option value="${m}" ${f.model === m ? 'selected' : ''}>${esc(t('m_' + m))}</option>`).join('')}</select></div></div>
-      <div class="row">${icon('wand')}<div><div class="t">${esc(t('o_style'))}</div><div class="d">${esc(t('o_style_d'))}</div></div>
-        <div class="ctl"><div class="seg" role="radiogroup">${['renodx', 'wilsjo2'].map((s) => `<button role="radio" aria-checked="${f.style === s}" class="${f.style === s ? 'on' : ''}" data-act="style" data-style="${s}">${s === 'renodx' ? 'RenoDX' : 'wilsjo2'}</button>`).join('')}</div></div></div>
+      <div class="row ${wantNr ? '' : 'dis'}">${icon('chip')}<div><div class="t">${esc(t('o_model'))}</div><div class="d">${esc(t('o_model_d'))}</div></div>
+        <div class="ctl"><select class="select" id="sel-model" aria-label="${esc(t('o_model'))}" ${wantNr ? '' : 'disabled'}>${MODELS.map((m) => `<option value="${m}" ${f.model === m ? 'selected' : ''}>${esc(t('m_' + m))}</option>`).join('')}</select></div></div>
+      <div class="row ${wantNr ? '' : 'dis'}">${icon('wand')}<div><div class="t">${esc(t('o_style'))}</div><div class="d">${esc(t('o_style_d'))}</div></div>
+        <div class="ctl"><div class="seg" role="radiogroup">${['renodx', 'wilsjo2'].map((s) => `<button role="radio" aria-checked="${f.style === s}" class="${f.style === s ? 'on' : ''}" data-act="style" data-style="${s}" ${wantNr ? '' : 'disabled'}>${s === 'renodx' ? 'RenoDX' : 'wilsjo2'}</button>`).join('')}</div></div></div>
       <div class="row ${opti ? 'dis' : ''}">${icon('motion')}<div><div class="t">${esc(t('o_lum'))}</div><div class="d">${esc(opti ? t('o_lum_opti') : t('o_lum_d'))}</div></div>
         <div class="ctl"><button class="switch" role="switch" aria-checked="${!opti && f.lumenite}" data-act="lumenite" ${opti ? 'disabled' : ''}><span class="lbl">${esc(!opti && f.lumenite ? t('on') : t('off'))}</span><span class="track"><span class="knob"></span></span></button></div></div>
     </div>`;
 
-  // model
+  // model (Mochizuki NR model; only required when NR is enabled)
   let mTitle, mDesc, mIcon, needDll;
   if (model.complete) { mTitle = t('mdl_ok'); mDesc = t('mdl_ok_d'); mIcon = 'checkCircle'; needDll = false; }
   else if (model.ready) { mTitle = t('mdl_part'); mDesc = t('mdl_part_d'); mIcon = 'info'; needDll = false; }
@@ -432,14 +528,14 @@ function renderDetail() {
   else { mTitle = t('mdl_need'); mDesc = t('mdl_need_d'); mIcon = 'warn'; needDll = true; }
   const showInput = needDll || f.showDll;
   const mColor = model.complete ? 'var(--success)' : needDll ? (mIcon === 'error' ? 'var(--danger)' : 'var(--warning)') : 'var(--muted)';
-  const modelCard = `
+  const modelSec = wantNr ? `<section class="section"><div class="section-head"><h3>${esc(t('sec_model'))}</h3></div>
     <div class="card"><div class="row ${showInput ? 'stack' : ''}"><span style="color:${mColor}">${icon(mIcon, 'lg')}</span>
       <div><div class="t">${esc(mTitle)}</div><div class="d">${esc(mDesc)}</div></div>
       ${showInput ? `<div class="full"><input class="input mono" id="dll" spellcheck="false" placeholder="${esc(t('dll_ph'))}" value="${esc(f.dll)}">
         <button class="btn" data-act="browse-dll">${icon('folder', 'sm')}${esc(t('browse'))}</button>
         ${needDll ? '' : `<button class="btn subtle" data-act="toggle-dll">${esc(t('hide'))}</button>`}</div>`
       : `<div class="ctl"><button class="btn subtle sm" data-act="toggle-dll">${esc(t('other_dll'))}</button></div>`}
-    </div></div>`;
+    </div></div></section>` : '';
 
   // launch options
   let launchSec = '';
@@ -465,10 +561,13 @@ function renderDetail() {
       <pre class="console" id="console">${lines.length ? lines.map(lineHtml).join('') : `<span class="empty">${esc(t('out_idle'))}</span>`}</pre></div></section>`;
 
   // action bar
-  const canInstall = p.ok && !g.missing && !running && (routes[f.route] && routes[f.route].available) && (!needDll || f.dll.trim());
+  const noPlugin = opti && !wantNr && !wantOpenRr;
+  const missingNrDll = wantNr && needDll && !f.dll.trim();
+  const canInstall = p.ok && !g.missing && !running && (routes[f.route] && routes[f.route].available) && !noPlugin && !missingNrDll;
   let summary;
   if (running) summary = esc(t('sum_busy'));
-  else if (needDll && !f.dll.trim()) summary = esc(t('sum_need_model'));
+  else if (noPlugin) summary = esc(t('sum_need_plugin'));
+  else if (missingNrDll) summary = esc(t('sum_need_model'));
   else if (installed) summary = tv('sum_re', { route: routeName(g.status.route || f.route) });
   else summary = tv('sum_install', { route: routeName(f.route) });
   const primaryBusy = running && jobHere && S.job.kind === 'install';
@@ -488,8 +587,9 @@ function renderDetail() {
       ${alerts.join('')}
       ${launchSec}
       <section class="section"><div class="section-head"><h3>${esc(t('sec_route'))}</h3></div><div class="modes">${modes}</div></section>
+      ${pluginsSec}
       <section class="section"><div class="section-head"><h3>${esc(t('sec_options'))}</h3></div>${options}</section>
-      <section class="section"><div class="section-head"><h3>${esc(t('sec_model'))}</h3></div>${modelCard}</section>
+      ${modelSec}
       ${consoleSec}
     </div>
     <div class="actionbar"><div class="actionbar-inner">
@@ -503,7 +603,7 @@ function renderDetail() {
 }
 
 function lineHtml(l) {
-  const cls = l.s === 'err' ? 'err' : l.s === 'sys' ? 'sys' : /^(Installed the|Steam launch options|Uninstalled from|Logs packed)/.test(l.t) ? 'hl' : '';
+  const cls = l.s === 'err' ? 'err' : l.s === 'sys' ? 'sys' : /^(Installed the|Steam launch options|Uninstalled from|Logs packed|OpenRR |OptiPatcher)/.test(l.t) ? 'hl' : '';
   return `<span class="${cls}">${esc(l.t)}</span>\n`;
 }
 function scrollConsole() { const c = $('#console'); if (c) c.scrollTop = c.scrollHeight; }
@@ -520,7 +620,8 @@ function renderStatus() {
     el.innerHTML = `<span class="spinner"></span><span>${esc(t('scanning'))}</span>`;
   } else {
     const inst = S.games.filter((g) => g.status.installed).length;
-    el.innerHTML = `<span class="dot ok" style="opacity:${p.ok ? 1 : 0}"></span><span>${esc(t('ready'))} · ${esc(t('games_n', { n: S.games.length }))}${inst ? ` · ${esc(t('inst_n', { n: inst }))}` : ''}${p.upstreamVersion ? ` · DLSSNR-AMD ${esc(p.upstreamVersion)}` : ''}</span>`;
+    const orr = p.openrr && p.openrr.available ? ` · OpenRR ${p.openrr.version || '0.1.7plus'}` : '';
+    el.innerHTML = `<span class="dot ok" style="opacity:${p.ok ? 1 : 0}"></span><span>${esc(t('ready'))} · ${esc(t('games_n', { n: S.games.length }))}${inst ? ` · ${esc(t('inst_n', { n: inst }))}` : ''}${p.upstreamVersion ? ` · DLSSNR-AMD ${esc(p.upstreamVersion)}` : ''}${esc(orr)}</span>`;
   }
 }
 
@@ -559,7 +660,10 @@ function settingsHtml() {
   const info = S.info || {};
   const p = pkg();
   const m = info.model || {};
+  const dl = info.dlssd || {};
+  const hasOpenRr = !!(p.openrr && p.openrr.available);
   const mc = (k) => `<span class="mstat ${m[k] || 'missing'}">${icon(m[k] === 'ok' ? 'checkCircle' : m[k] === 'bad' ? 'error' : 'info')}${k === 'aardwold' ? 'CC_SILVER_AARDWOLD' : 'CC_SMALL_FP8'} · ${esc(t('mc_' + (m[k] || 'missing')))}</span>`;
+  const dc = hasOpenRr ? `<span class="mstat ${dl.cached ? 'ok' : 'missing'}">${icon(dl.cached ? 'checkCircle' : 'info')}nvngx_dlssd.dll · ${esc(t(dl.cached ? 'mc_ok' : 'mc_missing'))}</span>` : '';
   const seg = (act, cur, items) => `<div class="seg">${items.map(([v, l]) => `<button class="${cur === v ? 'on' : ''}" data-act="${act}" data-v="${v}">${esc(l)}</button>`).join('')}</div>`;
   return `<div class="dialog-head"><h2>${esc(t('settings'))}</h2><button class="icon-btn sm" data-act="dlg-cancel" aria-label="${esc(t('close'))}">${icon('x')}</button></div>
     <div class="dialog-body">
@@ -571,8 +675,9 @@ function settingsHtml() {
         <dt>${esc(t('set_ver'))}</dt><dd>${esc(p.version || '—')}</dd>
         <dt>${esc(t('set_arch'))}</dt><dd>Linux ${esc(p.arch)} · ${esc(t('bits', { b: p.bits }))}</dd>
         <dt>${esc(t('set_up'))}</dt><dd>${esc(p.upstreamVersion || '—')}</dd>
+        ${hasOpenRr ? `<dt>${esc(t('set_openrr'))}</dt><dd>${esc(p.openrr.version || '0.1.7plus')}${p.optipatcher ? ' · OptiPatcher' : ''}</dd>` : ''}
         <dt>${esc(t('set_path'))}</dt><dd title="${esc(p.root || '')}">${esc(p.root || '—')}</dd>
-        <dt>${esc(t('set_model'))}</dt><dd class="wrap">${mc('small')}${mc('aardwold')}</dd>
+        <dt>${esc(t('set_model'))}</dt><dd class="wrap">${mc('small')}${mc('aardwold')}${dc}</dd>
       </dl></div></div>
       <div class="settings-group"><div class="lbl">${esc(t('set_int'))}</div><div class="card">
         <div class="row">${icon('menu')}<div><div class="t">${esc(t('set_desktop'))}</div><div class="d">${esc(t('set_desktop_d'))}</div></div>
@@ -588,15 +693,17 @@ function settingsHtml() {
 
 function browseHtml(d) {
   const r = d.res;
+  const isFile = d.mode === 'model' || d.mode === 'dlssd';
+  const titleKey = d.mode === 'dlssd' ? 'fb_dlssd' : d.mode === 'model' ? 'fb_model' : 'fb_dir';
   const placeIcon = { home: 'home', downloads: 'download', desktop: 'monitor', documents: 'file', steam: 'gamepad', drive: 'drive' };
   const places = (r ? r.places : []).map((pl) => `<button class="fb-place" data-act="fb-go" data-path="${esc(pl.path)}" title="${esc(pl.path)}">${icon(placeIcon[pl.key] || 'folder')}<span>${esc(pl.key === 'steam' || pl.key === 'drive' ? (pl.path.split('/').filter(Boolean).slice(-3).join('/')) : t('pl_' + pl.key))}</span></button>`).join('');
   let rows = '';
   if (!r) rows = '<div class="fb-empty"><span class="spinner" style="display:inline-block"></span></div>';
   else if (r.error) rows = `<div class="fb-empty">${esc(r.error)}</div>`;
-  else if (!r.entries.length) rows = `<div class="fb-empty">${esc(t(d.mode === 'model' ? 'fb_noitems' : 'fb_empty'))}</div>`;
+  else if (!r.entries.length) rows = `<div class="fb-empty">${esc(t(isFile ? 'fb_noitems' : 'fb_empty'))}</div>`;
   else rows = r.entries.map((e) => `<button class="fb-row ${e.dir ? 'dir' : ''} ${d.sel === e.name ? 'sel' : ''} ${!e.dir && d.mode === 'dir' ? 'muted' : ''}" data-act="fb-item" data-name="${esc(e.name)}" data-dir="${e.dir ? 1 : 0}">${icon(e.dir ? 'folder' : e.exe ? 'exe' : 'file')}<span class="nm">${esc(e.name)}</span><span class="sz">${e.dir ? '' : esc(fmtSize(e.size))}</span></button>`).join('');
   const canPick = d.mode === 'dir' ? !!r : !!d.sel;
-  return `<div class="dialog-head"><h2>${esc(t(d.mode === 'model' ? 'fb_model' : 'fb_dir'))}</h2><button class="icon-btn sm" data-act="dlg-cancel" aria-label="${esc(t('close'))}">${icon('x')}</button></div>
+  return `<div class="dialog-head"><h2>${esc(t(titleKey))}</h2><button class="icon-btn sm" data-act="dlg-cancel" aria-label="${esc(t('close'))}">${icon('x')}</button></div>
     <div class="fb"><div class="fb-places">${places}</div>
       <div class="fb-main"><div class="fb-bar"><button class="btn sm" data-act="fb-up" ${r && r.parent ? '' : 'disabled'} title="${esc(t('fb_up'))}">${icon('up', 'sm')}</button>
         <input class="input mono" id="fb-path" spellcheck="false" value="${esc(r ? r.path : d.path || '')}">
@@ -700,7 +807,7 @@ async function finished(job) {
     else if (job.kind === 'remove') { title = t('ok_remove'); text = t('ok_remove_d'); }
     else { title = t('ok_logs'); text = r.logs || ''; }
     S.flash[id] = { ok, title, text, logs: job.kind === 'logs' ? r.logs : null };
-    if (job.kind === 'install' && ok && S.forms[id]) S.forms[id].dll = '';
+    if (job.kind === 'install' && ok && S.forms[id]) { S.forms[id].dll = ''; S.forms[id].dlssd = ''; }
     toast(ok ? title : `${t('failed_t')}: ${(r.error || '').split('\n').pop()}`, !ok);
   }
   try { S.info = await api('/api/info'); } catch (e) { /* ignore */ }
@@ -753,14 +860,35 @@ const ACT = {
   async route(el) { const g = selected(); formFor(g).route = el.dataset.route; renderDetail(); },
   async style(el) { const g = selected(); formFor(g).style = el.dataset.style; renderDetail(); },
   async lumenite() { const g = selected(); const f = formFor(g); f.lumenite = !f.lumenite; renderDetail(); },
+  async 'toggle-nr'() { const g = selected(); const f = formFor(g); f.nr = !f.nr; renderDetail(); },
+  async 'toggle-openrr'() { const g = selected(); const f = formFor(g); f.openrr = !f.openrr; renderDetail(); },
+  async 'openrr-spoof'() { const g = selected(); const f = formFor(g); f.openrrSpoof = f.openrrSpoof === 'auto' ? 'full' : 'auto'; renderDetail(); },
+  async optipatcher() { const g = selected(); const f = formFor(g); f.optipatcher = !f.optipatcher; renderDetail(); },
   async 'toggle-dll'() { const g = selected(); const f = formFor(g); f.showDll = !f.showDll; renderDetail(); if (f.showDll) { const i = $('#dll'); if (i) i.focus(); } },
+  async 'toggle-dlssd'() { const g = selected(); const f = formFor(g); f.showDlssd = !f.showDlssd; renderDetail(); if (f.showDlssd) { const i = $('#dlssd'); if (i) i.focus(); } },
   async 'browse-dll'() {
     const g = selected(); const f = formFor(g);
     openBrowser('model', f.dll || (S.info && S.info.home + '/Downloads'), (path) => { f.dll = path; renderDetail(); });
   },
+  async 'browse-dlssd'() {
+    const g = selected(); const f = formFor(g);
+    openBrowser('dlssd', f.dlssd || (S.info && S.info.home + '/Downloads'), (path) => { f.dlssd = path; renderDetail(); });
+  },
   async install() {
     const g = selected(); const f = formFor(g);
-    startJob('/api/install', { id: g.id, route: f.route, model: f.model, style: f.style, lumenite: f.route !== 'optiscaler' && f.lumenite, dll: f.dll.trim() || null });
+    const p = pkg();
+    const opti = f.route === 'optiscaler';
+    const hasOpenRr = !!(p.openrr && p.openrr.available);
+    const wantNr = !opti || !hasOpenRr || f.nr;
+    const wantOpenRr = opti && hasOpenRr && f.openrr;
+    const wantOptiPatcher = opti && !!p.optipatcher && f.optipatcher;
+    startJob('/api/install', {
+      id: g.id, route: f.route, model: f.model, style: f.style,
+      lumenite: !opti && f.lumenite,
+      nr: wantNr, openrr: wantOpenRr, openrrSpoof: f.openrrSpoof, optipatcher: wantOptiPatcher,
+      dll: wantNr ? (f.dll.trim() || null) : null,
+      dlssd: wantOpenRr ? (f.dlssd.trim() || null) : null,
+    });
     delete S.flash[g.id];
   },
   async uninstall() {
@@ -807,7 +935,7 @@ const ACT = {
     const d = S.dialog; const name = el.dataset.name; const isDir = el.dataset.dir === '1';
     const full = d.res.path.replace(/\/$/, '') + '/' + name;
     if (isDir) { browse(d, full); return; }
-    if (d.mode === 'model') {
+    if (d.mode === 'model' || d.mode === 'dlssd') {
       if (ev.detail >= 2) { closeDialog(); d.onPick(full); return; }
       d.sel = name; renderDialog();
     }
@@ -828,6 +956,9 @@ document.addEventListener('click', (ev) => {
 document.addEventListener('input', (ev) => {
   const id = ev.target.id;
   if (id === 'search') { S.search = ev.target.value; renderLibrary(); }
+  else if (id === 'dlssd') {
+    const g = selected(); if (g) formFor(g).dlssd = ev.target.value;
+  }
   else if (id === 'dll') {
     const g = selected(); formFor(g).dll = ev.target.value;
     // update only the action bar's enabled state, keep focus in the input

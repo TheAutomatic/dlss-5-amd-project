@@ -30,12 +30,13 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
-from launcher import desktop, jobs, library  # noqa: E402
+from launcher import addons, desktop, jobs, library  # noqa: E402
 from launcher.package import Package, find_package, is_package_root  # noqa: E402
 from launcher.server import App, make_server  # noqa: E402
 from launcher.state import State  # noqa: E402
@@ -256,8 +257,11 @@ class TestDetection(unittest.TestCase):
         s = library.detect_install(d)
         self.assertEqual((s["installed"], s["foreign"]), (False, "dxgi.dll"))
         d = self.mk("clean", None, ["Game.exe"])
-        self.assertEqual(library.detect_install(d), {"installed": False, "route": None, "entries": 0, "foreign": None,
-                                                     "model": None, "style": None})
+        self.assertEqual(library.detect_install(d), {
+            "installed": False, "route": None, "entries": 0, "foreign": None,
+            "model": None, "style": None, "nr": False, "openrr": False,
+            "optipatcher": False, "openrrSpoof": "full",
+        })
 
 
 class TestOutputParsing(unittest.TestCase):
@@ -504,6 +508,56 @@ def replace_file(path: Path, data: bytes, mode: int = 0o755) -> None:
     path.chmod(mode)
 
 
+class TestAddons(unittest.TestCase):
+    def test_pe64_and_extract_dlssd(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            pe64 = make_pe(d / "nvngx_dlssd.dll", 64, 4096)
+            pe32 = make_pe(d / "bad32.dll", 32, 4096)
+            self.assertTrue(addons.is_pe64_file(pe64))
+            self.assertFalse(addons.is_pe64_file(pe32))
+
+            out1 = d / "out1" / "nvngx_dlssd.dll"
+            addons.extract_dlssd(pe64, out1)
+            self.assertTrue(addons.is_pe64_file(out1))
+
+            zp = d / "pack.zip"
+            with zipfile.ZipFile(zp, "w") as z:
+                z.writestr("sub/nvngx_dlssd.dll", pe64.read_bytes())
+            out2 = d / "out2" / "nvngx_dlssd.dll"
+            addons.extract_dlssd(zp, out2)
+            self.assertEqual(out2.read_bytes(), pe64.read_bytes())
+
+            with self.assertRaises(ValueError):
+                addons.extract_dlssd(pe32, d / "out3" / "nvngx_dlssd.dll")
+
+    def test_patch_optiscaler_ini(self):
+        with tempfile.TemporaryDirectory() as td:
+            ini = Path(td) / "OptiScaler.ini"
+            ini.write_bytes(b"[Plugins]\r\nLoadAsiPlugins=auto\r\n[Menu]\r\nFGShortcutKey=auto\r\n[Spoofing]\r\nDxgi=auto\r\nVulkan=auto\r\n")
+            addons.patch_optiscaler_ini(ini, want_nr=True, want_openrr=True, openrr_spoof="full")
+            raw = ini.read_bytes().decode("utf-8")
+            self.assertIn("\r\n", raw)
+            self.assertEqual(library.ini_value(raw, "Plugins", "LoadAsiPlugins"), "true")
+            self.assertEqual(library.ini_value(raw, "Menu", "FGShortcutKey"), "-1")
+            self.assertEqual(library.ini_value(raw, "Spoofing", "Dxgi"), "true")
+            self.assertEqual(library.ini_value(raw, "Spoofing", "Vulkan"), "true")
+            self.assertEqual(library.ini_value(raw, "Spoofing", "VulkanExtensionSpoofing"), "true")
+
+            addons.patch_optiscaler_ini(ini, want_nr=False, want_openrr=True, openrr_spoof="auto")
+            raw2 = ini.read_bytes().decode("utf-8")
+            self.assertEqual(library.ini_value(raw2, "Spoofing", "Dxgi"), "auto")
+            self.assertEqual(library.ini_value(raw2, "Spoofing", "VulkanExtensionSpoofing"), "auto")
+
+    def test_has_native_dlssd_ignores_openrr_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            game = Path(td) / "Game"
+            make_pe(game / "openrr-amd" / "nvngx_dlssd.dll", 64)
+            self.assertFalse(library.has_native_dlssd(game))
+            make_pe(game / "Plugins" / "x86_64" / "nvngx_dlssd.dll", 64)
+            self.assertTrue(library.has_native_dlssd(game))
+
+
 def _lspci_without_gpu():
     """True when lspci exists but lists no VGA / Display / 3D controller (GPU-less CI virtual machines)."""
     if not shutil.which("lspci"):
@@ -540,6 +594,8 @@ class E2E(unittest.TestCase):
             bits = meta.bits
             routes = [r for r, v in meta.routes().items() if v["available"]]
             self.assertEqual("optiscaler" in routes, bits == 64)
+            self.assertEqual(meta.has_openrr, bits == 64)
+            self.assertEqual(meta.has_optipatcher, bits == 64)
 
             g64 = home / "Games" / "Game 64"
             make_pe(g64 / "Game64.exe", 64, 200000)
@@ -577,6 +633,36 @@ class E2E(unittest.TestCase):
             self.assertIn("no model file", job["result"]["error"])
             self.assertEqual(snapshot(own), orig[own])
             print("[e2e]   no-model install refused: %s" % job["result"]["error"].splitlines()[0], flush=True)
+
+            # --- 1b. x86_64: OpenRR-only install works WITHOUT nvngx_dlssnr.dll, and uninstall restores cleanly
+            if bits == 64:
+                dummy_dlssd = make_pe(work / "nvngx_dlssd.dll", 64, 8192)
+                status, r = c.call("/api/install", {
+                    "id": gid, "route": "optiscaler", "nr": False, "openrr": True,
+                    "openrrSpoof": "auto", "optipatcher": True, "dlssd": str(dummy_dlssd),
+                })
+                self.assertEqual(status, 200, r)
+                job = c.wait_job(r["job"]["id"])
+                self.assertEqual(job["state"], "done", job["result"])
+                g = c.call("/api/game?refresh=1&id=" + urllib.request.quote(gid))[1]["game"]
+                self.assertTrue(g["status"]["installed"])
+                self.assertEqual(g["status"]["route"], "optiscaler")
+                self.assertFalse(g["status"]["nr"])
+                self.assertTrue(g["status"]["openrr"])
+                self.assertTrue(g["status"]["optipatcher"])
+                self.assertEqual(g["status"]["openrrSpoof"], "auto")
+                self.assertTrue((own / "OptiScaler" / "plugins" / "openrr-amd.asi").is_file())
+                self.assertTrue((own / "OptiScaler" / "plugins" / "OptiPatcher.asi").is_file())
+                self.assertTrue((own / "openrr-amd" / "nvngx_dlssd.dll").is_file())
+                self.assertFalse((own / "openrr-amd" / "aco").exists())
+                self.assertTrue(c.call("/api/info")[1]["dlssd"]["cached"])
+                self.check_manifest(own)
+                p = subprocess.run(["bash", str(pkg / "uninstall.sh"), str(own)], stdin=subprocess.DEVNULL,
+                                   capture_output=True, text=True)
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertEqual(snapshot(own), orig[own], "OpenRR-only uninstall did not restore game folder")
+                print("[e2e]   optiscaler (OpenRR-only + OptiPatcher) install -> remove OK", flush=True)
+
             fx.close()
 
             # --- 2. dummy model in the temporary copy only
@@ -601,31 +687,44 @@ class E2E(unittest.TestCase):
             if bits == 32:
                 status, r = c.call("/api/install", {"id": gid, "route": "optiscaler"})
                 self.assertEqual((status, r["error"]), (400, "route_unavailable"))
+                status, r = c.call("/api/install", {"id": gid, "route": "reshade-feeder", "openrr": True})
+                self.assertEqual((status, r["error"]), (400, "openrr_unavailable"))
                 p = subprocess.run(["bash", str(pkg / "install.sh"), str(own), "optiscaler", "--model", "CC_SMALL_FP8"],
                                    stdin=subprocess.DEVNULL, capture_output=True, text=True)
                 self.assertEqual(p.returncode, 1)
                 self.assertIn("only in the 64-bit package", p.stderr)
                 self.assertEqual(snapshot(own), orig[own])
-                print("[e2e]   i686: optiscaler refused (API 400 + installer: %s)" % p.stderr.strip(), flush=True)
+                print("[e2e]   i686: optiscaler & openrr refused (API 400 + installer: %s)" % p.stderr.strip(), flush=True)
 
             expected_launch = {"optiscaler": LAUNCH_DXGI, "reshade-feeder": LAUNCH_DXGI,
                                "reshade-feeder-vulkan": LAUNCH_VK, "reshade-feeder-dx9": LAUNCH_VK}
             for i, route in enumerate(routes):
                 t0 = time.time()
-                job = self.install(c, gid, route, "CC_SMALL_FP8", "renodx")
+                extra = {"openrr": True, "openrrSpoof": "full", "optipatcher": True} if (route == "optiscaler" and bits == 64) else {}
+                job = self.install(c, gid, route, "CC_SMALL_FP8", "renodx", **extra)
                 g = c.call("/api/game?refresh=1&id=" + urllib.request.quote(gid))[1]["game"]
                 self.assertTrue(g["status"]["installed"])
                 self.assertEqual(g["status"]["route"], route)
                 self.assertEqual(g["status"]["model"], "CC_SMALL_FP8")
                 self.assertEqual(g["status"]["style"], "renodx")
+                if route == "optiscaler" and bits == 64:
+                    self.assertTrue(g["status"]["nr"])
+                    self.assertTrue(g["status"]["openrr"])
+                    self.assertTrue(g["status"]["optipatcher"])
+                    self.assertEqual(g["status"]["openrrSpoof"], "full")
+                    self.assertTrue((own / "openrr-amd" / "nvngx_dlssd.dll").is_file())
+                    self.assertTrue((own / "openrr-amd.ini").is_file())
                 self.assertEqual(g["record"]["launch"], expected_launch[route])
                 self.assertEqual(job["result"]["launch"], expected_launch[route])
                 self.check_manifest(own)
-                # reinstall: other network and style
+                # reinstall: other network and style (and disable OpenRR on optiscaler)
                 job = self.install(c, gid, route, "CC_SILVER_AARDWOLD", "wilsjo2")
                 g = c.call("/api/game?refresh=1&id=" + urllib.request.quote(gid))[1]["game"]
                 self.assertEqual((g["status"]["route"], g["status"]["model"], g["status"]["style"]),
                                  (route, "CC_SILVER_AARDWOLD", "wilsjo2"))
+                if route == "optiscaler" and bits == 64:
+                    self.assertFalse(g["status"]["openrr"])
+                    self.assertFalse((own / "openrr-amd").exists())
                 self.assertIn("Found a previous installation, removing it first.", [ln["t"] for ln in job["lines"]])
                 self.check_manifest(own)
                 # remove: alternate between the launcher API and uninstall.sh
@@ -678,6 +777,7 @@ class E2E(unittest.TestCase):
             self.assertFalse(state_path.parent.exists())
             self.assertEqual((src / "install.sh").read_bytes(), src_install)
             self.assertFalse((src / "dlssnr-amd" / "CC_SILVER_AARDWOLD.bin").exists())
+            self.assertFalse((src / "openrr-amd" / "nvngx_dlssd.dll").exists())
         finally:
             for fx in fixtures:
                 try:
@@ -691,8 +791,10 @@ class E2E(unittest.TestCase):
                     os.environ[k] = v
             shutil.rmtree(str(work), ignore_errors=True)
 
-    def install(self, c, gid, route, model, style):
-        status, r = c.call("/api/install", {"id": gid, "route": route, "model": model, "style": style, "lumenite": False})
+    def install(self, c, gid, route, model, style, **extra):
+        payload = {"id": gid, "route": route, "model": model, "style": style, "lumenite": False}
+        payload.update(extra)
+        status, r = c.call("/api/install", payload)
         self.assertEqual(status, 200, r)
         job = c.wait_job(r["job"]["id"])
         if job["state"] != "done":

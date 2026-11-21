@@ -238,7 +238,14 @@ def resolve_game_folder(path) -> tuple:
 # ---------------------------------------------------------------------------------------------
 # Installation detection
 # ---------------------------------------------------------------------------------------------
-RUNTIME_FILES = {"OptiScaler.log", "dlssnr-amd.log", "ReShade.log"}
+RUNTIME_FILES = {
+    "OptiScaler.log",
+    "dlssnr-amd.log",
+    "ReShade.log",
+    "openrr-amd.log",
+    "openrr-control.bin",
+    "openrr-amd-crash.dmp",
+}
 
 
 def read_manifest(folder: Path) -> list:
@@ -252,22 +259,67 @@ def read_manifest(folder: Path) -> list:
 def ini_value(text: str, section: str, key: str) -> str | None:
     """First ``key = value`` inside ``[section]`` (line based; ';' / '#' lines are comments)."""
     current = None
+    want_sec = section.casefold()
+    want_key = key.casefold()
     for raw in text.splitlines():
         line = raw.strip()
         if not line or line[0] in ";#":
             continue
         if line.startswith("[") and line.endswith("]"):
-            current = line[1:-1].strip()
+            current = line[1:-1].strip().casefold()
             continue
-        if current == section and "=" in line:
+        if current == want_sec and "=" in line:
             k, v = line.split("=", 1)
-            if k.strip() == key:
+            if k.strip().casefold() == want_key:
                 return v.strip()
     return None
 
 
+def has_native_dlssd(folder, install_dir=None) -> bool:
+    """True when the game itself ships a native nvngx_dlssd.dll (excluding our own openrr-amd/ copy)."""
+    roots = []
+    if folder:
+        roots.append(Path(folder))
+    if install_dir:
+        inst = Path(install_dir)
+        if not roots or inst != roots[0]:
+            roots.append(inst)
+    checked = set()
+    for base in roots:
+        if not base.is_dir():
+            continue
+        stack = [(base, 0)]
+        seen = 0
+        while stack and seen < 800:
+            d, depth = stack.pop()
+            key = str(d)
+            if key in checked:
+                continue
+            checked.add(key)
+            try:
+                entries = list(os.scandir(d))
+            except OSError:
+                continue
+            for e in entries:
+                seen += 1
+                low = e.name.lower()
+                try:
+                    if e.is_file(follow_symlinks=False) and low == "nvngx_dlssd.dll":
+                        return True
+                    if (
+                        e.is_dir(follow_symlinks=False)
+                        and depth < 4
+                        and low not in ("openrr-amd", "opennr-rr", "dlssnr-amd", "optiscaler", ".git")
+                        and not e.name.startswith(".")
+                    ):
+                        stack.append((Path(e.path), depth + 1))
+                except OSError:
+                    continue
+    return False
+
+
 def detect_install(folder) -> dict:
-    """Is DLSSNR-AMD installed in this folder, and by which route?
+    """Is OptiScaler NR / DLSSNR-AMD / OpenRR installed in this folder, and by which route?
 
     ``installed`` follows the installer's manifest. The route is inferred from the files:
     dxgi.dll + OptiScaler.ini => optiscaler, vulkan-1.dll + winevulkan.dll => vulkan (dx9 when the
@@ -308,6 +360,20 @@ def detect_install(folder) -> dict:
         style = {"1": "renodx", "0": "wilsjo2"}.get(enabled or "")
     except OSError:
         pass
+    nr = bool(entries) and (
+        route != "optiscaler" or (folder / "OptiScaler" / "plugins" / "dlssnr-amd.asi").is_file()
+    )
+    openrr = bool(entries) and (folder / "OptiScaler" / "plugins" / "openrr-amd.asi").is_file()
+    optipatcher = bool(entries) and (folder / "OptiScaler" / "plugins" / "OptiPatcher.asi").is_file()
+    openrr_spoof = "full"
+    if openrr:
+        try:
+            oini = (folder / "OptiScaler.ini").read_text(encoding="utf-8", errors="replace")
+            dxgi = (ini_value(oini, "Spoofing", "Dxgi") or "").lower()
+            if dxgi == "auto":
+                openrr_spoof = "auto"
+        except OSError:
+            pass
     return {
         "installed": bool(entries),
         "route": route,
@@ -315,6 +381,10 @@ def detect_install(folder) -> dict:
         "foreign": foreign,
         "model": model,
         "style": style,
+        "nr": nr,
+        "openrr": openrr,
+        "optipatcher": optipatcher,
+        "openrrSpoof": openrr_spoof,
     }
 
 
@@ -601,6 +671,7 @@ def enrich(g: dict, override: str | None = None) -> dict:
     g["exeBits"] = pe_bits(exe) if exe else None
     g["folderBits"] = folder_bits(folder)
     g["status"] = detect_install(folder)
+    g["hasNativeDlssd"] = has_native_dlssd(folder, g.get("installDir"))
     g["missing"] = not folder.is_dir()
     g["scanMs"] = int((time.monotonic() - started) * 1000)
     return g

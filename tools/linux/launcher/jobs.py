@@ -152,18 +152,39 @@ class JobRunner:
         with self._lock:
             return self.current
 
-    def start(self, kind: str, cmd: list, meta: dict, cwd: str | None = None, on_done=None) -> Job:
+    def start(self, kind: str, cmd: list | None, meta: dict, cwd: str | None = None, on_done=None,
+              post_step=None, runner=None) -> Job:
         with self._lock:
             if self.current is not None and self.current.state == "running":
                 raise RuntimeError("busy")
-            job = Job(kind, cmd, meta)
+            job = Job(kind, cmd or [], meta)
             self.jobs[job.id] = job
             self.current = job
-        t = threading.Thread(target=self._run, args=(job, cwd, on_done), name="job-%d" % job.id, daemon=True)
+        t = threading.Thread(
+            target=self._run,
+            args=(job, cwd, on_done, post_step, runner),
+            name="job-%d" % job.id,
+            daemon=True,
+        )
         t.start()
         return job
 
-    def _run(self, job: Job, cwd, on_done) -> None:
+    def _run(self, job: Job, cwd, on_done, post_step=None, runner=None) -> None:
+        if runner is not None:
+            try:
+                code = int(runner(job.add) or 0)
+            except Exception as e:
+                job.add("err", str(e))
+                code = 1
+            if code == 0 and post_step is not None:
+                try:
+                    code = int(post_step(job.add) or 0)
+                except Exception as e:
+                    job.add("err", str(e))
+                    code = 1
+            self._finish(job, code, on_done)
+            return
+
         env = dict(os.environ)
         env.setdefault("LC_ALL", "C.UTF-8")
         env["PYTHONDONTWRITEBYTECODE"] = "1"
@@ -189,6 +210,12 @@ class JobRunner:
         code = proc.wait()
         for r in readers:
             r.join(timeout=5)
+        if code == 0 and post_step is not None:
+            try:
+                code = int(post_step(job.add) or 0)
+            except Exception as e:
+                job.add("err", str(e))
+                code = 1
         self._finish(job, code, on_done)
 
     def _finish(self, job: Job, code: int, on_done) -> None:
