@@ -746,6 +746,8 @@
             </Border>
 
             <!-- ===== Injection proxy ===== -->
+            <Button x:Name="ProxyRequiredButton" Style="{DynamicResource SubtleButton}" Foreground="{DynamicResource ThemeWarning}" HorizontalAlignment="Left" Margin="0,16,0,0" Visibility="Collapsed"/>
+            <StackPanel x:Name="AdvancedProxySection" Visibility="Collapsed">
             <Border x:Name="ProxyCard" Background="Transparent" Margin="0,28,0,0">
               <StackPanel>
                 <DockPanel Margin="2,0,0,10">
@@ -755,6 +757,11 @@
                 </DockPanel>
                 <Border Style="{StaticResource Card}" Padding="16,14,16,12">
                   <StackPanel>
+                    <DockPanel>
+                      <Button x:Name="ProxyChangeButton" DockPanel.Dock="Right" Style="{DynamicResource SubtleButton}" Margin="12,0,0,0"/>
+                      <TextBlock x:Name="ProxySummary" Foreground="{DynamicResource ThemeInk}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                    </DockPanel>
+                    <StackPanel x:Name="ProxyDetails" Visibility="Collapsed" Margin="0,12,0,0">
                     <TextBlock x:Name="InjectText" Visibility="Collapsed" TextWrapping="Wrap" Foreground="{DynamicResource ThemeMuted}" FontSize="12" Margin="0,0,0,10"
                                Text="请从下方选择游戏启动时所加载的拦截代理 DLL："/>
                     <WrapPanel x:Name="ProxyPillPanel">
@@ -779,10 +786,12 @@
                               local:DialogTheme.Icon="M 13.25 8 A 5.25 5.25 0 1 1 11.71 4.29 M 12.25 1.75 V 4.75 H 9.25"/>
                       <TextBlock x:Name="ProfileStatus" FontSize="11.5" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center" Margin="12,0,0,0"/>
                     </WrapPanel>
+                    </StackPanel>
                   </StackPanel>
                 </Border>
               </StackPanel>
             </Border>
+            </StackPanel>
 
             <!-- ===== Standalone ===== -->
             <Border x:Name="StandaloneModeCard" Background="Transparent" Margin="0,28,0,0" Visibility="Collapsed">
@@ -832,7 +841,7 @@
             </Border>
 
             <!-- ===== Group A: install options & compatibility repair ===== -->
-            <StackPanel Margin="0,28,0,0">
+            <StackPanel x:Name="AdvancedInstallSection" Margin="0,28,0,0" Visibility="Collapsed">
               <TextBlock x:Name="DiagnosticsHeading" Style="{StaticResource SectionHeader}" Margin="2,0,0,10"/>
               <Border Style="{StaticResource Card}">
                 <StackPanel>
@@ -867,39 +876,33 @@
             </StackPanel>
 
             <!-- ===== Group B: configuration files & style codes ===== -->
-            <StackPanel Margin="0,28,0,0">
+            <StackPanel x:Name="AdvancedProfilesSection" Margin="0,28,0,0" Visibility="Collapsed">
               <TextBlock x:Name="IniHeading" Style="{StaticResource SectionHeader}" Margin="2,0,0,10"/>
               <Border Style="{StaticResource Card}">
                 <StackPanel>
-                  <WrapPanel>
-                    <StackPanel x:Name="OptiScalerIniButtonsLeft" Orientation="Horizontal" Margin="0,0,0,6">
-                      <Button x:Name="IniFolderButton" Style="{DynamicResource CardAction}" Margin="0,0,8,0"
-                              local:DialogTheme.Icon="M 1.75 4.25 A 1 1 0 0 1 2.75 3.25 H 6 L 7.5 4.75 H 13.25 A 1 1 0 0 1 14.25 5.75 V 12 A 1 1 0 0 1 13.25 13 H 2.75 A 1 1 0 0 1 1.75 12 Z"/>
-                      <Button x:Name="IniSaveButton" Style="{DynamicResource CardAction}" Margin="0,0,8,0"
-                              local:DialogTheme.Icon="M 2.5 2.5 H 11 L 13.5 5 V 13.5 H 2.5 Z M 5 2.5 V 6 H 10 V 2.5 M 5 13.5 V 9.5 H 11 V 13.5"/>
-                      <Button x:Name="IniImportButton" Style="{DynamicResource CardAction}" Margin="0,0,8,0"
-                              local:DialogTheme.Icon="M 8 2.5 V 10 M 5 7 L 8 10 L 11 7 M 3 8.5 V 13.5 H 13 V 8.5"/>
+                  <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <StackPanel x:Name="OptiScalerIniProfileGroup"><ComboBox x:Name="IniProfileCombo" Height="32"/></StackPanel>
+                    <Button x:Name="IniApplyButton" Grid.Column="1" Style="{DynamicResource CardAction}" Height="32" Margin="8,0,0,0" FontWeight="SemiBold"/>
+                    <StackPanel x:Name="OptiScalerIniButtonsLeft" Grid.Column="2" Orientation="Horizontal">
+                      <Button x:Name="IniSaveButton" Style="{DynamicResource CardAction}" Height="32" Margin="8,0,0,0"/>
                     </StackPanel>
-                    <Button x:Name="IniAsiExportButton" Style="{DynamicResource CardAction}" Margin="0,0,8,6"
-                            local:DialogTheme.Icon="M 8 10 V 2.5 M 5 5.5 L 8 2.5 L 11 5.5 M 3 8.5 V 13.5 H 13 V 8.5"/>
-                    <Button x:Name="IniAsiImportButton" Style="{DynamicResource CardAction}" Margin="0,0,8,6"
-                            local:DialogTheme.Icon="M 8 2.5 V 10 M 5 7 L 8 10 L 11 7 M 3 8.5 V 13.5 H 13 V 8.5"/>
-                    <Button x:Name="IniApplyButton" Style="{DynamicResource CardAction}" FontWeight="SemiBold" Margin="0,0,0,6"
-                            local:DialogTheme.Icon="M 3.5 8.5 L 6.5 11.5 L 12.5 4.5"/>
-                  </WrapPanel>
-                  <StackPanel x:Name="OptiScalerIniProfileGroup" Margin="0,8,0,0">
-                    <Grid>
-                      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="170"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                      <ComboBox x:Name="IniProfileCombo" Height="32"/>
-                      <TextBox x:Name="IniSearchBox" Grid.Column="1" Height="32" Margin="8,0,0,0" Padding="8,6" VerticalContentAlignment="Center"/>
-                      <Button x:Name="IniRenameButton" Grid.Column="2" Style="{DynamicResource CardAction}" Height="32" Margin="8,0,0,0"/>
-                      <Button x:Name="IniDeleteButton" Grid.Column="3" Style="{DynamicResource CardAction}" Height="32" Margin="8,0,0,0"/>
-                    </Grid>
-                    <DockPanel Margin="0,10,0,0">
-                      <Button x:Name="IniQuickSaveButton" Style="{DynamicResource CardAction}" Margin="0,0,12,0"/>
-                      <TextBlock x:Name="IniSelectHint" Style="{StaticResource Caption}" FontSize="11.5" VerticalAlignment="Center"/>
-                    </DockPanel>
-                  </StackPanel>
+                    <Button x:Name="ProfileMoreButton" Grid.Column="3" Content="⋯" Style="{DynamicResource CardAction}" Height="32" Margin="8,0,0,0" FontSize="18"/>
+                  </Grid>
+                  <Popup x:Name="ProfileMorePopup" PlacementTarget="{Binding ElementName=ProfileMoreButton}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
+                    <Border Background="{DynamicResource ThemeCardBg}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="8" Padding="6" Margin="0,4,0,0">
+                      <StackPanel x:Name="ProfileOverflowActions">
+                        <Button x:Name="IniImportButton" Style="{DynamicResource SubtleButton}" HorizontalContentAlignment="Left"/>
+                        <Button x:Name="IniRenameButton" Style="{DynamicResource SubtleButton}" HorizontalContentAlignment="Left"/>
+                        <Button x:Name="IniDeleteButton" Style="{DynamicResource SubtleButton}" HorizontalContentAlignment="Left"/>
+                        <Button x:Name="IniFolderButton" Style="{DynamicResource SubtleButton}" HorizontalContentAlignment="Left"/>
+                        <Button x:Name="IniAsiExportButton" Style="{DynamicResource SubtleButton}" HorizontalContentAlignment="Left"/>
+                        <Button x:Name="IniAsiImportButton" Style="{DynamicResource SubtleButton}" HorizontalContentAlignment="Left"/>
+                        <Button x:Name="IniQuickSaveButton" Style="{DynamicResource SubtleButton}" HorizontalContentAlignment="Left"/>
+                      </StackPanel>
+                    </Border>
+                  </Popup>
+                  <Grid Visibility="Collapsed"><TextBox x:Name="IniSearchBox"/><TextBlock x:Name="IniSelectHint"/></Grid>
                   <Border x:Name="StyleShareBar" Background="{DynamicResource ThemeLayer}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="1" CornerRadius="6" Padding="14,10" Margin="0,14,0,0">
                     <DockPanel>
                       <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
@@ -920,7 +923,7 @@
             </StackPanel>
 
             <!-- ===== Group C: runtime diagnostic log ===== -->
-            <StackPanel Margin="0,28,0,0">
+            <StackPanel x:Name="AdvancedLogSection" Margin="0,28,0,0" Visibility="Collapsed">
               <DockPanel Margin="2,0,0,10">
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                   <Button x:Name="PackLogButton" Style="{DynamicResource CardAction}" Margin="0,0,8,0"
@@ -999,6 +1002,9 @@
                   <ComboBox x:Name="ThemeCombo" DockPanel.Dock="Right" Width="180" Height="32"/>
                   <TextBlock x:Name="ThemeHeading" Foreground="{DynamicResource ThemeInk}" VerticalAlignment="Center"/>
                 </DockPanel>
+              </Border>
+              <Border Background="{DynamicResource ThemeLayer}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="1" CornerRadius="6" Padding="16,12" Margin="0,0,0,4">
+                <CheckBox x:Name="ShowAdvancedOptions" Style="{DynamicResource ToggleSwitch}" FontSize="13"/>
               </Border>
               <Border Background="{DynamicResource ThemeLayer}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="1" CornerRadius="6" Padding="16,12" Margin="0,0,0,4">
                 <DockPanel>

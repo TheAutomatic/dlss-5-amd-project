@@ -70,6 +70,10 @@ static class LauncherSmoke
             Pump(3500);
 
             var list = (ListBox)Find("GameList");
+            var advanced = (CheckBox)Find("ShowAdvancedOptions");
+            Check(advanced.IsChecked != true, "advanced options default off");
+            foreach (var name in new[] { "AdvancedProxySection", "AdvancedInstallSection", "AdvancedProfilesSection", "AdvancedLogSection" })
+                Check(((FrameworkElement)Find(name)).Visibility == Visibility.Collapsed, "advanced hidden by default: " + name);
             Check(list.Items.Count >= 2, "fake library loaded (" + list.Items.Count + " items)");
 
             var backendChecked = ((CheckBox)Find("MochiCheck")).IsChecked;
@@ -92,6 +96,8 @@ static class LauncherSmoke
                         ((RadioButton)Find(mode)).IsChecked = true;
                         Pump(400);
                         AssertLayout(theme + "-" + lang + "-" + mode);
+                        if (mode == "ModeStandaloneRadio") Check(((FrameworkElement)Find("StandaloneModeCard")).IsVisible, "standalone settings remain visible");
+                        if (mode == "ModeReShadeRadio") Check(((FrameworkElement)Find("ReShadeModeCard")).IsVisible, "ReShade settings remain visible");
                         Shot(theme + "-" + lang + "-" + mode.Replace("Mode", "").Replace("Radio", "").ToLowerInvariant());
                     }
                     ((RadioButton)Find("ModeOptiScalerRadio")).IsChecked = true;
@@ -123,6 +129,10 @@ static class LauncherSmoke
                 SelectGame(list, false);
                 ((RadioButton)Find("ModeOptiScalerRadio")).IsChecked = true;
                 Pump(400);
+                var reasonBeforeRefresh = ((TextBlock)Find("MochiReason")).Text;
+                _controller.GetType().GetMethod("RefreshInspectionText", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(_controller, null);
+                Console.WriteLine("BACKEND " + theme + ": selected=" + ((CheckBox)Find("MochiCheck")).IsChecked + ", before=" + reasonBeforeRefresh + ", refreshed=" + ((TextBlock)Find("MochiReason")).Text);
+                Pump(300);
                 AssertLayout(theme + "-zh-optiscaler");
                 Shot(theme + "-zh-optiscaler");
                 ((Button)Find("SettingsTab")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
@@ -160,6 +170,51 @@ static class LauncherSmoke
             foreach (var theme in new[] { "light", "dark" }) { Invoke("SetTheme", theme); Pump(500); Preview("preview-" + theme + "-zh"); }
             Invoke("SetLanguage", "en");
             foreach (var theme in new[] { "light", "dark" }) { Invoke("SetTheme", theme); Pump(500); Preview("preview-" + theme + "-en"); }
+            Invoke("SetTheme", "light");
+            Invoke("SetLanguage", "zh");
+            ((RadioButton)Find("ModeOptiScalerRadio")).IsChecked = true;
+            ((CheckBox)Find("MochiCheck")).IsChecked = true;
+            _controller.GetType().GetMethod("RefreshInspectionText", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(_controller, null);
+            Preview("advanced-off-light-zh");
+            string selectedProxy = (string)Member(_controller, "CurrentSelectedProxy");
+            Invoke("SelectProxy", "winmm.dll");
+            Invoke("UpdateProxyRecommendation", null);
+            Check((string)Member(_controller, "CurrentSelectedProxy") == selectedProxy, "hidden proxy automatically returns to Wiki recommendation");
+            ((RadioButton)Find("PillVersion")).IsChecked = true;
+            Invoke("UpdateProxyRecommendation", null);
+            Check((string)Member(_controller, "CurrentSelectedProxy") == "version.dll", "saved manual proxy takes precedence");
+            ((Button)Find("UseRecommendationButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Check((string)Member(_controller, "CurrentSelectedProxy") == selectedProxy, "Use suggestion restores Wiki recommendation");
+            advanced.IsChecked = true;
+            Pump(300);
+            Check(File.ReadAllText(Path.Combine(args[1], "settings.json")).Contains("\"ShowAdvancedOptions\":true"), "advanced preference persisted on");
+            foreach (var name in new[] { "AdvancedProxySection", "AdvancedInstallSection", "AdvancedProfilesSection", "AdvancedLogSection" })
+                Check(((FrameworkElement)Find(name)).IsVisible, "advanced visible: " + name);
+            Check((string)Member(_controller, "CurrentSelectedProxy") == selectedProxy, "advanced toggle preserves proxy selection");
+            Check(((StackPanel)Find("ProxyDetails")).Visibility == Visibility.Collapsed, "proxy details initially collapsed");
+            Preview("advanced-on-light-zh");
+            ((Button)Find("ProxyChangeButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Check(((StackPanel)Find("ProxyDetails")).Visibility == Visibility.Visible, "proxy Change expands details");
+            Preview("advanced-proxy-light-zh");
+            ((Button)Find("ProfileMoreButton")).BringIntoView(); Pump(300);
+            ((Button)Find("ProfileMoreButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent)); Pump(300);
+            Check(((Popup)Find("ProfileMorePopup")).IsOpen, "profile overflow opens");
+            Shot("advanced-profiles-menu-light-zh");
+            var menuRoot = (FrameworkElement)((Popup)Find("ProfileMorePopup")).Child;
+            var menuBitmap = new RenderTargetBitmap((int)Math.Ceiling(menuRoot.ActualWidth), (int)Math.Ceiling(menuRoot.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+            menuBitmap.Render(menuRoot);
+            var menuEncoder = new PngBitmapEncoder();
+            menuEncoder.Frames.Add(BitmapFrame.Create(menuBitmap));
+            using (var fs = File.Create(Path.Combine(_out, "profile-overflow-light-zh.png"))) menuEncoder.Save(fs);
+            ((Popup)Find("ProfileMorePopup")).IsOpen = false;
+            advanced.IsChecked = false;
+            Check(File.ReadAllText(Path.Combine(args[1], "settings.json")).Contains("\"ShowAdvancedOptions\":false"), "advanced preference persisted off");
+            Invoke("SelectProxy", "");
+            Check(((Button)Find("ProxyRequiredButton")).IsVisible, "missing proxy action remains visible with advanced off");
+            ((Button)Find("ProxyRequiredButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Check(advanced.IsChecked == true && ((StackPanel)Find("ProxyDetails")).IsVisible, "missing proxy action reveals selector");
+            Invoke("SelectProxy", selectedProxy);
+            advanced.IsChecked = false;
         }
         catch (Exception ex)
         {

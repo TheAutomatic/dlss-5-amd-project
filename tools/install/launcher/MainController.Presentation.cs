@@ -15,6 +15,7 @@ namespace OptScalerNR.Launcher
     public sealed partial class MainController
     {
         string _theme = "auto";
+        bool _showAdvancedOptions;
         bool _closed, _presentationBusy, _hardwareStarted, _hardwareComplete;
         string _presentationAction = "", _hardwareDetails, _hardwareWindowsDriver;
         int _packageComparisonGeneration;
@@ -42,6 +43,25 @@ namespace OptScalerNR.Launcher
         }
         void InitPresentation()
         {
+            var advanced = (CheckBox)_window.FindName("ShowAdvancedOptions");
+            RoutedEventHandler advancedChanged = delegate {
+                _showAdvancedOptions = advanced.IsChecked == true;
+                RefreshAdvancedVisibility();
+                SaveSettings();
+            };
+            advanced.Checked += advancedChanged;
+            advanced.Unchecked += advancedChanged;
+            ((Button)_window.FindName("ProxyChangeButton")).Click += delegate {
+                var details = (StackPanel)_window.FindName("ProxyDetails");
+                details.Visibility = details.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+                RefreshProxySummary();
+            };
+            ((Button)_window.FindName("ProxyRequiredButton")).Click += delegate {
+                advanced.IsChecked = true;
+                ((StackPanel)_window.FindName("ProxyDetails")).Visibility = Visibility.Visible;
+                RefreshProxySummary();
+                ((Border)_window.FindName("ProxyCard")).BringIntoView();
+            };
             var hero = (Border)_window.FindName("HeroCard");
             hero.SizeChanged += delegate {
                 hero.Clip = new RectangleGeometry(new Rect(0, 0, hero.ActualWidth, hero.ActualHeight), 8, 8);
@@ -119,6 +139,8 @@ namespace OptScalerNR.Launcher
         }
         void RefreshPresentationLanguage()
         {
+            SetLabel("ShowAdvancedOptions", "显示高级选项", "Show advanced options");
+            RefreshProxySummary();
             SetLabel("ThemeHeading", "外观主题", "Appearance");
             SetLabel("LangZh", "中", "ZH");
             SetLabel("AddMenuButton", "添加", "Add");
@@ -167,6 +189,26 @@ namespace OptScalerNR.Launcher
             if (theme == "classic") return L("经典白", "Classic White");
             if (theme == "midnight") return L("午夜蓝", "Midnight");
             return theme == "light" ? L("浅色", "Light") : theme == "dark" ? L("深色", "Dark") : L("跟随系统", "System (auto)");
+        }
+        void RefreshAdvancedVisibility()
+        {
+            foreach (var name in new[] { "AdvancedProxySection", "AdvancedInstallSection", "AdvancedProfilesSection", "AdvancedLogSection" })
+                ((StackPanel)_window.FindName(name)).Visibility = _showAdvancedOptions ? Visibility.Visible : Visibility.Collapsed;
+            if (!_showAdvancedOptions) ((Popup)_window.FindName("ProfileMorePopup")).IsOpen = false;
+        }
+        void RefreshProxySummary()
+        {
+            var proxy = CurrentSelectedProxy;
+            string manual;
+            bool hasManual = _selectedGame != null && _proxyChoices.TryGetValue(_selectedGame.Id, out manual) && ProxyRecommendations.Supports(manual);
+            var profile = _recommendations == null || _selectedGame == null ? null : _recommendations.Match(_selectedGame);
+            var origin = hasManual ? L("（手动选择）", " (manual)") : profile != null ? L("（Wiki 推荐）", " (Wiki recommended)") : L("（本地检测）", " (local detection)");
+            SetLabel("ProxySummary", "代理：" + (string.IsNullOrEmpty(proxy) ? "未选择" : proxy + origin), "Proxy: " + (string.IsNullOrEmpty(proxy) ? "Not selected" : proxy + origin));
+            bool expanded = ((StackPanel)_window.FindName("ProxyDetails")).Visibility == Visibility.Visible;
+            SetLabel("ProxyChangeButton", expanded ? "收起" : "更改", expanded ? "Hide" : "Change");
+            var required = (Button)_window.FindName("ProxyRequiredButton");
+            required.Content = L("⚠ 尚无可用代理，请选择代理…", "⚠ No proxy available. Choose a proxy…");
+            required.Visibility = _selectedGame != null && _selectedGame.HasExecutable && IsOptiScalerSelectedMode() && !IsRtxRemixMinecraftSelected() && string.IsNullOrEmpty(proxy) ? Visibility.Visible : Visibility.Collapsed;
         }
         void RefreshHardwareText()
         {

@@ -474,7 +474,7 @@ namespace OptScalerNR.Launcher
                 }
             }
             UpdatePrimaryButtonState();
-            } finally { _selectingProxy = previousSelectionMode; }
+            } finally { _selectingProxy = previousSelectionMode; RefreshProxySummary(); }
         }
 
         string CurrentSelectedProxy
@@ -979,6 +979,9 @@ namespace OptScalerNR.Launcher
             _saveInitialLanguage = !hasSavedLanguage;
             _language = hasSavedLanguage ? rec.Language.ToLowerInvariant() : ResolveLanguage(null, CultureInfo.CurrentUICulture);
             _theme = LauncherTheme.Normalize(rec == null ? null : rec.Theme);
+            _showAdvancedOptions = rec != null && rec.ShowAdvancedOptions;
+            ((CheckBox)_window.FindName("ShowAdvancedOptions")).IsChecked = _showAdvancedOptions;
+            RefreshAdvancedVisibility();
             if (rec != null)
             {
                 _recentGameId = rec.RecentGameId;
@@ -1034,6 +1037,7 @@ namespace OptScalerNR.Launcher
                 {
                     Language = _language,
                     Theme = _theme,
+                    ShowAdvancedOptions = _showAdvancedOptions,
                     ScanOnStartup = _isScanOnStartup,
                     PackageRoot = _diagnosticPackageRoot,
                     RecentGameId = _selectedGame != null ? _selectedGame.Id : _recentGameId,
@@ -1111,6 +1115,7 @@ namespace OptScalerNR.Launcher
             [System.Runtime.Serialization.DataMember] public Dictionary<string, string> HiddenGames;
             [System.Runtime.Serialization.DataMember] public string Language;
             [System.Runtime.Serialization.DataMember] public string Theme;
+            [System.Runtime.Serialization.DataMember] public bool ShowAdvancedOptions;
             [System.Runtime.Serialization.DataMember] public bool ScanOnStartup = true;
             [System.Runtime.Serialization.DataMember] public string PackageRoot;
             [System.Runtime.Serialization.DataMember] public string RecentGameId;

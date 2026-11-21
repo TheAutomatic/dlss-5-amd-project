@@ -126,6 +126,7 @@ namespace OptScalerNR.Launcher
         }
         void UpdateProxyRecommendation(string quickCandidate=null)
         {
+            RefreshProxySummary();
             if(_recommendations==null)return;
             if(_refreshProfilesButton!=null)_refreshProfilesButton.Content=L("更新推荐资料","Refresh recommendations");
             if(_useRecommendationButton!=null){_useRecommendationButton.Content=L("使用推荐","Use suggestion");_useRecommendationButton.IsEnabled=_selectedGame!=null&&!_writeBusy;}
@@ -185,6 +186,7 @@ namespace OptScalerNR.Launcher
             var guess=_lastInspectResult!=null?_lastInspectResult.Recommend:quickCandidate;
             var proxy=hasManual?manual:profile!=null?profile.Preferred:guess;
             SelectProxy(proxy);
+            RefreshProxySummary();
             if(_injectRecommendation!=null){
                 if(hasManual)_injectRecommendation.Text=L("使用你的手选代理：","Using your selected proxy: ")+manual;
                 else if(profile!=null)_injectRecommendation.Text=L("Wiki 游戏规则建议：","Wiki game rule suggests: ")+profile.Preferred+

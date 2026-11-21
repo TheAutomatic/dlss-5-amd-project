@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using Microsoft.Win32;
 
 namespace OptScalerNR.Launcher
@@ -44,6 +45,9 @@ namespace OptScalerNR.Launcher
             _iniFolderButton = _window.FindName("IniFolderButton") as Button;
             _iniAsiExportButton = _window.FindName("IniAsiExportButton") as Button;
             _iniAsiImportButton = _window.FindName("IniAsiImportButton") as Button;
+            var more = (Popup)_window.FindName("ProfileMorePopup");
+            ((Button)_window.FindName("ProfileMoreButton")).Click += delegate { more.IsOpen = !more.IsOpen; };
+            ((StackPanel)_window.FindName("ProfileOverflowActions")).AddHandler(ButtonBase.ClickEvent, new RoutedEventHandler(delegate { more.IsOpen = false; }));
             if (_iniAsiExportButton != null) _iniAsiExportButton.Click += delegate { ExportAsiIni(); };
             if (_iniAsiImportButton != null) _iniAsiImportButton.Click += delegate { ImportAsiIni(); };
             InitShareCode();
@@ -81,12 +85,13 @@ namespace OptScalerNR.Launcher
             SetLabel("IniHeading", "配置文件与风格码", "Config files & style codes");
             SetLabel("IniSelectHint", "选择配置后点击“应用所选配置”。仅更改插件时请选择“当前游戏 INI”。", "Select a profile, then Apply selection. Choose Current game INI to apply only the plugin setting.");
             SetLabel("PluginHeading", "第三方插件", "Third-party plugins");
-            if (_iniSaveButton != null) _iniSaveButton.Content = L("保存…", "Save…");
+            if (_iniSaveButton != null) _iniSaveButton.Content = L("保存", "Save");
             if (_iniQuickSaveButton != null) _iniQuickSaveButton.Content = L("快速保存", "Quick save");
             if (_iniImportButton != null) _iniImportButton.Content = L("导入…", "Import…");
             if (_iniRenameButton != null) _iniRenameButton.Content = L("重命名…", "Rename…");
             if (_iniDeleteButton != null) _iniDeleteButton.Content = L("删除", "Delete");
-            if (_iniApplyButton != null) _iniApplyButton.Content = L("应用所选配置", "Apply selection");
+            if (_iniApplyButton != null) _iniApplyButton.Content = L("应用", "Apply");
+            ((Button)_window.FindName("ProfileMoreButton")).ToolTip = L("更多配置操作", "More profile actions");
             if (_iniFolderButton != null) _iniFolderButton.Content = L("配置文件夹", "Profiles folder");
             if (_iniSearchBox != null) _iniSearchBox.ToolTip = L("搜索共享配置", "Search shared profiles");
             RefreshModelImportLanguage();
