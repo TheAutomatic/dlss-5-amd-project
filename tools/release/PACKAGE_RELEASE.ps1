@@ -1,10 +1,11 @@
 ﻿<#
 .SYNOPSIS
-  Stage and zip the standalone OptiScaler ASI Launcher package:
+  Stage and zip the standalone OptiScaler ASI Launcher package from pinned upstream releases
+  (defined in tools/build/upstream-pins.json; reuses matching archives in dist/upstream/ or cache/downloads/):
     - Official unmodified OptiScaler release (fetched/verified by tools/build/fetch-optiscaler.ps1)
-    - payloads/dlssnr-amd/  (OptiScaler/plugins/dlssnr-amd.asi + resources + model tools)
-    - payloads/openrr/      (OptiScaler/plugins/openrr-amd.asi + openrr-amd/shaders/*.spv)
-    - payloads/optipatcher/ (OptiScaler/plugins/OptiPatcher.asi)
+    - DLSSNR-AMD + CJK language pack (fetched/verified by tools/build/fetch-upstream.ps1)
+    - OpenRR-ASI (fetched/verified by tools/build/fetch-upstream.ps1)
+    - OptiPatcher.asi (resolved/refreshed by tools/build/fetch-upstream.ps1)
     - OptiScalerNRLauncher.exe + Setup.ps1
 #>
 [CmdletBinding()]
@@ -14,6 +15,14 @@ param(
     [string]$Name = '',
     [string]$OptiArchive = '',
     [string]$OptiDir = '',
+    [string]$MochiArchive = '',
+    [string]$MochiLangArchive = '',
+    [string]$MochiDir = '',
+    [string]$OpenRrArchive = '',
+    [string]$OpenRrDir = '',
+    [string]$OptiPatcherFile = '',
+    [string]$UpstreamDir = '',
+    [switch]$RefreshOptiPatcher,
     [string]$SigningThumbprint = '',
     [switch]$LocalTest
 )
@@ -41,17 +50,30 @@ if (-not $Name) { $Name = "OptiScaler-NR-$Version" }
 $stage = Join-Path $root (Join-Path $OutDir $Name)
 $zip   = Join-Path $root (Join-Path $OutDir ($Name + '.zip'))
 
-# 1. Fetch / verify official OptiScaler release (Mochi-style)
+# 1. Fetch / verify official OptiScaler + upstream ASI payloads
 $fetchScript = Join-Path $root 'tools/build/fetch-optiscaler.ps1'
-$optiInfo = & $fetchScript -OptiArchive $OptiArchive -OptiDir $OptiDir
+$optiInfo = & $fetchScript -OptiArchive $OptiArchive -OptiDir $OptiDir -UpstreamDir $UpstreamDir
 $optiReleaseDir = $optiInfo.ReleaseDir
 $optiLicense    = $optiInfo.LicensePath
 
+$fetchUpstreamScript = Join-Path $root 'tools/build/fetch-upstream.ps1'
+$upstreamInfo = & $fetchUpstreamScript `
+    -UpstreamDir $UpstreamDir `
+    -MochiArchive $MochiArchive `
+    -MochiLangArchive $MochiLangArchive `
+    -MochiDir $MochiDir `
+    -OpenRrArchive $OpenRrArchive `
+    -OpenRrDir $OpenRrDir `
+    -OptiPatcherFile $OptiPatcherFile `
+    -RefreshOptiPatcher:$RefreshOptiPatcher
+
 # 2. Verify ASI payloads exist
-$asiPayload = Join-Path $root 'payloads/dlssnr-amd'
+$asiPayload = $upstreamInfo.DlssnrDir
 foreach ($required in @(
     'OptiScaler/plugins/dlssnr-amd.asi',
     'nr_present_probe.exe',
+    'dlssnr-amd/aco/d3d12_outer.nra',
+    'dlssnr-amd/aco/rdna3/d3d12_outer.nra',
     'ini/dlssnr-amd-optiscaler.ini',
     'ini/dlssnr-amd-optiscaler-renodx.ini',
     'model-tools/dlssnr_extract_model.exe',
@@ -66,7 +88,15 @@ foreach ($required in @(
         throw "dlssnr-amd payload incomplete: $required"
     }
 }
-$openRrPayload = Join-Path $root 'payloads/openrr'
+if (Test-Path -LiteralPath (Join-Path $asiPayload 'dlssnr-amd/shaders/d3d12')) {
+    throw 'dlssnr-amd payload still contains retired dlssnr-amd/shaders/d3d12 directory.'
+}
+$retiredHlsl = Get-ChildItem -LiteralPath (Join-Path $asiPayload 'dlssnr-amd/shaders') -Recurse -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Extension -in '.hlsl', '.hlsli' } | Select-Object -First 1
+if ($retiredHlsl) {
+    throw "dlssnr-amd payload still contains retired HLSL shader: $($retiredHlsl.FullName)"
+}
+$openRrPayload = $upstreamInfo.OpenRrDir
 $openRrAsiSrc = $null
 foreach ($cand in @('OptiScaler/plugins/openrr-amd.asi', 'openrr-amd.asi', 'OptiScaler/plugins/openrr.asi', 'plugins/openrr-amd.asi', 'plugins/openrr.asi')) {
     $p = Join-Path $openRrPayload $cand
@@ -75,14 +105,30 @@ foreach ($cand in @('OptiScaler/plugins/openrr-amd.asi', 'openrr-amd.asi', 'Opti
 if (-not $openRrAsiSrc) {
     throw 'openrr payload missing OptiScaler/plugins/openrr-amd.asi (or openrr.asi).'
 }
-if (-not (Test-Path -LiteralPath (Join-Path $openRrPayload 'openrr-amd/shaders') -PathType Container)) {
-    throw 'openrr payload missing openrr-amd/shaders.'
+foreach ($reqOpenRrDir in @(
+    'openrr-amd/shaders',
+    'openrr-amd/shaders-gfx11',
+    'openrr-amd/aco/gfx1201/openrr-d3d12-v1',
+    'openrr-amd/aco/gfx1200/openrr-d3d12-v1',
+    'openrr-amd/lang/fonts'
+)) {
+    if (-not (Test-Path -LiteralPath (Join-Path $openRrPayload $reqOpenRrDir) -PathType Container)) {
+        throw "openrr payload missing $reqOpenRrDir."
+    }
 }
-if (-not (Test-Path -LiteralPath (Join-Path $openRrPayload 'openrr-amd/shaders-gfx11') -PathType Container)) {
-    throw 'openrr payload missing openrr-amd/shaders-gfx11.'
+foreach ($reqOpenRrFile in @(
+    'OptiScaler/plugins/openrr-ngx-host.dll',
+    'openrr-amd/aco/gfx1201/openrr-d3d12-v1/manifest.msgpack',
+    'openrr-amd/aco/gfx1200/openrr-d3d12-v1/manifest.msgpack',
+    'openrr-amd/lang/zh-CN.txt',
+    'openrr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf'
+)) {
+    if (-not (Test-Path -LiteralPath (Join-Path $openRrPayload $reqOpenRrFile) -PathType Leaf)) {
+        throw "openrr payload missing $reqOpenRrFile."
+    }
 }
-$optiPatcherAsiSrc = Join-Path $root 'payloads/optipatcher/OptiScaler/plugins/OptiPatcher.asi'
-if (-not (Test-Path -LiteralPath $optiPatcherAsiSrc -PathType Leaf)) {
+$optiPatcherAsiSrc = $upstreamInfo.OptiPatcherAsi
+if (-not $optiPatcherAsiSrc -or -not (Test-Path -LiteralPath $optiPatcherAsiSrc -PathType Leaf)) {
     throw 'optipatcher payload missing OptiScaler/plugins/OptiPatcher.asi.'
 }
 
@@ -103,12 +149,12 @@ if (Test-Path -LiteralPath (Join-Path $optiReleaseDir 'Licenses') -PathType Cont
 }
 Copy-Item -LiteralPath $optiLicense -Destination (Join-Path $stage 'Licenses/OptiScaler_LICENSE.txt') -Force
 
-# Update official OptiScaler.ini in-place (Mochi-style: LoadAsiPlugins=true, LogToFile=true, LogLevel=1, FGShortcutKey=-1)
+# Update official OptiScaler.ini in-place (LoadAsiPlugins=true, LogToFile=true, LogLevel=2, FGShortcutKey=-1)
 $iniPath = Join-Path $stage 'OptiScaler.ini'
 $wanted = [ordered]@{
     'Plugins|LoadAsiPlugins' = 'true'
     'Log|LogToFile'          = 'true'
-    'Log|LogLevel'           = '1'
+    'Log|LogLevel'           = '2'
     'Menu|FGShortcutKey'     = '-1'
 }
 $raw = [IO.File]::ReadAllText($iniPath)
@@ -159,7 +205,24 @@ if (Test-Path -LiteralPath (Join-Path $asiPayload 'optimized') -PathType Contain
 }
 Get-ChildItem -LiteralPath (Join-Path $asiPayload 'model-tools') -File | Copy-Item -Destination (Join-Path $stage 'model-tools') -Force
 Get-ChildItem -LiteralPath (Join-Path $asiPayload 'Licenses') -File | Copy-Item -Destination (Join-Path $stage 'Licenses') -Force
-Copy-Item -LiteralPath (Join-Path $root 'tools/install/mochizuki-owned.txt') -Destination $stage -Force
+$ownedSet = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+$ownedPinSrc = Join-Path $root 'tools/install/mochizuki-owned.txt'
+if (Test-Path -LiteralPath $ownedPinSrc -PathType Leaf) {
+    foreach ($line in [IO.File]::ReadAllLines($ownedPinSrc)) {
+        $rel = $line.Trim().Replace('\', '/')
+        if ($rel.Length -eq 0 -or $rel.StartsWith('#')) { continue }
+        [void]$ownedSet.Add($rel)
+    }
+}
+$dlssnrResSrc = Join-Path $asiPayload 'dlssnr-amd'
+$dlssnrPrefixLen = [IO.Path]::GetFullPath($dlssnrResSrc).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar).Length + 1
+Get-ChildItem -LiteralPath $dlssnrResSrc -Recurse -File | ForEach-Object {
+    $rel = $_.FullName.Substring($dlssnrPrefixLen).Replace('\', '/')
+    [void]$ownedSet.Add($rel)
+}
+$ownedSorted = [string[]]@($ownedSet)
+[Array]::Sort($ownedSorted, [StringComparer]::Ordinal)
+[IO.File]::WriteAllText((Join-Path $stage 'mochizuki-owned.txt'), (($ownedSorted -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
 
 @'
 @echo off
@@ -179,7 +242,7 @@ pause
 exit /b %RC%
 '@ | Set-Content -LiteralPath (Join-Path $stage 'Mochizuki-Model.bat') -Encoding ASCII
 
-# 7. Stage ASI 2: openrr-amd.asi (placeholder or PE) + openrr-amd/shaders/*.spv
+# 7. Stage ASI 2: openrr-amd.asi + openrr-ngx-host.dll + openrr-amd/{shaders,shaders-gfx11,aco,lang}
 Copy-Item -LiteralPath $openRrAsiSrc -Destination (Join-Path $optiPluginDst 'openrr-amd.asi') -Force
 $openRrHostSrc = Join-Path $openRrPayload 'OptiScaler/plugins/openrr-ngx-host.dll'
 if (Test-Path -LiteralPath $openRrHostSrc -PathType Leaf) {
@@ -191,12 +254,16 @@ foreach ($cand in @('openrr-amd.ini', 'OptiScaler/openrr-amd.ini')) {
     if (Test-Path -LiteralPath $p -PathType Leaf) { $openRrIniSrc = $p; break }
 }
 if ($openRrIniSrc) { Copy-Item -LiteralPath $openRrIniSrc -Destination (Join-Path $stage 'openrr-amd.ini') -Force }
-$openRrShaderDst = Join-Path $stage 'openrr-amd/shaders'
-New-Item -ItemType Directory -Path $openRrShaderDst -Force | Out-Null
-Get-ChildItem -LiteralPath (Join-Path $openRrPayload 'openrr-amd/shaders') -Filter '*.spv' -File | Copy-Item -Destination $openRrShaderDst -Force
-$openRrShaderGfx11Dst = Join-Path $stage 'openrr-amd/shaders-gfx11'
-New-Item -ItemType Directory -Path $openRrShaderGfx11Dst -Force | Out-Null
-Get-ChildItem -LiteralPath (Join-Path $openRrPayload 'openrr-amd/shaders-gfx11') -Filter '*.spv' -File | Copy-Item -Destination $openRrShaderGfx11Dst -Force
+$openRrAssetsDst = Join-Path $stage 'openrr-amd'
+$openRrAssetsSrc = Join-Path $openRrPayload 'openrr-amd'
+New-Item -ItemType Directory -Force $openRrAssetsDst | Out-Null
+Get-ChildItem -LiteralPath $openRrAssetsSrc -Recurse -File | ForEach-Object {
+    $relative = $_.FullName.Substring($openRrAssetsSrc.Length).TrimStart('\', '/')
+    $dest = Join-Path $openRrAssetsDst $relative
+    $destDir = Split-Path -Parent $dest
+    if ($destDir) { New-Item -ItemType Directory -Force $destDir | Out-Null }
+    Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
+}
 Get-ChildItem -LiteralPath (Join-Path $openRrPayload 'Licenses') -File | Copy-Item -Destination (Join-Path $stage 'Licenses') -Force
 
 # 8. Build & stage Launcher + Installer scripts
@@ -302,7 +369,7 @@ try {
             finally { $stream.Dispose(); $sha.Dispose() }
             if ($actual -ne $expectedEntries[$relative]) { throw "Archive checksum mismatch: $relative" }
         }
-        foreach ($required in @('OptiScaler.dll', 'OptiScaler.ini', 'Setup.ps1', 'install.sh', 'OptiScalerNRLauncher.exe', 'launcher-worker.ps1', 'proxy-probe.ps1', 'library-scan.ps1', 'install-capabilities.ps1', 'xess-compat.ps1', 'proxy-profiles.json', 'OptiScaler/plugins/dlssnr-amd.asi', 'OptiScaler/plugins/openrr-amd.asi', 'dlssnr-amd/nr_present_probe.exe', 'model-tools/dlssnr_extract_model.exe', 'experimental/dlssnr-small-experimental.delta', 'dlssnr-amd-optiscaler.ini', 'dlssnr-amd-optiscaler-renodx.ini', 'mochizuki-owned.txt') + @($expectedEntries.Keys)) {
+        foreach ($required in @('OptiScaler.dll', 'OptiScaler.ini', 'Setup.ps1', 'install.sh', 'OptiScalerNRLauncher.exe', 'launcher-worker.ps1', 'proxy-probe.ps1', 'library-scan.ps1', 'install-capabilities.ps1', 'xess-compat.ps1', 'proxy-profiles.json', 'OptiScaler/plugins/dlssnr-amd.asi', 'OptiScaler/plugins/openrr-amd.asi', 'OptiScaler/plugins/openrr-ngx-host.dll', 'openrr-amd/aco/gfx1201/openrr-d3d12-v1/manifest.msgpack', 'openrr-amd/aco/gfx1200/openrr-d3d12-v1/manifest.msgpack', 'openrr-amd/lang/zh-CN.txt', 'openrr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf', 'dlssnr-amd/nr_present_probe.exe', 'dlssnr-amd/aco/d3d12_outer.nra', 'dlssnr-amd/aco/rdna3/d3d12_outer.nra', 'dlssnr-amd/lang/zh-CN.txt', 'dlssnr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf', 'model-tools/dlssnr_extract_model.exe', 'experimental/dlssnr-small-experimental.delta', 'optimized/dlssnr-optimized.delta', 'dlssnr-amd-optiscaler.ini', 'dlssnr-amd-optiscaler-renodx.ini', 'mochizuki-owned.txt') + @($expectedEntries.Keys)) {
             if (-not $seen.ContainsKey($required)) { throw "Package archive missing required component: $required" }
         }
     } finally {

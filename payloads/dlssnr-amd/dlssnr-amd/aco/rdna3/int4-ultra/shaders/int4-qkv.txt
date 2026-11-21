@@ -1,4 +1,0 @@
-fswin256q
-fswindsp256
-fswinp256
-fswinpds256

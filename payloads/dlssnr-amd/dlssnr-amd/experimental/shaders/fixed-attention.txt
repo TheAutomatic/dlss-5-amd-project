@@ -1,3 +1,0 @@
-fswin32nhd
-fswinfusedup32
-fswinimagepost32

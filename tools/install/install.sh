@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # OptScaler(NR) Linux / SteamOS (Proton) installer
-# Modelled on Mochizuki's linux/package/install.sh + dual ASI plugin selection (dlssnr-amd.asi & openrr.asi)
+# Modelled on Mochizuki's linux/package/install.sh + dual ASI plugin selection (dlssnr-amd.asi & openrr-amd.asi)
 #
 # Usage:
 #   bash install.sh <game folder or game.exe> [install|remove|logs]
@@ -158,6 +158,9 @@ put_tree() {
     while IFS= read -r -d '' d; do
         rel="${d#"$src"/}"
         [[ "$d" == "$src" ]] && rel=""
+        if [[ "$dst_rel" == "openrr-amd" && ( "$rel" == "aco" || "$rel" == aco/* ) ]]; then
+            continue
+        fi
         local target_dir="$dst_rel${rel:+/$rel}"
         mkdir -p -- "$game/$target_dir"
         record "D $target_dir"
@@ -167,6 +170,10 @@ put_tree() {
         if [[ "$dst_rel" == "OptiScaler" ]]; then
             case "$rel" in
                 plugins/dlssnr-amd.asi|plugins/openrr-amd.asi|plugins/openrr.asi|plugins/openrr-ngx-host.dll|plugins/OptiPatcher.asi) continue;;
+            esac
+        elif [[ "$dst_rel" == "openrr-amd" ]]; then
+            case "$rel" in
+                aco/*) continue;;
             esac
         fi
         put_file "$f" "$dst_rel/$rel"
@@ -191,19 +198,20 @@ remove_legacy_tree() {
                 amd_fidelityfx_framegeneration_vk.dll dlssg_to_fsr3_amd_is_better.dll \
                 Streamlined_fetcher_windows.bat libxess.dll libxess_dx11.dll libxess_fg.dll libxell.dll \
                 D3D12_OptiScaler/D3D12Core.dll D3D12_OptiScaler/d3d12SDKLayers.dll \
-                Licenses/DirectX_LICENSE.txt Licenses/FidelityFX_v2_LICENSE.md Licenses/XeSS_LICENSE.txt \
+                Licenses/DirectX_LICENSE.txt Licenses/FidelityFX_v1_LICENSE.md Licenses/FidelityFX_v2_LICENSE.md Licenses/XeSS_LICENSE.txt \
                 plugins/dlssnr-amd.asi plugins/openrr-amd.asi plugins/openrr.asi plugins/openrr-ngx-host.dll plugins/OptiPatcher.asi \
                 plugins/OptScaler-NR-plugins-README.txt; do
                 rm -f -- "$game/OptiScaler/$sub"
             done
             ;;
         dlssnr-amd)
-            rm -rf -- "$game/dlssnr-amd/shaders" "$game/dlssnr-amd/aco" "$game/dlssnr-amd/lang" "$game/dlssnr-amd/int4-ultra" "$game/dlssnr-amd/int4"
+            rm -rf -- "$game/dlssnr-amd/shaders" "$game/dlssnr-amd/aco" "$game/dlssnr-amd/lang" "$game/dlssnr-amd/int4-ultra" "$game/dlssnr-amd/int4" \
+                "$game/dlssnr-amd/experimental" "$game/dlssnr-amd/optimized" "$game/dlssnr-amd/int4-performance" "$game/dlssnr-amd/aco-cache"
             rm -f -- "$game/dlssnr-amd/nr_present_probe.exe" "$game/dlssnr-amd/dlssnr-amd.default.ini"
             ;;
         openrr-amd|opennr-rr)
-            rm -rf -- "$game/$rel/shaders" "$game/$rel/cache" "$game/$rel/aco"
-            rm -f -- "$game/$rel/nvngx_dlssd.dll"
+            rm -rf -- "$game/$rel/shaders" "$game/$rel/shaders-gfx11" "$game/$rel/lang" "$game/$rel/cache" "$game/$rel/aco"
+            rm -f -- "$game/$rel/nvngx_dlssd.dll" "$game/$rel/OpenRR_LICENSE.txt" "$game/$rel/OpenRR_THIRD_PARTY.md"
             ;;
     esac
     find "$game/$rel" -depth -type d -exec rmdir -- {} + 2>/dev/null || true
@@ -264,7 +272,7 @@ remove_installed() {
         done < <(tac "$manifest" 2>/dev/null)
         rm -f -- "$manifest"
     else
-        rm -rf -- "$game/openrr-amd" "$game/opennr-rr" "$game/openrr-amd.ini" "$game/openrr-amd.log" "$game/openrr-control.bin" "$game/openrr-amd-crash.dmp"
+        rm -rf -- "$game/openrr-amd" "$game/opennr-rr" "$game/openrr-amd.ini" "$game/openrr-amd.log" "$game/openrr-control.bin" "$game/openrr-amd-crash.dmp" "$game/openrr-ngx-host.dll"
     fi
     if [[ -d "$backup" ]]; then
         find "$backup" -depth -type d -exec rmdir -- {} + 2>/dev/null || true
@@ -329,22 +337,22 @@ if [[ -z "$proxy" ]]; then
     fi
 fi
 
-# 2. Ask whether to install dlssnr-amd.asi (Mochizuki 0.0.8.4)
+# 2. Ask whether to install dlssnr-amd.asi (Mochizuki 0.0.9m1)
 if [[ -z "$want_nr" ]]; then
     want_nr="on"
     if [[ -t 0 ]]; then
         echo
-        read -r -p "Install dlssnr-amd.asi (Mochizuki 0.0.8.4 DLSS Neural Rendering)? [Y/n]: " pick || pick=""
+        read -r -p "Install dlssnr-amd.asi (Mochizuki 0.0.9m1 DLSS Neural Rendering)? [Y/n]: " pick || pick=""
         [[ "$pick" == "n" || "$pick" == "N" ]] && want_nr="off"
     fi
 fi
 
-# 3. Ask whether to install openrr.asi (OpenRR 0.1.2 Ray Reconstruction)
+# 3. Ask whether to install openrr-amd.asi (OpenRR v0.1.7plus Ray Reconstruction)
 if [[ -z "$want_openrr" ]]; then
     want_openrr="on"
     if [[ -t 0 ]]; then
         echo
-        read -r -p "Install openrr.asi (OpenRR 0.1.2 DLSS Ray Reconstruction)? [Y/n]: " pick || pick=""
+        read -r -p "Install openrr-amd.asi (OpenRR v0.1.7plus DLSS Ray Reconstruction)? [Y/n]: " pick || pick=""
         [[ "$pick" == "n" || "$pick" == "N" ]] && want_openrr="off"
     fi
 fi
@@ -560,6 +568,7 @@ fi
 if [[ "$want_openrr" == "on" && -f "$here/OptiScaler/plugins/openrr-ngx-host.dll" ]]; then
     put_file "$here/OptiScaler/plugins/openrr-ngx-host.dll" "OptiScaler/plugins/openrr-ngx-host.dll"
 fi
+rm -f -- "$game/openrr-ngx-host.dll"
 if [[ "$want_optipatcher" == "on" && -f "$here/OptiScaler/plugins/OptiPatcher.asi" ]]; then
     put_file "$here/OptiScaler/plugins/OptiPatcher.asi" "OptiScaler/plugins/OptiPatcher.asi"
 elif [[ "$want_optipatcher" == "on" && -f "$here/plugins/OptiPatcher.asi" ]]; then
@@ -573,7 +582,7 @@ path, want_nr, want_openrr, mode, prior = sys.argv[1:6]
 raw = open(path, "rb").read().decode("utf-8", errors="surrogateescape")
 nl = "\r\n" if "\r\n" in raw else "\n"
 lines = raw.split(nl)
-wanted = {("Plugins", "LoadAsiPlugins"): "true", ("Log", "LogToFile"): "true", ("Log", "LogLevel"): "1"}
+wanted = {("Plugins", "LoadAsiPlugins"): "true", ("Log", "LogToFile"): "true", ("Log", "LogLevel"): "2"}
 if want_nr == "on": wanted[("Menu", "FGShortcutKey")] = "-1"
 # OpenRR's policy choice authorizes these keys; disabling OpenRR hands spoofing back to OptiScaler (auto).
 spoof = ("auto" if mode == "auto" else "true") if want_openrr == "on" else ("auto" if prior == "1" else None)

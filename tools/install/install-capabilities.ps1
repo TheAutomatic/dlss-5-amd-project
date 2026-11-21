@@ -101,7 +101,7 @@ function Get-OptScalerBackendCapabilities([string]$pkgRoot, [string]$gameDir, [s
     $missingMochiPackage = @()
     if (-not $mochiAsi) { $missingMochiPackage += 'OptiScaler/plugins/dlssnr-amd.asi' }
     if ($mochiAsi) {
-        foreach ($relative in @('dlssnr-amd/shaders', 'dlssnr-amd/aco', 'model-tools/dlssnr_extract_model.exe')) {
+        foreach ($relative in @('dlssnr-amd/shaders', 'dlssnr-amd/aco', 'dlssnr-amd/aco/d3d12_outer.nra', 'dlssnr-amd/aco/rdna3/d3d12_outer.nra', 'model-tools/dlssnr_extract_model.exe')) {
             if (-not (Test-Path -LiteralPath (Join-Path $pkgRoot $relative))) { $missingMochiPackage += $relative }
         }
     }

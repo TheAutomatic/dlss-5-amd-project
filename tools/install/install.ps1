@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  Install official OptiScaler together with dlssnr-amd.asi and openrr.asi into a game folder.
+  Install official OptiScaler together with dlssnr-amd.asi and openrr-amd.asi into a game folder.
   Run OptiScalerNRLauncher.exe, or pass -GameDir to Setup.ps1.
 #>
 [CmdletBinding()]
@@ -806,6 +806,13 @@ if ($canMochizuki) {
         # The root probe above finds shaders; ACO must live in the same tree.
         Fail 'Incomplete Mochizuki ASI package: dlssnr-amd/aco missing beside the resource tree.'
     }
+    if ($mochizukiAssets) {
+        foreach ($outerNra in @('aco/d3d12_outer.nra', 'aco/rdna3/d3d12_outer.nra')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $mochizukiAssets $outerNra) -PathType Leaf)) {
+                Fail "Incomplete Mochizuki ASI package: missing dlssnr-amd/$outerNra. Re-extract the complete update."
+            }
+        }
+    }
 }
 $installMochizuki = $false
 $selectedActiveBackend = 'mochizuki'
@@ -1131,15 +1138,33 @@ if ($wantOpenRr) {
 }
 $openRrShadersSrc = $null
 $openRrShadersGfx11Src = $null
+$openRrAssetsSrc = $null
 if ($wantOpenRr) {
-    $openRrShadersSrc = @(
-        (Join-Path $release 'openrr-amd\shaders'), (Join-Path $Root 'openrr-amd\shaders'),
-        (Join-Path $release 'opennr-rr\shaders'), (Join-Path $Root 'opennr-rr\shaders')
-    ) | Where-Object { Test-Path -LiteralPath $_ -PathType Container } | Select-Object -First 1
-    $openRrShadersGfx11Src = @(
-        (Join-Path $release 'openrr-amd\shaders-gfx11'), (Join-Path $Root 'openrr-amd\shaders-gfx11'),
-        (Join-Path $release 'opennr-rr\shaders-gfx11'), (Join-Path $Root 'opennr-rr\shaders-gfx11')
-    ) | Where-Object { Test-Path -LiteralPath $_ -PathType Container } | Select-Object -First 1
+    $openRrAssetsSrc = @((Join-Path $release 'openrr-amd'), (Join-Path $Root 'openrr-amd')) |
+        Where-Object { Test-Path -LiteralPath (Join-Path $_ 'shaders') -PathType Container } |
+        Select-Object -First 1
+    if ($openRrAssetsSrc) {
+        foreach ($reqRr in @(
+            'aco\gfx1201\openrr-d3d12-v1\manifest.msgpack',
+            'aco\gfx1200\openrr-d3d12-v1\manifest.msgpack'
+        )) {
+            if (-not (Test-Path -LiteralPath (Join-Path $openRrAssetsSrc $reqRr) -PathType Leaf)) {
+                Fail "Incomplete OpenRR ASI package: missing openrr-amd\$reqRr. Re-extract the complete update."
+            }
+        }
+        $openRrShadersSrc = Join-Path $openRrAssetsSrc 'shaders'
+        $gfx11Cand = Join-Path $openRrAssetsSrc 'shaders-gfx11'
+        if (Test-Path -LiteralPath $gfx11Cand -PathType Container) { $openRrShadersGfx11Src = $gfx11Cand }
+    } else {
+        $openRrShadersSrc = @(
+            (Join-Path $release 'openrr-amd\shaders'), (Join-Path $Root 'openrr-amd\shaders'),
+            (Join-Path $release 'opennr-rr\shaders'), (Join-Path $Root 'opennr-rr\shaders')
+        ) | Where-Object { Test-Path -LiteralPath $_ -PathType Container } | Select-Object -First 1
+        $openRrShadersGfx11Src = @(
+            (Join-Path $release 'openrr-amd\shaders-gfx11'), (Join-Path $Root 'openrr-amd\shaders-gfx11'),
+            (Join-Path $release 'opennr-rr\shaders-gfx11'), (Join-Path $Root 'opennr-rr\shaders-gfx11')
+        ) | Where-Object { Test-Path -LiteralPath $_ -PathType Container } | Select-Object -First 1
+    }
 }
 if ($uninstallFirst) {
     try {
@@ -1148,8 +1173,15 @@ if ($uninstallFirst) {
             $path = Join-Path $release $name
             if (Test-Path -LiteralPath $path) { $null = Save-ReinstallSource $path }
         }
-        $openRrShadersSrc = Save-ReinstallSource $openRrShadersSrc
-        $openRrShadersGfx11Src = Save-ReinstallSource $openRrShadersGfx11Src
+        if ($openRrAssetsSrc) {
+            $openRrAssetsSrc = Save-ReinstallSource $openRrAssetsSrc
+            $openRrShadersSrc = Join-Path $openRrAssetsSrc 'shaders'
+            $gfx11Saved = Join-Path $openRrAssetsSrc 'shaders-gfx11'
+            $openRrShadersGfx11Src = if (Test-Path -LiteralPath $gfx11Saved -PathType Container) { $gfx11Saved } else { $null }
+        } else {
+            $openRrShadersSrc = Save-ReinstallSource $openRrShadersSrc
+            $openRrShadersGfx11Src = Save-ReinstallSource $openRrShadersGfx11Src
+        }
         $release = [IO.Path]::GetDirectoryName($optiSource)
         if ($installMochizuki) {
             if ($wantOriginal) { $mochizukiModel = Save-ReinstallSource $mochizukiModel }
@@ -2102,6 +2134,25 @@ if ($installMochizuki) {
         }
     }
 
+    # Prune empty directories left behind under dlssnr-amd\ after retired assets are removed
+    # (for example, retired shaders\d3d12\* and shaders\renodx\renodx-prep).
+    $asiAssetDir = Join-Path $game 'dlssnr-amd'
+    if (Test-Path -LiteralPath $asiAssetDir -PathType Container) {
+        try {
+            $null = Assert-LmxxfUnlinkedPath $asiAssetDir
+            Get-ChildItem -LiteralPath $asiAssetDir -Directory -Recurse -ErrorAction SilentlyContinue |
+                Where-Object { -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } |
+                Sort-Object { $_.FullName.Length } -Descending |
+                ForEach-Object {
+                    try {
+                        if (@(Get-ChildItem -LiteralPath $_.FullName -Force -ErrorAction Stop).Count -eq 0) {
+                            [IO.Directory]::Delete($_.FullName, $false)
+                        }
+                    } catch { }
+                }
+        } catch { }
+    }
+
     # Ownership record: upgrade and uninstall delete exactly these files.
     $manifestLines = @('# Files installed by OptScaler(NR) for dlssnr-amd.asi; models are not listed.')
     foreach ($rel in @($asiFiles | Sort-Object)) { $manifestLines += ('F ' + $rel) }
@@ -2257,7 +2308,7 @@ if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
         }
     }
     Set-IniSettings $gameIni 'Plugins' ([ordered]@{ 'LoadAsiPlugins' = 'true' })
-    Set-IniSettings $gameIni 'Log' ([ordered]@{ 'LogToFile' = 'true'; 'LogLevel' = '1' }) -OnlyMissing
+    Set-IniSettings $gameIni 'Log' ([ordered]@{ 'LogToFile' = 'true'; 'LogLevel' = '2' }) -OnlyMissing
     if ($installMochizuki) {
         $fgKey = Get-IniSetting $gameIni 'Menu' 'FGShortcutKey'
         if ([string]::IsNullOrWhiteSpace($fgKey) -or $fgKey -eq 'auto' -or $fgKey -eq '35' -or $fgKey -eq '0x23') {
@@ -2356,7 +2407,6 @@ function Install-OptiPatcherPlugin {
         $cachedPlugin = $null
         foreach ($cand in @(
             (Join-Path $release 'OptiScaler\plugins\OptiPatcher.asi'),
-            (Join-Path $release 'payloads\optipatcher\OptiScaler\plugins\OptiPatcher.asi'),
             (Join-Path $release 'plugins\OptiPatcher.asi')
         )) {
             if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Test-ValidPePlugin $cand)) {
@@ -2464,27 +2514,40 @@ try {
     Write-Host "NOTE: could not initialize plugins folder: $($_.Exception.Message)" -ForegroundColor Yellow
 }
 
-# OpenRR ASI plugin (openrr-amd.asi + openrr-amd.ini + openrr-amd/shaders/*.spv + optional nvngx_dlssd.dll 310.9.1)
+# OpenRR ASI plugin (openrr-amd.asi + openrr-amd.ini + openrr-amd/{shaders,shaders-gfx11,aco,lang} + optional nvngx_dlssd.dll 310.9.1)
 $openRrPluginDir = try { Get-PluginsTargetDirectory $game $gameIni } catch { Join-Path $game 'OptiScaler\plugins' }
 $gameFullPrefixForRr = [IO.Path]::GetFullPath($game).TrimEnd('\', '/') + '\'
 $openRrShaderManifest = Join-Path $game 'openrr-shaders-install.txt'
-function Install-OpenRrShaders([string]$standard, [string]$gfx11) {
+function Install-OpenRrShaders([string]$standard, [string]$gfx11, [string]$assetsRoot = '') {
     $manifest = Assert-LmxxfUnlinkedPath $openRrShaderManifest
     $previous = @()
     if (Test-Path -LiteralPath $manifest -PathType Leaf) {
         $previous = @(Get-Content -LiteralPath $manifest | Where-Object {
-            $_ -match '^openrr-amd/shaders(?:-gfx11)?/[^\\/:*?"<>|\x00-\x1F]+\.spv$'
+            $_ -match '^openrr-amd/(?:shaders(?:-gfx11)?/[^\\/:*?"<>|\x00-\x1F]+\.spv|aco/(?:gfx1200|gfx1201)/openrr-d3d12-v1/[^\\/:*?"<>|\x00-\x1F]+\.(?:nrp|json|msgpack)|lang/(?:fonts/)?[^\\/:*?"<>|\x00-\x1F]+\.(?:txt|ttf)|OpenRR_(?:LICENSE\.txt|THIRD_PARTY\.md))$'
         })
     }
     $installed = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-    foreach ($source in @(@{ Path = $standard; Name = 'shaders' }, @{ Path = $gfx11; Name = 'shaders-gfx11' })) {
-        if (-not $source.Path) { continue }
-        foreach ($file in Get-ChildItem -LiteralPath $source.Path -Filter '*.spv' -File) {
-            $rel = 'openrr-amd/' + $source.Name + '/' + $file.Name
+    if ($assetsRoot -and (Test-Path -LiteralPath $assetsRoot -PathType Container)) {
+        $assetsPrefix = [IO.Path]::GetFullPath($assetsRoot).TrimEnd('\', '/')
+        foreach ($file in @(Get-LmxxfUnlinkedFiles $assetsRoot)) {
+            if ($file.Name -ieq 'nvngx_dlssd.dll') { continue }
+            $subRel = $file.FullName.Substring($assetsPrefix.Length).TrimStart('\', '/').Replace('\', '/')
+            $rel = 'openrr-amd/' + $subRel
             if ($keep.ContainsKey($file.Name)) { continue }
             [void](Assert-LmxxfUnlinkedPath (Join-Path $game $rel))
             Install-One $file.FullName $rel
             [void]$installed.Add($rel)
+        }
+    } else {
+        foreach ($source in @(@{ Path = $standard; Name = 'shaders' }, @{ Path = $gfx11; Name = 'shaders-gfx11' })) {
+            if (-not $source.Path) { continue }
+            foreach ($file in Get-ChildItem -LiteralPath $source.Path -Filter '*.spv' -File) {
+                $rel = 'openrr-amd/' + $source.Name + '/' + $file.Name
+                if ($keep.ContainsKey($file.Name)) { continue }
+                [void](Assert-LmxxfUnlinkedPath (Join-Path $game $rel))
+                Install-One $file.FullName $rel
+                [void]$installed.Add($rel)
+            }
         }
     }
     foreach ($rel in $previous) {
@@ -2500,11 +2563,27 @@ function Install-OpenRrShaders([string]$standard, [string]$gfx11) {
             }
         } catch {
             [void]$installed.Add($rel)
-            Write-Host "NOTE: could not remove retired OpenRR shader $rel ($($_.Exception.Message))" -ForegroundColor Yellow
+            Write-Host "NOTE: could not remove retired OpenRR asset $rel ($($_.Exception.Message))" -ForegroundColor Yellow
         }
     }
+    $rrGameDir = Join-Path $game 'openrr-amd'
+    if (Test-Path -LiteralPath $rrGameDir -PathType Container) {
+        try {
+            $null = Assert-LmxxfUnlinkedPath $rrGameDir
+            Get-ChildItem -LiteralPath $rrGameDir -Directory -Recurse -ErrorAction SilentlyContinue |
+                Where-Object { -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } |
+                Sort-Object { $_.FullName.Length } -Descending |
+                ForEach-Object {
+                    try {
+                        if (@(Get-ChildItem -LiteralPath $_.FullName -Force -ErrorAction Stop).Count -eq 0) {
+                            [IO.Directory]::Delete($_.FullName, $false)
+                        }
+                    } catch { }
+                }
+        } catch { }
+    }
     # An empty inventory still marks a managed installation for future cleanup.
-    $lines = @('# OpenRR shaders installed by OptScaler(NR).') + @($installed | Sort-Object)
+    $lines = @('# OpenRR resources installed by OptiScaler(NR).') + @($installed | Sort-Object)
     Set-Content -LiteralPath $manifest -Value $lines -Encoding UTF8
 }
 
@@ -2573,7 +2652,8 @@ if ($wantOpenRr) {
         $openRrHostTargetFull = [IO.Path]::GetFullPath((Join-Path $openRrPluginDir 'openrr-ngx-host.dll'))
         foreach ($staleHostPath in @(
             (Join-Path $game 'OptiScaler\plugins\openrr-ngx-host.dll'),
-            (Join-Path $game 'plugins\openrr-ngx-host.dll')
+            (Join-Path $game 'plugins\openrr-ngx-host.dll'),
+            (Join-Path $game 'openrr-ngx-host.dll')
         )) {
             if ([IO.Path]::GetFullPath($staleHostPath) -ine $openRrHostTargetFull -and (Test-Path -LiteralPath $staleHostPath -PathType Leaf)) {
                 [void](Remove-PluginFileChecked $staleHostPath)
@@ -2590,9 +2670,25 @@ if ($wantOpenRr) {
     }
     $openRrIniSrc = Find-FirstFile @((Join-Path $release 'openrr-amd.ini'), (Join-Path $Root 'openrr-amd.ini'))
     $gameOpenRrIni = Join-Path $game 'openrr-amd.ini'
-    if ($openRrIniSrc -and (-not (Test-Path -LiteralPath $gameOpenRrIni -PathType Leaf) -or $overwriteIni)) {
+    $openRrIniExisted = Test-Path -LiteralPath $gameOpenRrIni -PathType Leaf
+    $openRrIniFresh = (-not $openRrIniExisted) -or $overwriteIni
+    if ($openRrIniFresh -and $openRrIniSrc) {
         Copy-Item -LiteralPath $openRrIniSrc -Destination $gameOpenRrIni -Force
-        Write-Host 'Installed openrr-amd.ini.' -ForegroundColor Green
+        Write-Host $(if ($openRrIniExisted) { 'Replaced openrr-amd.ini with the package file.' } else { 'Installed openrr-amd.ini.' }) -ForegroundColor Green
+    } elseif ($openRrIniExisted) {
+        $rrIniBytes = [IO.File]::ReadAllBytes($gameOpenRrIni)
+        if ($rrIniBytes.Length -ge 3 -and $rrIniBytes[0] -eq 0xEF -and $rrIniBytes[1] -eq 0xBB -and $rrIniBytes[2] -eq 0xBF) {
+            $cleanRrBytes = New-Object byte[] ($rrIniBytes.Length - 3)
+            [Array]::Copy($rrIniBytes, 3, $cleanRrBytes, 0, $cleanRrBytes.Length)
+            [IO.File]::WriteAllBytes($gameOpenRrIni, $cleanRrBytes)
+        }
+    }
+    if ($asiMenuLanguage -eq 'zh-CN' -and (Test-Path -LiteralPath $gameOpenRrIni -PathType Leaf)) {
+        if ($openRrIniFresh) {
+            Set-IniSettings $gameOpenRrIni 'OpenRR' ([ordered]@{ 'Language' = 'zh-CN' })
+        } else {
+            Set-IniSettings $gameOpenRrIni 'OpenRR' ([ordered]@{ 'Language' = 'zh-CN' }) -OnlyMissing
+        }
     }
     Set-OpenRrSpoof $gameIni $(if ($OpenRrSpoof -eq 'auto') { 'auto' } else { 'true' })
     foreach ($legacyRrDir in @('opennr-rr\shaders', 'opennr-rr\shaders-gfx11')) {
@@ -2601,17 +2697,8 @@ if ($wantOpenRr) {
             Remove-Item -LiteralPath $legacyRrPath -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
-    if ($openRrShadersSrc) {
-        Install-OpenRrShaders $openRrShadersSrc $openRrShadersGfx11Src
-        if ($openRrShadersGfx11Src) {
-            Write-Host 'Installed OpenRR RDNA3 experimental shaders (openrr-amd\shaders-gfx11).' -ForegroundColor Green
-        }
-        # This package is LLPC-only; drop ACO records left by an older ACO package.
-        $staleAcoDir = Join-Path $game 'openrr-amd\aco'
-        if (Test-Path -LiteralPath $staleAcoDir -PathType Container) {
-            Remove-Item -LiteralPath $staleAcoDir -Recurse -Force -ErrorAction SilentlyContinue
-            Write-Host 'Removed stale openrr-amd\aco records (LLPC package does not use them).' -ForegroundColor Cyan
-        }
+    if ($openRrAssetsSrc -or $openRrShadersSrc) {
+        Install-OpenRrShaders $openRrShadersSrc $openRrShadersGfx11Src $openRrAssetsSrc
         if (-not $userDlssd) {
             foreach ($cand in @((Join-Path $Root 'nvngx_dlssd.dll'), (Join-Path $release 'nvngx_dlssd.dll'), (Join-Path $Root 'openrr-amd\nvngx_dlssd.dll'), (Join-Path $Root 'opennr-rr\nvngx_dlssd.dll'), (Join-Path $game 'openrr-amd\nvngx_dlssd.dll'), (Join-Path $game 'opennr-rr\nvngx_dlssd.dll'), (Join-Path $game 'nvngx_dlssd.dll'))) {
                 if (Test-Path -LiteralPath $cand -PathType Leaf) {
@@ -2629,7 +2716,7 @@ if ($wantOpenRr) {
             Install-One $userDlssd 'openrr-amd\nvngx_dlssd.dll'
             Write-Host "Installed user-supplied nvngx_dlssd.dll (310.9.1) into openrr-amd\nvngx_dlssd.dll." -ForegroundColor Green
         }
-        Write-Host 'Installed OpenRR shader resources (openrr-amd\shaders).' -ForegroundColor Green
+        Write-Host 'Installed OpenRR resources (openrr-amd\shaders, shaders-gfx11, aco, lang).' -ForegroundColor Green
     }
 } else {
     if ($priorOpenRrInstalled) { Set-OpenRrSpoof $gameIni 'auto' } # OpenRR was installed before: hand spoofing back.
@@ -2642,16 +2729,17 @@ if ($wantOpenRr) {
             [void](Remove-PluginFileChecked $stalePluginAsi)
         }
     }
-    foreach ($staleRr in @('OptiScaler\plugins\openrr.asi', 'OptiScaler\plugins\openrr-amd.asi', 'OptiScaler\plugins\openrr-ngx-host.dll', 'plugins\openrr.asi', 'plugins\openrr-amd.asi', 'plugins\openrr-ngx-host.dll', 'openrr-amd.ini', 'openrr-amd.log', 'openrr-amd-crash.dmp', 'openrr-control.bin', 'opennr_rr.log', 'OpenNrRrRuntime.dll', 'opennr_rr.dll', 'OptiScaler\OpenNrRrRuntime.dll', 'OptiScaler\opennr_rr.dll')) {
+    foreach ($staleRr in @('OptiScaler\plugins\openrr.asi', 'OptiScaler\plugins\openrr-amd.asi', 'OptiScaler\plugins\openrr-ngx-host.dll', 'plugins\openrr.asi', 'plugins\openrr-amd.asi', 'plugins\openrr-ngx-host.dll', 'openrr-ngx-host.dll', 'openrr-amd.ini', 'openrr-amd.log', 'openrr-amd-crash.dmp', 'openrr-control.bin', 'opennr_rr.log', 'OpenNrRrRuntime.dll', 'opennr_rr.dll', 'OptiScaler\OpenNrRrRuntime.dll', 'OptiScaler\opennr_rr.dll', 'openrr-amd\OpenRR_LICENSE.txt', 'openrr-amd\OpenRR_THIRD_PARTY.md')) {
         $stalePath = Join-Path $game $staleRr
         if (Test-Path -LiteralPath $stalePath -PathType Leaf) {
             Remove-Item -LiteralPath $stalePath -Force -ErrorAction SilentlyContinue
         }
     }
-    $staleRrDirs = @('openrr-amd\cache', 'openrr-amd\aco', 'opennr-rr\shaders', 'opennr-rr\shaders-gfx11')
+    $staleRrDirs = @('openrr-amd\cache', 'openrr-amd\aco', 'openrr-amd\lang', 'opennr-rr\shaders', 'opennr-rr\shaders-gfx11')
     if (Test-Path -LiteralPath $openRrShaderManifest -PathType Leaf) {
-        Install-OpenRrShaders '' ''
-        foreach ($shaderDir in @('openrr-amd\shaders', 'openrr-amd\shaders-gfx11')) {
+        Install-OpenRrShaders '' '' ''
+        Remove-Item -LiteralPath $openRrShaderManifest -Force -ErrorAction SilentlyContinue
+        foreach ($shaderDir in @('openrr-amd\shaders', 'openrr-amd\shaders-gfx11', 'openrr-amd\aco', 'openrr-amd\lang')) {
             $shaderPath = Assert-LmxxfUnlinkedPath (Join-Path $game $shaderDir)
             if ((Test-Path -LiteralPath $shaderPath -PathType Container) -and
                 @(Get-ChildItem -LiteralPath $shaderPath -Force).Count -eq 0) {
@@ -2842,7 +2930,7 @@ if ($installMochizuki) {
     Write-Host "  Mochizuki model: $MochizukiModels (active: $activeModelStr)" -ForegroundColor Green
 }
 if ($wantOpenRr) {
-    Write-Host "  OpenRR ASI:     Installed (OptiScaler/plugins/openrr-amd.asi + openrr-amd/shaders)" -ForegroundColor Green
+    Write-Host "  OpenRR ASI:     Installed (OptiScaler/plugins/openrr-amd.asi + openrr-amd/{shaders,aco,lang})" -ForegroundColor Green
 }
 if ($installedOptiPatcher) {
     Write-Host "  OptiPatcher:    Installed (DLSS spoofing enhancement, LoadAsiPlugins=true)" -ForegroundColor Green

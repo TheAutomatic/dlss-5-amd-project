@@ -693,7 +693,7 @@ namespace OptScalerNR.Launcher
                 if (_replaceIni != null) _replaceIni.Content = isZh ? "覆盖现有配置文件 (.ini，推荐)" : "Replace existing configuration files (.ini, recommended)";
                 SetLabel("OptiPatcherToggle", "安装 OptiPatcher（DLSS 伪装增强，按 Wiki 推荐预选）", "Install OptiPatcher (DLSS spoofing enhancement, preselected by Wiki recommendation)");
                 ApplyOptiPatcherTooltip(IsOptiPatcherSupported(_selectedGame, (_selectedGame == null || _recommendations == null) ? null : _recommendations.Match(_selectedGame)));
-                SetLabel("OpenRrToggle", "OpenRR - ASI version", "OpenRR - ASI version");
+                SetLabel("OpenRrToggle", "OpenRR 0.1.7（Plus）", "OpenRR 0.1.7 (Plus)");
                 SetLabel("OpenRrDescription",
                     "适合 RX 9000 系列，实验性支持 RX 7000 / RDNA3（仅限光线重建游戏）",
                     "For RX 9000 series; experimental RX 7000 / RDNA3 (Ray Reconstruction games only)");
@@ -701,13 +701,13 @@ namespace OptScalerNR.Launcher
                     "实验性：减少全局显卡伪装（Dxgi=auto，配合 OptiPatcher 保持真实 A 卡身份）",
                     "Experimental: Reduce global GPU spoofing (Dxgi=auto, keeps native AMD adapter with OptiPatcher)");
                 RefreshOpenRrCard();
-                if (_openRrToggle != null) _openRrToggle.ToolTip = L("勾选时部署 openrr-amd.asi 与 openrr-amd/shaders/，并在检测到您自备或导入的 nvngx_dlssd.dll (310.9.1.0) 时放入 openrr-amd/。取消勾选时移除 openrr-amd.asi。", "Installs openrr-amd.asi and openrr-amd/shaders/, and places your supplied/imported nvngx_dlssd.dll (310.9.1.0) into openrr-amd/. When unchecked, removes openrr-amd.asi.");
+                if (_openRrToggle != null) _openRrToggle.ToolTip = L("勾选时部署 openrr-amd.asi 与 openrr-amd/（shaders / aco / lang），并在检测到您自备或导入的 nvngx_dlssd.dll (310.9.1.0) 时放入 openrr-amd/。取消勾选时移除 openrr-amd.asi。", "Installs openrr-amd.asi and openrr-amd/ (shaders / aco / lang), and places your supplied/imported nvngx_dlssd.dll (310.9.1.0) into openrr-amd/. When unchecked, removes openrr-amd.asi.");
                 if (_scanOnStartup != null) _scanOnStartup.Content = isZh ? "启动时自动扫描游戏库" : "Scan game library on startup";
 
                 SetLabel("LocalGamesHeading", "游戏库", "Library");
                 SetLabel("ProxyHeading", "注入代理", "Injection proxy");
                 SetLabel("BackendsHeading", "ASI 插件选择 (神经渲染 & 光线重建)", "ASI Plugins (Neural Rendering & Ray Reconstruction)");
-                SetLabel("MochiCheck", "mochizuki 0.0.9", "mochizuki 0.0.9");
+                SetLabel("MochiCheck", "mochizuki 0.0.9（M1）", "mochizuki 0.0.9 (M1)");
                 SetLabel("MochiDescription", "适合 RX 7000/9000 系列（6000 系请暂时先使用老版本）", "For RX 7000/9000 series (RX 6000 series please use the legacy version for now)");
                 SetLabel("DiagnosticsHeading", "配置与运行库兼容诊断", "Configuration & Runtime Compatibility");
                 SetLabel("LogHeading", "运行诊断日志", "Diagnostic Log");

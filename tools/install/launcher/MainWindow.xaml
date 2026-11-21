@@ -521,7 +521,7 @@
                     <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                       <DockPanel>
                         <Button x:Name="MochiShareCodeButton" DockPanel.Dock="Right" Style="{DynamicResource GhostButton}" Height="22" FontSize="10" Padding="8,0" Margin="6,0,0,0" VerticalAlignment="Top"/>
-                        <CheckBox x:Name="MochiCheck" Content="mochizuki 0.0.8.4" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Top" IsChecked="True" IsEnabled="True"/>
+                        <CheckBox x:Name="MochiCheck" Content="mochizuki 0.0.9 (M1)" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Top" IsChecked="True" IsEnabled="True"/>
                       </DockPanel>
                       <Grid Grid.Row="2" Margin="0,5,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <Border x:Name="MochiBadge" Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="10" Padding="7,2" HorizontalAlignment="Left" VerticalAlignment="Center"><TextBlock x:Name="MochiReason" FontSize="10" Foreground="{DynamicResource ThemeMuted}"/></Border>

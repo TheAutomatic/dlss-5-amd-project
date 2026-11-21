@@ -60,9 +60,10 @@ available when no result JSON was produced. Script stderr is included in the eve
 loadable Mochizuki installation. This is informational only: there is no decision, the
 installer never moves or deletes these files, and no install is refused because of them.
 Fields: `detected`, `recorded` (its `dlssnr-amd-install.txt` record names `dlssnr_core.dll`,
-`dlssnr_amd.addon64` or `OptiScaler.asi`), `files` (those three marker files when present,
-the recorded proxy DLL when its name is one of this project's load-entry candidate names,
-and the record itself) and `proxy` (the recorded proxy DLL, e.g. `dxgi.dll`). The rest of
+`dlssnr_amd.addon64`, `OptiScaler.asi`, root-level `dlssnr-amd.asi`, or
+`vk-override\implicit_layer\dlssnr_standalone.json`), `files` (those marker files when
+present, the recorded proxy DLL when its name is one of this project's load-entry
+candidate names, and the record itself) and `proxy` (the recorded proxy DLL, e.g. `dxgi.dll`). The rest of
 his record -- `LICENSE`, `OptiScaler.ini`, his disabled nvngx backups, the `dlssnr-amd/`
 model files this project shares -- is inert, not listed, never touched; when nothing
 loadable remains, the installation is not reported at all. A proxy name that collides with

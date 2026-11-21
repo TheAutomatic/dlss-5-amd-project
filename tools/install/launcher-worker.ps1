@@ -303,8 +303,8 @@ function Get-MochizukiInstall([string]$dir) {
             if (-not $rel -or [IO.Path]::IsPathRooted($rel) -or $rel -match '(^|[\\/])\.\.([\\/]|$)') { continue }
             $entries += ,@($line[0], $rel)
         }
-        # His record, not this project's: it names his core, his add-on or his ASI.
-        $recorded = @($entries | Where-Object { $_[0] -eq 'F' -and $_[1] -in @('dlssnr_core.dll','dlssnr_amd.addon64','OptiScaler.asi') }).Count -gt 0
+        # His record, not this project's: it names his core, his add-on, his ASI or standalone markers.
+        $recorded = @($entries | Where-Object { $_[0] -eq 'F' -and $_[1] -in @('dlssnr_core.dll','dlssnr_amd.addon64','OptiScaler.asi','dlssnr-amd.asi','vk-override\implicit_layer\dlssnr_standalone.json','vk-override/implicit_layer/dlssnr_standalone.json') }).Count -gt 0
         if ($recorded) {
             foreach ($e in $entries) {
                 if ($e[0] -ne 'F') { continue }
@@ -318,7 +318,7 @@ function Get-MochizukiInstall([string]$dir) {
             if (-not $files.Contains('dlssnr-amd-install.txt')) { $files.Add('dlssnr-amd-install.txt') }
         }
     }
-    foreach ($name in @('dlssnr_core.dll','OptiScaler.asi','dlssnr_amd.addon64')) {
+    foreach ($name in @('dlssnr_core.dll','OptiScaler.asi','dlssnr_amd.addon64','dlssnr-amd.asi','vk-override\implicit_layer\dlssnr_standalone.json')) {
         if ((Test-Path -LiteralPath (Join-Path $dir $name) -PathType Leaf) -and -not $files.Contains($name)) { $files.Add($name) }
     }
     # Only the record (or nothing) is left: the installation is already dismantled and the

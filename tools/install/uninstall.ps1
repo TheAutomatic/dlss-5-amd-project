@@ -158,7 +158,7 @@ $projectLeafNames = @(
     'dlssnr_core.dll', # Legacy standalone NR core; integrated runtimes do not use it.
     'OptiScaler.ini',
     'dlssnr_on_amd.ini', 'dlssnr-amd-crash.dmp',
-    'LmxxfNrRuntime.dll', 'MochizukiNrRuntime.dll', 'OpenNrRrRuntime.dll', 'opennr_rr.log', 'openrr-amd.log', 'openrr-amd.ini', 'openrr-control.bin', 'openrr-amd-crash.dmp', 'lmxxf-module-package.ps1',
+    'LmxxfNrRuntime.dll', 'MochizukiNrRuntime.dll', 'OpenNrRrRuntime.dll', 'opennr_rr.log', 'openrr-amd.log', 'openrr-amd.ini', 'openrr-ngx-host.dll', 'openrr-control.bin', 'openrr-amd-crash.dmp', 'lmxxf-module-package.ps1',
 
     'dlssnr-amd.ini', 'dlssnr-amd.default.ini',
     'Uninstall_OptiScaler_NR.bat','Uninstall_OptiScaler_NR.ps1',
@@ -209,7 +209,7 @@ $dependencyPaths = @(
     'D3D12_OptiScaler\d3d12SDKLayers.dll',
     'plugins\OptiPatcher.asi',
     'plugins\dlssnr-amd.asi',
-    'plugins\openrr.asi', 'plugins\openrr-amd.asi', 'plugins\openrr-ngx-host.dll',
+    'plugins\openrr.asi', 'plugins\openrr-amd.asi', 'plugins\openrr-ngx-host.dll', 'openrr-ngx-host.dll',
     'plugins\OptScaler-NR-plugins-README.txt'
 )
 $protectedNames = @(
