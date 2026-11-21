@@ -91,7 +91,7 @@ namespace OptScalerNR.Launcher
             ((TextBlock)_window.FindName("InstallOptionsHeading")).ToolTip = L("下次安装或更新时生效", "Applied on the next install or update");
             SetLabel("IniHeading", "画面风格与配置", "Look & config");
             SetLabel("OptiScalerConfigHeading", "OptiScaler 配置", "OptiScaler config");
-            SetLabel("AsiProfilesHeading", "dlssnr-amd.ini 配置", "dlssnr-amd.ini config");
+            SetLabel("AsiProfilesHeading", "dlssnr-amd 配置", "dlssnr-amd config");
             SetLabel("AsiProfileApplyButton", "应用", "Apply");
             SetLabel("AsiProfileSaveButton", "保存", "Save");
             SetLabel("IniAsiImportButton", "导入…", "Import…");

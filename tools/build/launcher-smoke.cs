@@ -560,7 +560,10 @@ static class LauncherSmoke
         var combo = (ComboBox)Find("AsiProfileCombo");
         var a = label.TranslatePoint(new Point(), root);
         var b = combo.TranslatePoint(new Point(), root);
-        Check(label.Text == (language == "zh" ? "dlssnr-amd.ini 配置" : "dlssnr-amd.ini config"), "inline profile label: " + language);
+        Check(label.Text == (language == "zh" ? "dlssnr-amd 配置" : "dlssnr-amd config"), "inline profile label: " + language);
+        Check(optiLabel.Text == (language == "zh" ? "OptiScaler 配置" : "OptiScaler config"), "OptiScaler inline label: " + language);
+        Check((string)((ComboBoxItem)combo.Items[0]).Content == (language == "zh" ? "当前游戏 dlssnr-amd.ini" : "Current game dlssnr-amd.ini"), "NR current-game item keeps filename: " + language);
+        Check((string)((ComboBoxItem)((ComboBox)Find("IniProfileCombo")).Items[0]).Content == (language == "zh" ? "当前游戏 OptiScaler.ini" : "Current game OptiScaler.ini"), "OptiScaler current-game item keeps filename: " + language);
         Check(Math.Abs(a.Y + label.ActualHeight / 2 - b.Y - combo.ActualHeight / 2) < 1, "NR label shares dropdown row: " + language);
         Check(label.FontSize == optiLabel.FontSize && label.Foreground.ToString() == optiLabel.Foreground.ToString(), "profile label typography matches");
         Check(Math.Abs(a.X - optiLabel.TranslatePoint(new Point(), root).X) < 1, "profile labels align");
