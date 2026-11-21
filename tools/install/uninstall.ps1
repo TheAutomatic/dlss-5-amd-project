@@ -102,6 +102,32 @@ if (!(Test-Path -LiteralPath $GameDir -PathType Container)) {
 $game = (Resolve-Path -LiteralPath $GameDir).Path
 $game = [IO.Path]::GetFullPath($game)
 
+# Check write access and elevate interactively (with user confirmation) when needed, e.g. Program Files.
+$writeProbe = Join-Path $game ('.nr-uninstall-probe-' + [guid]::NewGuid().ToString('N') + '.tmp')
+try {
+    [IO.File]::WriteAllText($writeProbe, 'ok')
+    Remove-Item -LiteralPath $writeProbe -Force -ErrorAction SilentlyContinue
+} catch {
+    $me = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+    if ($me.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        Fail "Cannot write to $game ($($_.Exception.Message))."
+    }
+    if ($NonInteractive) {
+        Fail "ADMIN_REQUIRED: Cannot write to $game without administrator privileges."
+    }
+    Write-Host ''
+    Write-Host "This folder requires administrator rights to uninstall:" -ForegroundColor Yellow
+    Write-Host "  $game"
+    if (-not (Read-YesNo 'Request administrator privileges (UAC) and continue? [Y/N]')) {
+        Write-Host 'Cancelled.'
+        Pause-Exit 0
+    }
+    $argLine = "-NoProfile -ExecutionPolicy Bypass -STA -File `"$PSCommandPath`" -GameDir `"$game`""
+    if ($RemoveBackups) { $argLine += ' -RemoveBackups' }
+    $p = Start-Process powershell -Verb RunAs -ArgumentList $argLine -PassThru -Wait
+    exit $p.ExitCode
+}
+
 function Assert-LmxxfUnlinkedPath([string]$Path) {
     $full = [IO.Path]::GetFullPath($Path)
     if ($full.Length -gt [IO.Path]::GetPathRoot($full).Length) { $full = $full.TrimEnd('\', '/') }
@@ -132,25 +158,6 @@ function Get-LmxxfUnlinkedFiles([string]$Directory) {
     }
 }
 
-$controlledModules = @(
-    'deep_fast-packed-fast.hsaco',
-    'vit-stream-fast.hsaco',
-    'multi-pass-skin.hsaco',
-    'multi-pass-predict.hsaco',
-    'boundary-fast.hsaco', 'boundary_reference.hsaco', 'c32_fast.hsaco',
-    'c32_fast_attention.hsaco', 'c32_fused_attention.hsaco',
-    'c32_fused_ffn_attention-packed.hsaco', 'c32_fused_ffn_attention.hsaco',
-    'c32_prefix_reference.hsaco', 'c32_tiled.hsaco', 'c32_wmma.hsaco',
-    'c32-wave1-rtz.hsaco', 'c32-wave1-fast.hsaco', 'c64-wave2-fast.hsaco',
-    'c32-wave1.hsaco', 'c64-wave2.hsaco', 'c512-m32-mh.hsaco', 'c512-m32-deep.hsaco',
-    'deep_fast-packed.hsaco', 'deep_fast.hsaco', 'deep_reference.hsaco', 'deep_wmma.hsaco',
-    'multihead-fast-packed.hsaco', 'multihead-fast-padded-wave-packed.hsaco',
-    'multihead-fast-padded-wave.hsaco', 'multihead-fast.hsaco', 'multihead-reference.hsaco',
-    'multihead-tiled.hsaco', 'multihead-wmma.hsaco', 'multihead_fused_attention.hsaco',
-    'prefix_fast.hsaco', 'vit-wide-deep.hsaco', 'wave-pointwise.hsaco', 'vit-stream.hsaco',
-    'swin-persistent.hsaco', 'swin-persistent-fast.hsaco', 'c32-wave1-fast-norm900.hsaco'
-)
-
 # File names this project installs. Proxy names are deleted only when the file is OptiScaler.
 $proxyNames = @('dxgi.dll','winmm.dll','d3d12.dll','version.dll','winhttp.dll','wininet.dll','dbghelp.dll')
 $projectLeafNames = @(
@@ -160,12 +167,9 @@ $projectLeafNames = @(
     'dlssnr_on_amd.ini', 'dlssnr-amd-crash.dmp',
     'LmxxfNrRuntime.dll', 'MochizukiNrRuntime.dll', 'OpenNrRrRuntime.dll', 'opennr_rr.log', 'openrr-amd.log', 'openrr-amd.ini', 'openrr-ngx-host.dll', 'openrr-control.bin', 'openrr-amd-crash.dmp', 'lmxxf-module-package.ps1',
 
-    'dlssnr-amd.ini', 'dlssnr-amd.default.ini',
+    'dlssnr-amd.ini', 'dlssnr-amd.default.ini', 'dlssnr-amd.asi', 'dlssnr_amd.addon64',
+    'nr-report.txt', 'nr-report-series.txt',
     'Uninstall_OptiScaler_NR.bat','Uninstall_OptiScaler_NR.ps1',
-    'OptiScaler/dlssnr/README.md',
-    'OptiScaler/dlssnr/design/frame-hold.md',
-    'OptiScaler/dlssnr/design/multi-point-anchoring.md',
-    'OptiScaler/dlssnr/design/pre-sr-multipass.md',
     'person-model/onnxruntime.dll',
     'person-model/yolo11n-seg.onnx',
     'person-model/pphumanseg.onnx',
@@ -178,40 +182,11 @@ $projectLeafNames = @(
     'Uninstall.bat','Uninstall.ps1','Remove_OptiScaler.bat','Remove OptiScaler.bat','remove_optiscaler.sh','xess-compat.ps1'
 )
 $selfLeafNames = @('Uninstall_OptiScaler_NR.bat','Uninstall_OptiScaler_NR.ps1','Uninstall.bat','Uninstall.ps1','mochizuki-owned.txt','xess-compat.ps1')
-$pluginResourceDirs = @('dlssnr-amd', 'openrr-amd', 'opennr-rr')
+$pluginResourceDirs = @('dlssnr-amd', 'openrr-amd', 'opennr-rr', 'OptiScaler', 'lmxxf-modules')
 $installRecords = @('dlssnr-amd-install.txt', 'openrr-shaders-install.txt', 'amd-presr-install.txt')
 # spdlog rotates OptiScaler.log into OptiScaler.1.log; older sinks used .log.1.
 # Match numeric rotations only, not user notes such as OptiScaler.notes.log.
 $projectLogNamePattern = '^(OptiScaler|amd_bridge|amd_presr|mochizuki_nr|dlssnr_on_amd|dlssnr-amd|openrr-amd|openrr|opennr_rr|dlss-enabler|dlssg_to_fsr3|fakenvapi)(\.[0-9]+)?\.log(\.[0-9]+)?$'
-# Old module bundles also shipped generated sources and disassembly. Limit cleanup
-# to the same controlled module stems and the two supported architecture folders.
-foreach ($arch in @('', 'gfx1200/', 'gfx1201/')) {
-    foreach ($module in $controlledModules) {
-        $stem = [IO.Path]::GetFileNameWithoutExtension($module)
-        $projectLeafNames += 'lmxxf-modules/' + $arch + $stem + '.generated.hip'
-        $projectLeafNames += 'lmxxf-modules/' + $arch + $module + '.s'
-    }
-}
-$dependencyPaths = @(
-    'amd_fidelityfx_dx12.dll',
-    'amd_fidelityfx_loader_dx12.dll',
-    'amd_fidelityfx_upscaler_dx12.dll',
-    'amd_fidelityfx_framegeneration_dx12.dll',
-    'amd_fidelityfx_denoiser_dx12.dll',
-    'amd_fidelityfx_vk.dll',
-    'amd_fidelityfx_loader_vk.dll',
-    'amd_fidelityfx_upscaler_vk.dll',
-    'amd_fidelityfx_framegeneration_vk.dll',
-    'dlssg_to_fsr3_amd_is_better.dll',
-    'Streamlined_fetcher_windows.bat',
-    'libxess.dll', 'libxess_dx11.dll', 'libxess_fg.dll', 'libxell.dll',
-    'D3D12_OptiScaler\D3D12Core.dll',
-    'D3D12_OptiScaler\d3d12SDKLayers.dll',
-    'plugins\OptiPatcher.asi',
-    'plugins\dlssnr-amd.asi',
-    'plugins\openrr.asi', 'plugins\openrr-amd.asi', 'plugins\openrr-ngx-host.dll', 'openrr-ngx-host.dll',
-    'plugins\OptScaler-NR-plugins-README.txt'
-)
 $protectedNames = @(
     'nvngx_dlssnr.dll',
     'dlssnr_on_amd_weights.bin',
@@ -219,22 +194,17 @@ $protectedNames = @(
     'version.dll',
     'native-game-tiled-assets'
 )
-# Live glue set. Also purge retired native_/preblock_ files in both historical locations.
-$lmxxfShaderFiles = @(
-    'native_black_probe.hlsl',
-    'native_codec_decode.hlsl',
-    'native_codec_encode.hlsl',
-    'native_format_convert.hlsl',
-    'native_game_rgb_input.hlsl',
-    'native_history_guard.hlsl',
-    'native_output_smooth.hlsl',
-    'native_rgb_reflect.hlsl',
-    'native_rgb_texture.hlsl',
-    'native_temporal_coordinates.hlsl',
-    'native_temporal_feed.hlsl',
-    'native_temporal_sample.hlsl',
-    'native_text_overlay.hlsl'
-)
+
+function Test-InsidePluginResourceDir([string]$rel) {
+    if ([string]::IsNullOrEmpty($rel)) { return $false }
+    $norm = $rel.Replace('\', '/').TrimStart('/')
+    foreach ($dirName in $pluginResourceDirs) {
+        if ($norm.StartsWith(($dirName + '/'), [StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
+    return $false
+}
 
 $planned = New-Object System.Collections.Generic.List[string]
 $kept = New-Object System.Collections.Generic.List[string]
@@ -369,7 +339,7 @@ if ((Test-UninstallPath $installMark) -and (Test-Path -LiteralPath $installMark 
         }
     } catch { $recordedProxy = $null; $recordedPluginDir = $null; $recordedExternalPlugins = @{} }
 }
-if ($recordedProxy -and $proxyNames -notcontains $recordedProxy) {
+if ($recordedProxy -and $proxyNames -notcontains $recordedProxy -and $recordedProxy -ine 'OptiScaler.dll') {
     $kept.Add("ignored invalid proxy name in install record: $recordedProxy")
     $recordedProxy = $null
 }
@@ -385,15 +355,39 @@ if ((Test-UninstallPath $storage) -and (Test-Path -LiteralPath $storage -PathTyp
 
 $customPluginFiles = New-Object System.Collections.Generic.List[string]
 $legacyLogPaths = New-Object System.Collections.Generic.List[string]
+$dlssnrManifestByRoot = @{}
 foreach ($root in $roots) {
+    $dlssnrEntries = New-Object System.Collections.Generic.List[object]
     $legacyMark = Join-Path $root 'dlssnr-amd-install.txt'
     if ((Test-UninstallPath $legacyMark) -and (Test-Path -LiteralPath $legacyMark -PathType Leaf)) {
-        foreach ($line in [IO.File]::ReadAllLines($legacyMark)) {
+        foreach ($rawLine in [IO.File]::ReadAllLines($legacyMark, [Text.Encoding]::UTF8)) {
+            $line = $rawLine.TrimStart([char]0xFEFF).Trim()
+            if (-not $line -or $line.StartsWith('#')) { continue }
             if ($line -match '^L ([^/\\:*?"<>|]+_(?:dxgi|d3d11|d3d9)\.log|vkd3d-proton\.cache(?:\.write)?)$') {
                 $legacyLogPaths.Add((Join-Path $root $Matches[1]))
             }
+            if ($line.Length -ge 3 -and $line[1] -eq ' ') {
+                $kind = $line.Substring(0, 1)
+                $rel = $line.Substring(2).Trim()
+                if ($kind -in @('F', 'D', 'B', 'L') -and $rel -and
+                    $rel -notmatch '(^|[\\/])\.\.([\\/]|$)' -and -not [IO.Path]::IsPathRooted($rel)) {
+                    $dlssnrEntries.Add([string[]]@($kind, $rel))
+                    if ($kind -in @('F', 'D', 'L')) {
+                        if ($kind -in @('F', 'L') -and (Test-InsidePluginResourceDir $rel)) { continue }
+                        $candTarget = Join-Path $root $rel
+                        if (Test-UninstallPath $candTarget) {
+                            if ($kind -eq 'D' -and (Test-Path -LiteralPath $candTarget -PathType Container)) {
+                                $planned.Add("$candTarget  (manifest-dir)")
+                            } elseif ($kind -ne 'D' -and (Test-Path -LiteralPath $candTarget -PathType Leaf)) {
+                                Add-PlannedFile $candTarget "manifest-$kind"
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
+    $dlssnrManifestByRoot[$root] = $dlssnrEntries
 }
 foreach ($path in $legacyLogPaths) { Add-PlannedFile $path 'legacy-backend-log' }
 
@@ -409,6 +403,12 @@ foreach ($root in $roots) {
             $kept.Add("left in place (not OptiScaler): $p")
         }
     }
+    if ($proxyNames -notcontains 'OptiScaler.dll') {
+        $optiDirectP = Join-Path $root 'OptiScaler.dll'
+        if ((Test-UninstallPath $optiDirectP) -and (Test-Path -LiteralPath $optiDirectP -PathType Leaf) -and (Test-OptiProxy $optiDirectP)) {
+            Add-PlannedFile $optiDirectP 'opti-proxy'
+        }
+    }
     foreach ($name in $projectLeafNames + $installRecords + $selfLeafNames) {
         Add-PlannedFile (Join-Path $root $name) 'project-file'
     }
@@ -421,20 +421,6 @@ foreach ($root in $roots) {
     Get-ChildItem -LiteralPath $root -File -Force -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -match $projectLogNamePattern } |
         ForEach-Object { Add-PlannedFile $_.FullName 'project-log' }
-    $deps = Join-Path $root 'OptiScaler'
-    if ((Test-UninstallPath $deps) -and (Test-Path -LiteralPath $deps -PathType Container)) {
-        foreach ($relative in $dependencyPaths) {
-            Add-PlannedFile (Join-Path $deps $relative) 'project-dependency'
-        }
-        foreach ($sub in @('Licenses', 'Streamline', 'streamline')) {
-            $subDir = Join-Path $deps $sub
-            if ((Test-UninstallPath $subDir) -and (Test-Path -LiteralPath $subDir -PathType Container)) {
-                Get-ChildItem -LiteralPath $subDir -File -ErrorAction SilentlyContinue | ForEach-Object {
-                    Add-PlannedFile $_.FullName 'project-dependency'
-                }
-            }
-        }
-    }
     # Resolve once while the INI still exists; the deletion phase removes the INI first.
     $gameIni = Join-Path $root 'OptiScaler.ini'
     try {
@@ -494,28 +480,6 @@ foreach ($root in $roots) {
     } catch {
         $kept.Add("unresolved plugin path in ${gameIni}: $($_.Exception.Message)")
     }
-    $lmxxfMods = Join-Path $root 'lmxxf-modules'
-    if ((Test-UninstallPath $lmxxfMods) -and (Test-Path -LiteralPath $lmxxfMods -PathType Container)) {
-        $planned.Add("$lmxxfMods  (lmxxf modules tree)")
-    }
-    foreach ($shadersDir in @((Join-Path $root 'shaders'), (Join-Path $root 'lmxxf-modules/shaders'))) {
-        if ((Test-UninstallPath $shadersDir) -and (Test-Path -LiteralPath $shadersDir -PathType Container)) {
-            foreach ($sf in $lmxxfShaderFiles) {
-                Add-PlannedFile (Join-Path $shadersDir $sf) 'lmxxf-shader'
-            }
-            # Also plan retired wave/vit/preblock hlsl left by older installs (install used to upsert-only).
-            Get-ChildItem -LiteralPath $shadersDir -Filter '*.hlsl' -File -ErrorAction SilentlyContinue |
-                Where-Object { $_.Name -match '^(native_|preblock_)' -and ($lmxxfShaderFiles -notcontains $_.Name) } |
-                ForEach-Object { Add-PlannedFile $_.FullName 'lmxxf-shader-stale' }
-            $cacheDir = Join-Path $shadersDir 'shader-cache'
-            if ((Test-UninstallPath $cacheDir) -and (Test-Path -LiteralPath $cacheDir -PathType Container)) {
-                Get-ChildItem -LiteralPath $cacheDir -File -ErrorAction SilentlyContinue |
-                    Where-Object { $_.Name -match '^[0-9a-f]{16}(\.v2)?\.dxbc(\.[0-9]+\.[0-9]+\.tmp)?$' } | ForEach-Object {
-                        Add-PlannedFile $_.FullName 'lmxxf-shader-cache'
-                    }
-            }
-        }
-    }
 
     $flagsFile = Join-Path $root 'DLSS5-AMD\native-game-flags.txt'
     if ((Test-UninstallPath $flagsFile) -and (Test-Path -LiteralPath $flagsFile -PathType Leaf)) {
@@ -561,7 +525,7 @@ Write-Host ''
 Write-Host 'Uninstall this project from:' -ForegroundColor Yellow
 Write-Host "  $game"
 Write-Host ''
-Write-Host 'The dlssnr-amd, openrr-amd and opennr-rr folders will be removed with their models and caches.' -ForegroundColor Yellow
+Write-Host 'The OptiScaler, dlssnr-amd, openrr-amd, opennr-rr and lmxxf-modules folders will be removed wholesale with their plugins, models and caches.' -ForegroundColor Yellow
 Write-Host ''
 
 if ($backupDirs.Count -gt 0) {
@@ -633,17 +597,79 @@ function Remove-EmptyDirectory([string]$path) {
     }
 }
 
+$restoredByManifest = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+
 foreach ($root in $roots) {
     if (!(Test-UninstallPath $root)) { continue }
+    $dlssnrEntries = if ($dlssnrManifestByRoot.ContainsKey($root)) { $dlssnrManifestByRoot[$root] } else { $null }
+    if ($null -ne $dlssnrEntries -and $dlssnrEntries.Count -gt 0) {
+        $rootPrefix = [IO.Path]::GetFullPath($root).TrimEnd('\', '/') + '\'
+        for ($ei = $dlssnrEntries.Count - 1; $ei -ge 0; $ei--) {
+            $entry = $dlssnrEntries[$ei]
+            $kind = [string]$entry[0]
+            $rel = [string]$entry[1]
+            $target = Join-Path $root $rel
+            if (!(Test-UninstallPath $target)) { continue }
+            $normFull = [IO.Path]::GetFullPath($target)
+            if ($kind -in @('F', 'L')) {
+                if (Test-InsidePluginResourceDir $rel) { continue }
+                if ($selfLeafNames -contains (Split-Path -Leaf $target)) { continue }
+                if (Test-Path -LiteralPath $target -PathType Leaf) {
+                    Remove-SafeFile $target ("manifest-" + $kind)
+                }
+            } elseif ($kind -eq 'D') {
+                if ((Test-Path -LiteralPath $target -PathType Container) -and -not (Test-TreeReparse $target)) {
+                    try {
+                        $longTarget = if ($normFull.StartsWith('\\')) { '\\?\UNC\' + $normFull.Substring(2) } else { '\\?\' + $normFull }
+                        Remove-Item -LiteralPath $longTarget -Recurse -Force
+                        $deleted.Add("$target  (manifest-D)")
+                    } catch {
+                        $errors.Add("$target : $($_.Exception.Message)")
+                    }
+                }
+            } elseif ($kind -eq 'B') {
+                $keepPath = Join-Path $root (Join-Path 'dlssnr-amd-backup' $rel)
+                if ((Test-UninstallPath $keepPath) -and (Test-Path -LiteralPath $keepPath) -and -not (Test-TreeReparse $keepPath)) {
+                    try {
+                        if (Test-Path -LiteralPath $target) {
+                            if (Test-TreeReparse $target) { throw "Refusing linked path on restore: $target" }
+                            Remove-Item -LiteralPath $target -Recurse -Force
+                        }
+                        $tParent = Split-Path -Parent $target
+                        if ($tParent -and -not (Test-Path -LiteralPath $tParent -PathType Container)) {
+                            New-Item -ItemType Directory -Force -Path $tParent | Out-Null
+                        }
+                        Move-Item -LiteralPath $keepPath -Destination $target -Force
+                        [void]$restoredByManifest.Add($normFull)
+                        $restored.Add("$target  (restored original $rel from dlssnr-amd-backup)")
+                    } catch {
+                        $errors.Add("$keepPath : $($_.Exception.Message)")
+                    }
+                }
+            }
+        }
+    }
     foreach ($name in $proxyNames) {
         $p = Join-Path $root $name
         if (!(Test-UninstallPath $p)) { continue }
+        if ($restoredByManifest.Contains([IO.Path]::GetFullPath($p))) { continue }
         if (!(Test-Path -LiteralPath $p -PathType Leaf)) { continue }
         if (Test-OptiProxy $p) { Remove-SafeFile $p 'opti-proxy' }
     }
+    if ($proxyNames -notcontains 'OptiScaler.dll') {
+        $optiDirectP = Join-Path $root 'OptiScaler.dll'
+        if ((Test-UninstallPath $optiDirectP) -and
+            (-not $restoredByManifest.Contains([IO.Path]::GetFullPath($optiDirectP))) -and
+            (Test-Path -LiteralPath $optiDirectP -PathType Leaf) -and
+            (Test-OptiProxy $optiDirectP)) {
+            Remove-SafeFile $optiDirectP 'opti-proxy'
+        }
+    }
     foreach ($name in $projectLeafNames) {
         if ($selfLeafNames -contains $name) { continue }
-        Remove-SafeFile (Join-Path $root $name) 'project-file'
+        $p = Join-Path $root $name
+        if ($restoredByManifest.Contains([IO.Path]::GetFullPath($p))) { continue }
+        Remove-SafeFile $p 'project-file'
     }
     foreach ($name in $pluginResourceDirs) {
         $path = [IO.Path]::GetFullPath((Join-Path $root $name))
@@ -669,6 +695,7 @@ foreach ($root in $roots) {
                 }
             }
             foreach ($file in $readOnlyFiles) { $file.IsReadOnly = $false }
+            # Full uninstall intentionally clears all of OptiScaler, including user-added plugins.
             [IO.Directory]::Delete($longPath, $true)
             $deleted.Add("$path  (plugin resources)")
         } catch {
@@ -676,121 +703,8 @@ foreach ($root in $roots) {
         }
     }
     Get-ChildItem -LiteralPath $root -File -Force -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match $projectLogNamePattern } |
+        Where-Object { $_.Name -match $projectLogNamePattern -and -not $restoredByManifest.Contains([IO.Path]::GetFullPath($_.FullName)) } |
         ForEach-Object { Remove-SafeFile $_.FullName 'project-log' }
-    $deps = Join-Path $root 'OptiScaler'
-    if ((Test-UninstallPath $deps) -and (Test-Path -LiteralPath $deps -PathType Container)) {
-        foreach ($relative in $dependencyPaths) {
-            Remove-SafeFile (Join-Path $deps $relative) 'project-dependency'
-        }
-        foreach ($sub in @('Licenses', 'Streamline', 'streamline')) {
-            $subDir = Join-Path $deps $sub
-            if ((Test-UninstallPath $subDir) -and (Test-Path -LiteralPath $subDir -PathType Container)) {
-                Get-ChildItem -LiteralPath $subDir -File -ErrorAction SilentlyContinue | ForEach-Object {
-                    Remove-SafeFile $_.FullName 'project-dependency'
-                }
-                Remove-EmptyDirectory $subDir
-            }
-        }
-        Remove-EmptyDirectory (Join-Path $deps 'dlssnr/design')
-        Remove-EmptyDirectory (Join-Path $deps 'dlssnr')
-        Remove-EmptyDirectory (Join-Path $deps 'D3D12_OptiScaler')
-        Remove-EmptyDirectory (Join-Path $deps 'plugins')
-        Remove-EmptyDirectory $deps
-    }
-
-    $lmxxfMods = Join-Path $root 'lmxxf-modules'
-    if ((Test-UninstallPath $lmxxfMods) -and (Test-Path -LiteralPath $lmxxfMods -PathType Container)) {
-        if (Test-TreeReparse $lmxxfMods) {
-            $kept.Add("linked path: $lmxxfMods")
-            $errors.Add("$lmxxfMods : contains a linked path, not deleted")
-        } else {
-            # Delete only files listed in SHA256SUMS (installer set) or standard module files. Keep user weights/extras.
-            $sums = Join-Path $lmxxfMods 'SHA256SUMS'
-            $manifestNames = [System.Collections.Generic.List[string]]::new()
-            if (Test-Path -LiteralPath $sums -PathType Leaf) {
-                Get-Content -LiteralPath $sums -ErrorAction SilentlyContinue | ForEach-Object {
-                    $line = $_.Trim()
-                    if (-not $line) { return }
-                    $parts = $line -split '\s+', 2
-                    if ($parts.Count -ge 2 -and $parts[0] -match '^[0-9a-fA-F]{64}$') {
-                        $raw = $parts[1].Trim().TrimStart('*')
-                        # Accept root or single-arch relative paths: e.g. foo.hsaco or gfx1201/foo.hsaco
-                        if ($raw -match '(?i)^(((?:gfx1200|gfx1201)[/\\])?[^/\\:*?"<>|]+\.hsaco)$' -and $raw -notmatch '\.\.') {
-                            $manifestNames.Add($raw.Replace('/', '\'))
-                        }
-                    }
-                }
-            }
-            # Only the two supported architecture directories are project-owned.
-            $archDirs = @(Get-ChildItem -LiteralPath $lmxxfMods -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -in @('gfx1200', 'gfx1201') })
-            foreach ($arch in $archDirs) {
-                if (Test-TreeReparse $arch.FullName) {
-                    $kept.Add("linked path: $($arch.FullName)")
-                    $errors.Add("$($arch.FullName) : contains a linked path, not deleted")
-                    continue
-                }
-                $leafSums = Join-Path $arch.FullName 'SHA256SUMS'
-                if (Test-Path -LiteralPath $leafSums -PathType Leaf) {
-                    Get-Content -LiteralPath $leafSums -ErrorAction SilentlyContinue | ForEach-Object {
-                        $line = $_.Trim()
-                        if (-not $line) { return }
-                        $parts = $line -split '\s+', 2
-                        if ($parts.Count -ge 2 -and $parts[0] -match '^[0-9a-fA-F]{64}$') {
-                            $raw = $parts[1].Trim().TrimStart('*')
-                            if ($raw -match '(?i)^[^/\\:*?"<>|]+\.hsaco$' -and $raw -notmatch '\.\.') {
-                                $manifestNames.Add($arch.Name + '\' + $raw)
-                            }
-                        }
-                    }
-                }
-                foreach ($name in $controlledModules) { $manifestNames.Add($arch.Name + '\' + $name) }
-                foreach ($extra in @('SHA256SUMS', 'modules.json', 'runtime-manifest.json', 'README.md')) {
-                    $manifestNames.Add($arch.Name + '\' + $extra)
-                }
-            }
-            # Legacy flat installs own only recorded or controlled module names.
-            foreach ($name in $controlledModules) { $manifestNames.Add($name) }
-            foreach ($extra in @('SHA256SUMS','modules.json','runtime-manifest.json','README.md')) {
-                $manifestNames.Add($extra)
-            }
-            $lmxxfModsFull = [IO.Path]::GetFullPath($lmxxfMods).TrimEnd('\') + '\'
-            foreach ($name in ($manifestNames | Select-Object -Unique)) {
-                if (-not $name) { continue }
-                $fp = Join-Path $lmxxfMods $name
-                $fpFull = [IO.Path]::GetFullPath($fp)
-                if ($fpFull.StartsWith($lmxxfModsFull, [StringComparison]::OrdinalIgnoreCase) -and
-                    (Test-UninstallPath $fp) -and (Test-Path -LiteralPath $fp -PathType Leaf)) {
-                    Remove-SafeFile $fp 'lmxxf-module'
-                }
-            }
-            # Remove empty subdirs then the folder if empty (user files keep it alive).
-            Get-ChildItem -LiteralPath $lmxxfMods -Directory -Recurse -ErrorAction SilentlyContinue |
-                Sort-Object { $_.FullName.Length } -Descending |
-                ForEach-Object { Remove-EmptyDirectory $_.FullName }
-            Remove-EmptyDirectory $lmxxfMods
-        }
-    }
-    foreach ($shadersDir in @((Join-Path $root 'shaders'), (Join-Path $root 'lmxxf-modules/shaders'))) {
-        if ((Test-UninstallPath $shadersDir) -and (Test-Path -LiteralPath $shadersDir -PathType Container)) {
-            foreach ($sf in $lmxxfShaderFiles) {
-                Remove-SafeFile (Join-Path $shadersDir $sf) 'lmxxf-shader'
-            }
-            Get-ChildItem -LiteralPath $shadersDir -Filter '*.hlsl' -File -ErrorAction SilentlyContinue |
-                Where-Object { $_.Name -match '^(native_|preblock_)' } |
-                ForEach-Object { Remove-SafeFile $_.FullName 'lmxxf-shader-stale' }
-            $cacheDir = Join-Path $shadersDir 'shader-cache'
-            if ((Test-UninstallPath $cacheDir) -and (Test-Path -LiteralPath $cacheDir -PathType Container)) {
-                Get-ChildItem -LiteralPath $cacheDir -File -ErrorAction SilentlyContinue |
-                    Where-Object { $_.Name -match '^[0-9a-f]{16}(\.v2)?\.dxbc(\.[0-9]+\.[0-9]+\.tmp)?$' } | ForEach-Object {
-                        Remove-SafeFile $_.FullName 'lmxxf-shader-cache'
-                    }
-                Remove-EmptyDirectory $cacheDir
-            }
-            Remove-EmptyDirectory $shadersDir
-        }
-    }
-    Remove-EmptyDirectory (Join-Path $root 'lmxxf-modules')
     Remove-EmptyDirectory (Join-Path $root 'person-model')
 
     $flagsFile = Join-Path $root 'DLSS5-AMD\native-game-flags.txt'
@@ -1131,6 +1045,16 @@ if (-not $keepBackups) {
         } catch {
             $errors.Add("$b : $($_.Exception.Message)")
         }
+    }
+}
+foreach ($root in $roots) {
+    $dlssnrBak = Join-Path $root 'dlssnr-amd-backup'
+    if ((Test-UninstallPath $dlssnrBak) -and (Test-Path -LiteralPath $dlssnrBak -PathType Container) -and -not (Test-TreeReparse $dlssnrBak)) {
+        try {
+            if (@(Get-ChildItem -LiteralPath $dlssnrBak -Recurse -File -Force -ErrorAction Stop).Count -eq 0) {
+                Remove-Item -LiteralPath $dlssnrBak -Recurse -Force -ErrorAction Stop
+            }
+        } catch { }
     }
 }
 

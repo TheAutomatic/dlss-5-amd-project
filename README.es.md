@@ -3,8 +3,10 @@
 # OptiScaler(NR)
 
 > [!IMPORTANT]
-> **🎉 Actualización de arquitectura v2.0**: ¡Este proyecto se ha actualizado por completo a la arquitectura **"OptiScaler oficial sin modificar + Doble plugin `.asi` independiente (`dlssnr-amd.asi` + `openrr-amd.asi`) + Lanzador gráfico en un clic"**!
-> Si desea consultar la documentación anterior de la versión `1.x` (la rama integrada de 3 backends `lmxxf` / `danielblnc` / `mochizuki`), haga clic aquí: **[Documentación anterior en español (Legacy README)](docs/legacy-readme/README.es.md)**.
+> **Código disponible · Totalmente gratuito · Prohibida la reventa comercial y la instalación de pago**: El lanzador y los scripts de este repositorio se distribuyen bajo **PolyForm Noncommercial License 1.0.0** solo para uso personal no comercial. ¡Si pagó por esta herramienta, solicite un reembolso de inmediato! Véase la [sección 6](#6-aviso-de-gratuidad-atribuciones-y-licencias).
+>
+> **🎉 Actualización de arquitectura v2.0**: ¡Arquitectura **"OptiScaler oficial sin modificar + Doble plugin `.asi` (`dlssnr-amd.asi` + `openrr-amd.asi`) + Lanzador gráfico"** compatible con **OptiScaler / Standalone / ReShade / RTX Remix for Minecraft (Java Edition)**!
+> Documentación anterior v1.x: **[Documentación anterior en español (Legacy README)](docs/legacy-readme/README.es.md)**.
 
 **Agradecimiento especial** a todos los usuarios por sus pruebas y comentarios.
 
@@ -33,6 +35,7 @@ La versión `2.0` deja atrás las compilaciones modificadas de `OptiScaler.dll` 
 | **[OptiScaler](https://github.com/optiscaler/OptiScaler)**<br>(Puente oficial de reescalado) | Compilación oficial Nightly upstream (verificada por SHA-256; reemplazable por otras compilaciones) | Conversión universal de reescalado (DLSS/XeSS/FSR → FSR 3.1 / FSR 4 / XeSS) y generación de fotogramas (DLSSG → FSR3 FG / XeFG), cargando `OptiScaler\plugins\*.asi` |
 | **`dlssnr-amd.asi`**<br>(Plugin DLSS Neural Rendering) | **[mochizuki0323 / DLSSNR-AMD](https://gitlab.com/mochizuki0323/DLSSNR-AMD)**<br>**[TheAutomatic / DLSSNR-AMD](https://github.com/TheAutomatic/DLSSNR-AMD)** | Ejecuta DLSS Neural Rendering en GPUs AMD **RX 9000 (RDNA4)** y **RX 7000 / 700M / 800M / 8000S (RDNA3)**; soporta **D3D12 Direct-ELF** y **Vulkan ACO**, con estilos RenoDX y wilsjo2 |
 | **`openrr-amd.asi`**<br>(Plugin DLSS Ray Reconstruction) | **[Storm (Matheus) / OpenRR](https://github.com/OpenNeuralRendering/OpenRR)**<br>**[TheAutomatic / OpenRR-ASI](https://github.com/TheAutomatic/OpenRR-ASI)** | Ejecuta la red **DLSS Ray Reconstruction (DLSS-RR)** de forma nativa en GPUs AMD **RDNA4 (probado)** y **RDNA3 / RDNA3.5 (experimental)**; soporta **D3D12 Direct-ELF** y **Vulkan**, coexistiendo con `dlssnr-amd.asi` |
+| **[rtx-remix-minecraft-amd-patch](https://github.com/TheAutomatic/rtx-remix-minecraft-amd-patch)**<br>(Parche RTX Remix for Minecraft) | **[NVIDIAGameWorks / rtx-remix-minecraft](https://github.com/NVIDIAGameWorks/rtx-remix-minecraft)** (Apache-2.0)<br>**[TheAutomatic / rtx-remix-minecraft-amd-patch](https://github.com/TheAutomatic/rtx-remix-minecraft-amd-patch)** | Escanea instancias de PrismLauncher / `.minecraft\remix-sdk`, despliega `OptiScaler.dll` sin renombrar, respalda y parchea `remixbridge.dll` (restaurándolo al desinstalar) y configura `VulkanExtensionSpoofing = true` |
 
 ---
 
@@ -95,11 +98,12 @@ En las **Opciones de lanzamiento** de Steam, añada: `WINEDLLOVERRIDES="dxgi=n,b
 
 ## 6. Aviso de gratuidad, atribuciones y licencias
 
-Este software es completamente gratuito. Si pagó por él, solicite un reembolso de inmediato.
+Este software es completamente gratuito para uso personal no comercial. **Se prohíbe la reventa comercial, distribución de pago o servicios de instalación de pago.** Si pagó por él, solicite un reembolso de inmediato.
 
+- **[TheAutomatic / dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)** — **[PolyForm Noncommercial License 1.0.0](LICENSE)** (ver [NOTICE](NOTICE))
+- **[RTX Remix for Minecraft AMD Patch](https://github.com/TheAutomatic/rtx-remix-minecraft-amd-patch)** (`remixbridge.dll`) — **PolyForm Noncommercial License 1.0.0** (derivado de [NVIDIAGameWorks/rtx-remix-minecraft](https://github.com/NVIDIAGameWorks/rtx-remix-minecraft), **Apache License 2.0**)
 - **[OptiScaler](https://github.com/optiscaler/OptiScaler)** — **GPL-3.0 License**
 - **[Mochizuki / DLSSNR-AMD](https://gitlab.com/mochizuki0323/DLSSNR-AMD)** & **[TheAutomatic / DLSSNR-AMD](https://github.com/TheAutomatic/DLSSNR-AMD)** (`dlssnr-amd.asi`) — **MIT License** (© mochizuki0323)
 - **[Storm (Matheus) / OpenRR](https://github.com/OpenNeuralRendering/OpenRR)** & **[TheAutomatic / OpenRR-ASI](https://github.com/TheAutomatic/OpenRR-ASI)** (`openrr-amd.asi`) — **MIT License**
 - **[RenoDX / clshortfuse](https://github.com/clshortfuse/renodx)** — **MIT License**
 - **[OptiPatcher](https://github.com/optiscaler/OptiPatcher)** — **GPL-3.0 License**
-- **[TheAutomatic / dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)** — **GPL-3.0 License**

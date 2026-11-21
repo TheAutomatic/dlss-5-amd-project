@@ -378,6 +378,7 @@ namespace OptScalerNR.Launcher
             _window.Closing += OnClosing;
             _window.Loaded += (s, e) => OnFirstShown(args);
 
+            InitModes();
             LoadSettings();
             LauncherTheme.Apply(_theme);
             _loadingSettings = false;
@@ -385,6 +386,7 @@ namespace OptScalerNR.Launcher
             RefreshPackageComparisons(_packageRoot);
             ShowVersion();
             ApplyLang();
+            ApplyModeVisibility();
             if (_saveInitialLanguage) SaveSettings();
             RefreshGameListView();
             UpdateActiveCombo();
@@ -707,7 +709,7 @@ namespace OptScalerNR.Launcher
                 SetLabel("LocalGamesHeading", "游戏库", "Library");
                 SetLabel("ProxyHeading", "注入代理", "Injection proxy");
                 SetLabel("BackendsHeading", "ASI 插件选择 (神经渲染 & 光线重建)", "ASI Plugins (Neural Rendering & Ray Reconstruction)");
-                SetLabel("MochiCheck", "mochizuki 0.0.9（M1）", "mochizuki 0.0.9 (M1)");
+                SetLabel("MochiCheck", "mochizuki 0.0.9（M3）", "mochizuki 0.0.9 (M3)");
                 SetLabel("MochiDescription", "适合 RX 7000/9000 系列（6000 系请暂时先使用老版本）", "For RX 7000/9000 series (RX 6000 series please use the legacy version for now)");
                 SetLabel("DiagnosticsHeading", "配置与运行库兼容诊断", "Configuration & Runtime Compatibility");
                 SetLabel("LogHeading", "运行诊断日志", "Diagnostic Log");
@@ -748,6 +750,7 @@ namespace OptScalerNR.Launcher
                 UpdateProxyRecommendation();
                 RefreshStatusLanguage();
                 RefreshPresentationLanguage();
+                RefreshModesLanguage();
                 RefreshProfilesLanguage();
                 RefreshGameListView();
             }
@@ -978,6 +981,20 @@ namespace OptScalerNR.Launcher
                     foreach (var pair in rec.BackendChoices)
                         if (pair.Value != null && pair.Value.Backends != null)
                             _backendChoices[pair.Key] = pair.Value;
+                if (rec.GameModes != null)
+                    foreach (var pair in rec.GameModes) _gameModes[pair.Key] = pair.Value;
+                if (rec.GameReshadeApis != null)
+                    foreach (var pair in rec.GameReshadeApis) _gameReshadeApis[pair.Key] = pair.Value;
+                if (rec.GameRenoDx != null)
+                    foreach (var pair in rec.GameRenoDx) _gameRenoDx[pair.Key] = pair.Value;
+                if (rec.GameLumenite != null)
+                    foreach (var pair in rec.GameLumenite) _gameLumenite[pair.Key] = pair.Value;
+                if (rec.GameLumeniteZips != null)
+                    foreach (var pair in rec.GameLumeniteZips) _gameLumeniteZips[pair.Key] = pair.Value;
+                if (rec.McMochiUnlockedByGame != null)
+                    foreach (var pair in rec.McMochiUnlockedByGame) _mcMochiUnlockedByGame[pair.Key] = pair.Value;
+                if (rec.OpenRrForceUnlockedByGame != null)
+                    foreach (var pair in rec.OpenRrForceUnlockedByGame) _openRrForceUnlockedByGame[pair.Key] = pair.Value;
                 _isScanOnStartup = rec.ScanOnStartup;
                 if (_scanOnStartup != null) _scanOnStartup.IsChecked = _isScanOnStartup;
                 if (!string.IsNullOrEmpty(rec.PackageRoot))
@@ -1006,7 +1023,14 @@ namespace OptScalerNR.Launcher
                     ProxyChoices = _proxyChoices,
                     OptiPatcherByGame = _optiPatcherByGame,
                     OpenRrByGame = _openRrByGame,
-                    OpenRrSpoofByGame = _openRrSpoofByGame
+                    OpenRrSpoofByGame = _openRrSpoofByGame,
+                    GameModes = _gameModes,
+                    GameReshadeApis = _gameReshadeApis,
+                    GameRenoDx = _gameRenoDx,
+                    GameLumenite = _gameLumenite,
+                    GameLumeniteZips = _gameLumeniteZips,
+                    McMochiUnlockedByGame = _mcMochiUnlockedByGame,
+                    OpenRrForceUnlockedByGame = _openRrForceUnlockedByGame
                 };
                 JsonUtil.WriteFile(_settingsPath, set);
             }
@@ -1026,7 +1050,12 @@ namespace OptScalerNR.Launcher
                     bool migrated = false;
                     foreach (var g in rec.Games)
                     {
-                        if (g != null && (!string.IsNullOrEmpty(g.Exe) || !string.IsNullOrEmpty(g.Root)) && !IsHiddenGame(g) &&
+                        if (g != null && (GamePaths.IsWindowsAppsPath(g.Exe) || GamePaths.IsWindowsAppsPath(g.Root)))
+                        {
+                            migrated = true;
+                            continue;
+                        }
+                        if (g != null && (!string.IsNullOrEmpty(g.Exe) || !string.IsNullOrEmpty(g.Root)) &&
                             (g.ExeOverride == true || g.Source == "Manual" || g.HasExecutable))
                         {
                             if (string.IsNullOrEmpty(g.Id)) { g.Id = "manual:" + Guid.NewGuid().ToString("N"); migrated = true; }
@@ -1071,6 +1100,13 @@ namespace OptScalerNR.Launcher
             [System.Runtime.Serialization.DataMember] public string PackageRoot;
             [System.Runtime.Serialization.DataMember] public string RecentGameId;
             [System.Runtime.Serialization.DataMember] public Dictionary<string, BackendChoice> BackendChoices;
+            [System.Runtime.Serialization.DataMember(Name = "gameModes", EmitDefaultValue = false)] public Dictionary<string, string> GameModes;
+            [System.Runtime.Serialization.DataMember(Name = "gameReshadeApis", EmitDefaultValue = false)] public Dictionary<string, string> GameReshadeApis;
+            [System.Runtime.Serialization.DataMember(Name = "gameRenoDx", EmitDefaultValue = false)] public Dictionary<string, string> GameRenoDx;
+            [System.Runtime.Serialization.DataMember(Name = "gameLumenite", EmitDefaultValue = false)] public Dictionary<string, string> GameLumenite;
+            [System.Runtime.Serialization.DataMember(Name = "gameLumeniteZips", EmitDefaultValue = false)] public Dictionary<string, string> GameLumeniteZips;
+            [System.Runtime.Serialization.DataMember(Name = "mcMochiUnlockedByGame", EmitDefaultValue = false)] public Dictionary<string, bool> McMochiUnlockedByGame;
+            [System.Runtime.Serialization.DataMember(Name = "openRrForceUnlockedByGame", EmitDefaultValue = false)] public Dictionary<string, bool> OpenRrForceUnlockedByGame;
         }
 
         [System.Runtime.Serialization.DataContract]
@@ -1110,6 +1146,22 @@ namespace OptScalerNR.Launcher
 
         void RestoreBackendChoice()
         {
+            if (IsMcMochiLocked())
+            {
+                _updatingBackends = true;
+                try
+                {
+                    if (_mochiCheck != null)
+                    {
+                        _mochiCheck.IsChecked = false;
+                        _mochiCheck.IsEnabled = false;
+                    }
+                    _activeBackend = "";
+                    UpdateActiveCombo();
+                }
+                finally { _updatingBackends = false; }
+                return;
+            }
             var choice = CurrentBackendChoice();
             var list = new List<string>(choice != null ? choice.Backends : new[] { "mochizuki" });
             _updatingBackends = true;
@@ -1160,8 +1212,16 @@ namespace OptScalerNR.Launcher
             AddGameFromPath(picked);
         }
 
+        static bool IsDirectoryInstalled(string dir)
+        {
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return false;
+            return File.Exists(Path.Combine(dir, "amd-presr-install.txt")) ||
+                   !string.IsNullOrEmpty(PeProbe.DetectInstalledMode(dir));
+        }
+
         void AddGameFromPath(string exePath)
         {
+            if (RejectWindowsApps(exePath)) return;
             var norm = GamePaths.Normalize(exePath);
             if (string.IsNullOrEmpty(norm) || !GamePaths.CanUse(norm)) return;
             var restored = new List<string>();
@@ -1203,7 +1263,7 @@ namespace OptScalerNR.Launcher
                     Exe = norm,
                     Root = dir,
                     Source = "Manual",
-                    Installed = File.Exists(Path.Combine(dir, "amd-presr-install.txt"))
+                    Installed = IsDirectoryInstalled(dir)
                 };
                 _allGames.Add(found);
             }
@@ -1211,8 +1271,9 @@ namespace OptScalerNR.Launcher
             // Picking an existing scanned entry is also an explicit EXE choice.
             found.Exe = norm;
             found.ExeOverride = true;
-            found.Installed = File.Exists(Path.Combine(Path.GetDirectoryName(norm), "amd-presr-install.txt"));
+            found.Installed = IsDirectoryInstalled(Path.GetDirectoryName(norm));
             SaveLibraryCache();
+            RecheckPackageComparison(found);
             RefreshGameListView();
             SelectGame(found);
         }
@@ -1222,18 +1283,7 @@ namespace OptScalerNR.Launcher
             if (_selectedGame == null) return;
             var picked = GamePaths.PickExe(_language == "zh", _selectedGame.HasExecutable ? Path.GetDirectoryName(_selectedGame.Exe) : _selectedGame.RootDirectory);
             if (string.IsNullOrEmpty(picked)) return;
-            var norm = GamePaths.Normalize(picked);
-            if (string.IsNullOrEmpty(norm) || !GamePaths.CanUse(norm)) return;
-
-            BindExecutable(_selectedGame, norm);
-        }
-
-        bool IsHiddenGame(GameInfo game)
-        {
-            if (!string.IsNullOrEmpty(game.Id) && _hiddenGames.ContainsKey(game.Id)) return true;
-            foreach (var path in _hiddenGames.Values)
-                if (SamePath(path, EntryLocation(game))) return true;
-            return false;
+            BindExecutable(_selectedGame, picked);
         }
 
         void InitGameContextMenu()
@@ -1283,6 +1333,32 @@ namespace OptScalerNR.Launcher
             if (_selectedGame == null || !_selectedGame.HasExecutable) return;
             try
             {
+                if (_selectedGame.IsRtxRemixMinecraft)
+                {
+                    string instDirName;
+                    var sdkDir = Path.GetDirectoryName(_selectedGame.Exe);
+                    var prismExe = PeProbe.TryFindPrismLauncherExe(sdkDir, out instDirName);
+                    if (!string.IsNullOrEmpty(prismExe) && !string.IsNullOrEmpty(instDirName))
+                    {
+                        Process.Start(new ProcessStartInfo
+                        {
+                            FileName = prismExe,
+                            Arguments = "--launch \"" + instDirName + "\"",
+                            WorkingDirectory = Path.GetDirectoryName(prismExe),
+                            UseShellExecute = true
+                        });
+                        if (_statusText != null)
+                        {
+                            _statusText.Text = L("已请求 PrismLauncher 启动：" + _selectedGame.DisplayName, "Requested PrismLauncher to launch: " + _selectedGame.DisplayName);
+                        }
+                        return;
+                    }
+                    DialogTheme.Show(_window,
+                        L("未在实例上层目录找到 prismlauncher.exe，请通过 PrismLauncher 或 Minecraft 官方启动器启动游戏。",
+                          "prismlauncher.exe was not found above this instance. Please launch Minecraft via PrismLauncher or the Minecraft Launcher."),
+                        _window.Title, MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
                 var workDir = _selectedGame.RootDirectory;
                 if (string.IsNullOrEmpty(workDir) || !Directory.Exists(workDir))
                 {
@@ -1374,7 +1450,14 @@ namespace OptScalerNR.Launcher
         {
             foreach (var item in items) {
                 var current = item;
-                yield return new LocalArtwork.Request { Path = current.HasCover ? current.Cover : current.Info.Exe,
+                string iconPath = current.HasCover ? current.Cover : current.Info.Exe;
+                if (!current.HasCover && current.Info != null && current.Info.IsRtxRemixMinecraft && !string.IsNullOrEmpty(current.Info.Exe))
+                {
+                    string instDirName;
+                    var prismExe = PeProbe.TryFindPrismLauncherExe(Path.GetDirectoryName(current.Info.Exe), out instDirName);
+                    if (!string.IsNullOrEmpty(prismExe)) iconPath = prismExe;
+                }
+                yield return new LocalArtwork.Request { Path = iconPath,
                     Pixels = pixels, Icon = !current.HasCover, Complete = image => current.IconSource = image };
             }
         }
@@ -1461,6 +1544,9 @@ namespace OptScalerNR.Launcher
             _decisions.ForeignProxy.Clear();
             _resumeInstallAction = "";
             if (game == null || _selectedGame == null || !SameLibraryGame(game, _selectedGame)) _decisions.ModelSourceDll = null;
+            _modeAppliedForKey = "";
+            _lastPeInfo = null;
+            InvalidateNativeDlssdCache();
             _selectedGame = game;
             SelectGameProfiles();
             _lastInspectResult = null;
@@ -1472,11 +1558,13 @@ namespace OptScalerNR.Launcher
                 if (_heroPath != null) _heroPath.Text = "";
                 if (_heroPosterImage != null) _heroPosterImage.Source = null;
                 if (_heroBgImage != null) _heroBgImage.Source = null;
+                ApplyModeVisibility();
                 RefreshInspectionText();
                 UpdatePrimaryButtonState();
                 return;
             }
             RestoreBackendChoice();
+            ApplyModeVisibility();
             RefreshInspectionText();
             if (_heroTitle != null) _heroTitle.Text = game.DisplayName;
             if (_heroMeta != null) _heroMeta.Text = game.Source;
@@ -1498,6 +1586,7 @@ namespace OptScalerNR.Launcher
 
         void UpdatePrimaryActionText()
         {
+            UpdateModeBanners();
             if (_primaryButton == null) return;
             if (_selectedGame == null) {
                 _primaryButton.Content = L("选择一个游戏", "Select a game");
@@ -1505,16 +1594,44 @@ namespace OptScalerNR.Launcher
             } else if (!_selectedGame.HasExecutable) {
                 _primaryButton.Content = L("扫描 / 选择启动程序", "Find / choose game EXE");
                 _primaryButton.ToolTip = L("选择此游戏的启动程序，不会开始安装。", "Choose this game's executable; this does not install anything.");
+            } else if (_lastPeInfo != null && _lastPeInfo.Is32Bit) {
+                _primaryButton.Content = L("不支持 32 位程序", "32-bit EXE unsupported");
+                _primaryButton.ToolTip = L("不支持 32 位程序：请改选 64 位 (x64) 主程序。", "32-bit executable is not supported; please select the 64-bit (x64) executable.");
             } else if (!_selectedGame.Installed) {
-                _primaryButton.Content = L("安装 OptiScaler NR", "Install OptiScaler NR");
-                _primaryButton.ToolTip = L("按所选后端、模型、代理和 INI 选项安装。", "Install with the selected backends, models, proxy and INI options.");
+                var selMode = GetSelectedInstallMode();
+                if (IsRtxRemixMinecraftSelected()) {
+                    _primaryButton.Content = L("安装 RTX Remix 补丁", "Install RTX Remix Patch");
+                    _primaryButton.ToolTip = L("向 remix-sdk\\ 原名部署 OptiScaler.dll、应用 AMD remixbridge.dll 补丁（自动备份原版）并安装所选插件。", "Deploy unrenamed OptiScaler.dll, AMD remixbridge.dll patch (backing up the original), and selected plugins into remix-sdk\\.");
+                } else if (!IsOptiScalerSelectedMode()) {
+                    _primaryButton.Content = L("安装 " + FormatModeShortTag(selMode), "Install " + FormatModeShortTag(selMode));
+                    _primaryButton.ToolTip = L("按所选模式、网络与配置选项安装。", "Install using the selected mode, networks and configuration.");
+                } else {
+                    _primaryButton.Content = L("安装 OptiScaler NR", "Install OptiScaler NR");
+                    _primaryButton.ToolTip = L("按所选后端、模型、代理和 INI 选项安装。", "Install with the selected backends, models, proxy and INI options.");
+                }
             } else {
-                _primaryButton.Content = PackageDiffers(_selectedGame)
-                    ? L("更新 OptiScaler NR", "Update OptiScaler NR")
-                    : L("重新安装 / 应用更改", "Reinstall / apply changes");
-                _primaryButton.ToolTip = PackageDiffers(_selectedGame)
-                    ? L("已安装的 OptiScaler NR 与当前选择的安装包不同（文件哈希不同），不一定是旧版本。按当前选项更新，无需先卸载；取消勾选“覆盖现有 INI”可保留现有配置。", "The installed OptiScaler NR differs from the package you selected (different file hashes); it is not necessarily older. Update with your current options without uninstalling first. Uncheck Replace INI to keep your current configuration.")
-                    : L("重新安装并应用当前后端、模型和代理选项。取消勾选“覆盖现有 INI”可保留现有配置。", "Reinstall and apply your current backend, model and proxy options. Uncheck Replace INI to keep your current configuration.");
+                var installedMode = CurrentInstalledModeForSelectedGame();
+                var selectedMode = GetSelectedInstallMode();
+                bool modeSwitch = !string.IsNullOrEmpty(installedMode) &&
+                    !string.Equals(installedMode, selectedMode, StringComparison.OrdinalIgnoreCase);
+                if (modeSwitch) {
+                    _primaryButton.Content = L("卸载旧模式并安装 " + FormatModeShortTag(selectedMode), "Switch & install " + FormatModeShortTag(selectedMode));
+                    _primaryButton.ToolTip = L("检测到当前已安装其他模式：将先自动卸载旧文件（保留已有模型权重），再安装所选新模式。", "Another mode is currently installed: will cleanly uninstall previous files first (preserving model weights), then install the selected mode.");
+                } else if (IsRtxRemixMinecraftSelected()) {
+                    _primaryButton.Content = PackageDiffers(_selectedGame)
+                        ? L("更新 RTX Remix 补丁", "Update RTX Remix Patch")
+                        : L("重新安装 / 应用更改", "Reinstall / apply changes");
+                    _primaryButton.ToolTip = PackageDiffers(_selectedGame)
+                        ? L("已安装的 RTX Remix 补丁 / OptiScaler NR 与当前选择的安装包不同。按当前选项更新，将先清理并保留权重、配置及 NVIDIA 原版备份。", "The installed RTX Remix patch / OptiScaler NR differs from the package you selected. Updating cleanly resets files while preserving weights, INI (if unchecked) and the original NVIDIA backup.")
+                        : L("重新安装并应用当前插件与配置选项。取消勾选“覆盖现有 INI”可保留现有配置。", "Reinstall and apply your current plugins and configuration options. Uncheck Replace INI to keep your current configuration.");
+                } else {
+                    _primaryButton.Content = PackageDiffers(_selectedGame)
+                        ? L("更新 OptiScaler NR", "Update OptiScaler NR")
+                        : L("重新安装 / 应用更改", "Reinstall / apply changes");
+                    _primaryButton.ToolTip = PackageDiffers(_selectedGame)
+                        ? L("已安装的 OptiScaler NR 与当前选择的安装包不同（文件哈希不同），不一定是旧版本。按当前选项更新，无需先卸载；取消勾选“覆盖现有 INI”可保留现有配置。", "The installed OptiScaler NR differs from the package you selected (different file hashes); it is not necessarily older. Update with your current options without uninstalling first. Uncheck Replace INI to keep your current configuration.")
+                        : L("重新安装并应用当前模式、模型和配置选项。取消勾选“覆盖现有 INI”可保留现有配置。", "Reinstall and apply your current mode, model and configuration options. Uncheck Replace INI to keep your current configuration.");
+                }
             }
         }
 
@@ -1537,7 +1654,8 @@ namespace OptScalerNR.Launcher
 
             var hasBackend = true;
 
-            var proxyChosen = !string.IsNullOrEmpty(CurrentSelectedProxy);
+            var proxyChosen = !IsOptiScalerSelectedMode() || IsRtxRemixMinecraftSelected() || !string.IsNullOrEmpty(CurrentSelectedProxy);
+            var is32BitBlocked = _lastPeInfo != null && _lastPeInfo.Is32Bit;
             var isBusy = _session != null && _session.IsRunning && (_presentationBusy || !_session.CanKill);
             if (!_selectedGame.HasExecutable) {
                 _primaryButton.IsEnabled = !isBusy && !_writeBusy && _folderScan == null;
@@ -1549,7 +1667,7 @@ namespace OptScalerNR.Launcher
             if (_launchGameButton != null)
                 _launchGameButton.IsEnabled = !isBusy && !_writeBusy && _folderScan == null;
 
-            _primaryButton.IsEnabled = !isBusy && !_writeBusy && _folderScan == null && hasBackend && proxyChosen;
+            _primaryButton.IsEnabled = !isBusy && !_writeBusy && _folderScan == null && hasBackend && proxyChosen && !is32BitBlocked;
             if (_uninstallButton != null)
                 _uninstallButton.IsEnabled = !isBusy && _selectedGame.Installed;
         }
@@ -1592,7 +1710,7 @@ namespace OptScalerNR.Launcher
         static bool SameLibraryGame(GameInfo a, GameInfo b)
         {
             return (!string.IsNullOrEmpty(a.Id) && !string.IsNullOrEmpty(b.Id) &&
-                    string.Equals(a.Id, b.Id, StringComparison.OrdinalIgnoreCase)) ||
+                    string.Equals(LibraryId(a.Id, a.RootDirectory), LibraryId(b.Id, b.RootDirectory), StringComparison.OrdinalIgnoreCase)) ||
                    SamePath(a.Exe, b.Exe) ||
                    ((string.IsNullOrEmpty(a.Exe) || string.IsNullOrEmpty(b.Exe)) && SamePath(a.RootDirectory, b.RootDirectory));
         }
@@ -1621,11 +1739,26 @@ namespace OptScalerNR.Launcher
             var previousExe = previousSelection != null ? previousSelection.Exe : null;
             var previousName = previousSelection != null ? previousSelection.Name : null;
             var merged = new List<GameInfo>();
+            var slots = new LibraryIndex();
+            var hidden = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var hiddenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pair in _hiddenGames)
+            {
+                hiddenIds.Add(LibraryId(pair.Key, pair.Value));
+                var key = PathKey(pair.Value);
+                if (key != null) hidden.Add(key);
+            }
+            Predicate<GameInfo> skip = g => g == null || (string.IsNullOrEmpty(g.Exe) && string.IsNullOrEmpty(g.Root)) ||
+                hiddenIds.Contains(LibraryId(g.Id, g.RootDirectory)) || hidden.Contains(PathKey(EntryLocation(g)));
             foreach (var cached in _allGames)
             {
-                if (cached == null || (string.IsNullOrEmpty(cached.Exe) && string.IsNullOrEmpty(cached.Root)) || IsHiddenGame(cached)) continue;
-                var index = merged.FindIndex(g => SameLibraryGame(g, cached));
-                if (index < 0) merged.Add(cached);
+                if (skip(cached)) continue;
+                var index = slots.Find(cached);
+                if (index < 0)
+                {
+                    slots.Set(cached, merged.Count, true);
+                    merged.Add(cached);
+                }
                 else
                 {
                     var existing = merged[index];
@@ -1638,39 +1771,50 @@ namespace OptScalerNR.Launcher
                     {
                         if (string.IsNullOrEmpty(cached.CustomName)) cached.CustomName = existing.CustomName;
                         if (string.IsNullOrEmpty(cached.CustomCover)) cached.CustomCover = existing.CustomCover;
+                        slots.Set(existing, index, false);
                         merged[index] = cached;
+                        slots.Set(cached, index, true);
                     }
                 }
             }
             foreach (var incoming in scanned)
             {
-                if (incoming == null || (string.IsNullOrEmpty(incoming.Exe) && string.IsNullOrEmpty(incoming.Root)) || IsHiddenGame(incoming)) continue;
-                var existing = merged.Find(g => SameLibraryGame(g, incoming));
-                if (existing == null)
+                if (skip(incoming) || GamePaths.IsWindowsAppsPath(incoming.Exe) || GamePaths.IsWindowsAppsPath(incoming.Root)) continue;
+                var index = slots.Find(incoming);
+                if (index < 0)
                 {
+                    slots.Set(incoming, merged.Count, true);
                     incoming.ExeOverride = false;
                     merged.Add(incoming);
                     continue;
                 }
+                var existing = merged[index];
+                slots.Set(existing, index, false);
                 if (!KeepCachedExe(existing) || (!existing.HasExecutable && incoming.HasExecutable))
                 {
                     existing.Exe = incoming.Exe;
                     existing.ExeOverride = false;
                 }
-                if (existing.Source != "Manual" && string.Equals(existing.Id, incoming.Id, StringComparison.OrdinalIgnoreCase))
+                if (existing.Source != "Manual" && string.Equals(LibraryId(existing.Id, existing.RootDirectory), LibraryId(incoming.Id, incoming.RootDirectory), StringComparison.OrdinalIgnoreCase))
                 {
                     existing.Name = incoming.Name;
                     existing.Source = incoming.Source;
                 }
+                if (!string.IsNullOrEmpty(incoming.TargetKind)) existing.TargetKind = incoming.TargetKind;
+                if (!string.IsNullOrEmpty(incoming.Root)) existing.Root = incoming.Root;
                 if (!string.IsNullOrEmpty(incoming.Cover)) existing.Cover = incoming.Cover;
                 if (!string.IsNullOrEmpty(incoming.Hero)) existing.Hero = incoming.Hero;
+                slots.Set(existing, index, true);
             }
             foreach (var game in merged)
-                game.Installed = game.HasExecutable && File.Exists(Path.Combine(Path.GetDirectoryName(game.Exe), "amd-presr-install.txt"));
+                game.Installed = game.HasExecutable && IsDirectoryInstalled(Path.GetDirectoryName(game.Exe));
             _allGames.Clear();
             _allGames.AddRange(merged);
             if (previousSelection != null)
-                _selectedGame = merged.Find(g => SameLibraryGame(g, previousSelection)) ?? previousSelection;
+            {
+                var index = slots.Find(previousSelection);
+                _selectedGame = index < 0 ? previousSelection : merged[index];
+            }
             return previousSelection != null &&
                 (!ReferenceEquals(previousSelection, _selectedGame) ||
                  !string.Equals(previousExe, _selectedGame.Exe, StringComparison.OrdinalIgnoreCase) ||
@@ -1731,10 +1875,11 @@ namespace OptScalerNR.Launcher
             if (game == null || !game.HasExecutable) { RefreshInspectionText(); return; }
 
             _lastInspectResult = null;
+            InvalidateNativeDlssdCache();
             var fastProxy = PeProbe.QuickRecommend(game.Exe);
             UpdateProxyRecommendation(fastProxy);
             _decisions.OptiPatcher = (_optiPatcherToggle != null && _optiPatcherToggle.IsEnabled && _optiPatcherToggle.IsChecked == true) ? "install" : "skip";
-            _decisions.OpenRr = (_openRrToggle != null && _openRrToggle.IsChecked == true) ? "install" : "skip";
+            _decisions.OpenRr = (!IsOpenRrUnsupportedLocked() && _openRrToggle != null && _openRrToggle.IsChecked == true) ? "install" : "skip";
             if (TryFastInspect(game, fastProxy)) return;
 
             if (_session != null)
@@ -1788,10 +1933,12 @@ namespace OptScalerNR.Launcher
         {
             if (_selectedGame == null || !_selectedGame.HasExecutable) return;
             var dir = Path.GetDirectoryName(_selectedGame.Exe);
+            var installedMode = CurrentInstalledModeForSelectedGame();
+            var modeTag = string.IsNullOrEmpty(installedMode) ? "" : (" [" + FormatModeShortTag(installedMode) + "]");
             var isZh = _language == "zh";
             var msg = isZh
-                ? ("确定要从以下目录卸载 OptiScaler NR 吗？\n" + dir + "\n\n将删除 NR 和 OpenRR 资源目录及其中的模型、着色器和缓存，并卸载本项目的组件。")
-                : ("Uninstall OptiScaler NR from:\n" + dir + "\n\nThis removes the NR and OpenRR resource directories, including their models, shaders and caches, along with the installed components.");
+                ? ("确定要从以下目录完整卸载 OptiScaler NR" + modeTag + " 吗？\n" + dir + "\n\n将还原备份的游戏原文件，并清理本目录的 OptiScaler / dlssnr-amd / openrr-amd 等组件及模型、缓存；公共 %LOCALAPPDATA%\\DLSSNR-AMD 数据不会受到影响。")
+                : ("Uninstall OptiScaler NR" + modeTag + " from:\n" + dir + "\n\nThis restores backed-up game files and removes the project's OptiScaler / dlssnr-amd / openrr-amd folders, models, and caches from this directory. Shared data under %LOCALAPPDATA%\\DLSSNR-AMD is untouched.");
 
             var confirm = DialogTheme.Show(_window, msg, _window.Title, MessageBoxButton.OKCancel, MessageBoxImage.Warning);
             if (confirm != MessageBoxResult.OK) return;
@@ -2216,7 +2363,7 @@ namespace OptScalerNR.Launcher
                 ChooseModelSource(action);
                 return false;
             }
-            if (_openRrToggle != null && _openRrToggle.IsChecked == true && !HasValidOpenRrDlssd())
+            if (!IsOpenRrUnsupportedLocked() && _openRrToggle != null && _openRrToggle.IsChecked == true && !HasValidOpenRrDlssd())
             {
                 if (!ChooseOpenRrDlssd()) return false;
             }
@@ -2270,35 +2417,250 @@ namespace OptScalerNR.Launcher
             }
         }
 
-        static bool GameDirectoryHasDlssdDll(string gameDir)
+        static bool IsExcludedDlssdFolder(string name)
         {
-            if (string.IsNullOrEmpty(gameDir) || !Directory.Exists(gameDir)) return false;
+            if (string.IsNullOrEmpty(name)) return true;
+            if (name.IndexOf("backup", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return string.Equals(name, "openrr-amd", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "opennr-rr", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "dlssnr-amd", StringComparison.OrdinalIgnoreCase);
+        }
+
+        static bool IsClimbableGameSubdir(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            return string.Equals(name, "Win64", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "WinGDK", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "Win32", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "Binaries", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "bin", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "x64", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "x64_dx12", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "x64_dx11", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "x86_64", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "retail", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "shipping", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "Release", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "game", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "pc", StringComparison.OrdinalIgnoreCase);
+        }
+
+        static bool IsAllowedDlssdSubdir(string name)
+        {
+            if (IsExcludedDlssdFolder(name)) return false;
+            if (string.Equals(name, "runtime", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "marketplace", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "thirdparty", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "vendor", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "binaries", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "bin", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "win64", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "wingdk", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "x64", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "x64_dx12", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "x86_64", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "plugins", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "sl", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, ".trex", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "core", StringComparison.OrdinalIgnoreCase))
+                return true;
+            return name.IndexOf("nvidia", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                name.IndexOf("streamline", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                name.IndexOf("dlss", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                name.IndexOf("ngx", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                name.IndexOf("rtx", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                name.IndexOf("remix", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                name.IndexOf("interposer", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        static string TryFindDirectUePluginDlssd(string pluginRoot)
+        {
+            if (string.IsNullOrEmpty(pluginRoot) || !Directory.Exists(pluginRoot)) return null;
+            var prefixes = new[]
+            {
+                @"Runtime\Nvidia\Streamline",
+                @"Runtime\Nvidia\StreamlineCore",
+                @"Runtime\Nvidia\StreamlineDLSSG",
+                @"Runtime\Nvidia\DLSS",
+                @"Marketplace\Streamline",
+                @"Marketplace\StreamlineCore",
+                @"Marketplace\DLSS",
+                @"Nvidia\Streamline",
+                @"Nvidia\DLSS",
+                "Streamline",
+                "DLSS"
+            };
+            var plats = new[] { "Win64", "WinGDK" };
+            for (int i = 0; i < prefixes.Length; i++)
+            {
+                var baseDir = Path.Combine(pluginRoot, prefixes[i]);
+                var tpDir = Path.Combine(Path.Combine(baseDir, "Binaries"), "ThirdParty");
+                for (int j = 0; j < plats.Length; j++)
+                {
+                    var cand = Path.Combine(Path.Combine(tpDir, plats[j]), "nvngx_dlssd.dll");
+                    if (File.Exists(cand)) return cand;
+                }
+            }
+            return null;
+        }
+
+        internal static string FindGameNativeDlssdPath(string gameDir)
+        {
+            if (string.IsNullOrEmpty(gameDir) || !Directory.Exists(gameDir)) return null;
             try
             {
-                if (File.Exists(Path.Combine(gameDir, "nvngx_dlssd.dll"))) return true;
-                var current = gameDir;
-                for (int up = 0; up < 3 && !string.IsNullOrEmpty(current); up++)
+                // Tier 1: O(1) fixed-location probes (zero directory enumeration).
+                var direct = Path.Combine(gameDir, "nvngx_dlssd.dll");
+                if (File.Exists(direct)) return direct;
+
+                var gameSubDirs = new[] { ".trex", "Streamline", "dlss", "nvngx", "ThirdParty", "bin", "x64", "Win64" };
+                for (int i = 0; i < gameSubDirs.Length; i++)
                 {
-                    if (File.Exists(Path.Combine(current, "nvngx_dlssd.dll"))) return true;
-                    try
-                    {
-                        if (Directory.GetFiles(current, "nvngx_dlssd.dll", SearchOption.AllDirectories).Length > 0)
-                            return true;
-                    }
-                    catch { }
+                    var cand = Path.Combine(Path.Combine(gameDir, gameSubDirs[i]), "nvngx_dlssd.dll");
+                    if (File.Exists(cand)) return cand;
+                }
+
+                var climbed = new List<string>();
+                var current = gameDir;
+                bool sawBinaries = false;
+                for (int up = 0; up < 4 && !string.IsNullOrEmpty(current); up++)
+                {
+                    var leaf = Path.GetFileName(current.TrimEnd('\\', '/'));
+                    if (string.Equals(leaf, "Binaries", StringComparison.OrdinalIgnoreCase)) sawBinaries = true;
+                    if (!IsClimbableGameSubdir(leaf)) break;
                     var parent = Path.GetDirectoryName(current.TrimEnd('\\', '/'));
                     if (string.IsNullOrEmpty(parent) || string.Equals(parent, current, StringComparison.OrdinalIgnoreCase)) break;
-                    var parentLeaf = Path.GetFileName(current.TrimEnd('\\', '/'));
-                    if (!string.Equals(parentLeaf, "Win64", StringComparison.OrdinalIgnoreCase) &&
-                        !string.Equals(parentLeaf, "Binaries", StringComparison.OrdinalIgnoreCase) &&
-                        !string.Equals(parentLeaf, "bin", StringComparison.OrdinalIgnoreCase) &&
-                        !string.Equals(parentLeaf, "x64", StringComparison.OrdinalIgnoreCase))
-                        break;
+                    climbed.Add(parent);
                     current = parent;
+                }
+
+                var gameRoot = current;
+                string ueRoot = null;
+                if (sawBinaries)
+                {
+                    var p = Path.GetDirectoryName(gameRoot.TrimEnd('\\', '/'));
+                    if (!string.IsNullOrEmpty(p) && !string.Equals(p, gameRoot, StringComparison.OrdinalIgnoreCase) && Directory.Exists(p))
+                        ueRoot = p;
+                }
+
+                for (int i = 0; i < climbed.Count; i++)
+                {
+                    var cand = Path.Combine(climbed[i], "nvngx_dlssd.dll");
+                    if (File.Exists(cand)) return cand;
+                }
+                if (!string.IsNullOrEmpty(ueRoot))
+                {
+                    var cand = Path.Combine(ueRoot, "nvngx_dlssd.dll");
+                    if (File.Exists(cand)) return cand;
+                }
+
+                var rootRels = new[] { "Streamline", "bin", @"bin\x64", @"bin\.trex", @"Plugins\x86_64" };
+                for (int i = 0; i < rootRels.Length; i++)
+                {
+                    var cand = Path.Combine(Path.Combine(gameRoot, rootRels[i]), "nvngx_dlssd.dll");
+                    if (File.Exists(cand)) return cand;
+                }
+
+                var uePluginRoots = new List<string>();
+                uePluginRoots.Add(Path.Combine(gameRoot, "Plugins"));
+                uePluginRoots.Add(Path.Combine(Path.Combine(gameRoot, "Engine"), "Plugins"));
+                if (!string.IsNullOrEmpty(ueRoot))
+                    uePluginRoots.Add(Path.Combine(Path.Combine(ueRoot, "Engine"), "Plugins"));
+                for (int i = 0; i < uePluginRoots.Count; i++)
+                {
+                    var hit = TryFindDirectUePluginDlssd(uePluginRoots[i]);
+                    if (!string.IsNullOrEmpty(hit)) return hit;
+                }
+
+                try
+                {
+                    if (Directory.Exists(gameRoot))
+                    {
+                        var dataDirs = Directory.GetDirectories(gameRoot, "*_Data");
+                        for (int i = 0; i < dataDirs.Length; i++)
+                        {
+                            var pluginsDir = Path.Combine(dataDirs[i], "Plugins");
+                            var x64Cand = Path.Combine(Path.Combine(pluginsDir, "x86_64"), "nvngx_dlssd.dll");
+                            if (File.Exists(x64Cand)) return x64Cand;
+                            var flatCand = Path.Combine(pluginsDir, "nvngx_dlssd.dll");
+                            if (File.Exists(flatCand)) return flatCand;
+                        }
+                    }
+                }
+                catch { }
+
+                // Tier 2: shallow depth-1 check under gameDir + whitelist-pruned BFS (visited dedup, max 64 dirs).
+                try
+                {
+                    var depth1 = Directory.GetDirectories(gameDir);
+                    for (int i = 0; i < depth1.Length; i++)
+                    {
+                        var sub = depth1[i];
+                        var leaf = Path.GetFileName(sub.TrimEnd('\\', '/'));
+                        if (IsExcludedDlssdFolder(leaf)) continue;
+                        var cand = Path.Combine(sub, "nvngx_dlssd.dll");
+                        if (File.Exists(cand)) return cand;
+                    }
+                }
+                catch { }
+
+                var seeds = new List<string>();
+                var seedBases = new[] { gameDir, gameRoot };
+                var seedRels = new[] { "Plugins", "Streamline", "ThirdParty", ".trex", "bin" };
+                for (int b = 0; b < seedBases.Length; b++)
+                {
+                    for (int r = 0; r < seedRels.Length; r++)
+                        seeds.Add(Path.Combine(seedBases[b], seedRels[r]));
+                }
+                seeds.Add(Path.Combine(Path.Combine(gameRoot, "Engine"), "Plugins"));
+                if (!string.IsNullOrEmpty(ueRoot))
+                    seeds.Add(Path.Combine(Path.Combine(ueRoot, "Engine"), "Plugins"));
+
+                var queue = new Queue<Tuple<string, int>>();
+                var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                for (int i = 0; i < seeds.Count; i++)
+                {
+                    if (Directory.Exists(seeds[i]))
+                        queue.Enqueue(Tuple.Create(seeds[i], 0));
+                }
+
+                const int maxDirs = 64;
+                const int maxDepth = 7;
+                int visitedCount = 0;
+                while (queue.Count > 0 && visitedCount < maxDirs)
+                {
+                    var item = queue.Dequeue();
+                    var dir = item.Item1;
+                    var depth = item.Item2;
+                    string norm;
+                    try { norm = Path.GetFullPath(dir).TrimEnd('\\', '/'); }
+                    catch { continue; }
+                    if (!visited.Add(norm)) continue;
+                    visitedCount++;
+
+                    var cand = Path.Combine(norm, "nvngx_dlssd.dll");
+                    if (File.Exists(cand)) return cand;
+                    if (depth >= maxDepth) continue;
+
+                    string[] children;
+                    try { children = Directory.GetDirectories(norm); }
+                    catch { continue; }
+                    for (int i = 0; i < children.Length; i++)
+                    {
+                        var child = children[i];
+                        var cLeaf = Path.GetFileName(child.TrimEnd('\\', '/'));
+                        if (IsAllowedDlssdSubdir(cLeaf))
+                            queue.Enqueue(Tuple.Create(child, depth + 1));
+                    }
                 }
             }
             catch { }
-            return false;
+            return null;
+        }
+
+        static bool GameDirectoryHasNativeDlssdDll(string gameDir)
+        {
+            return !string.IsNullOrEmpty(FindGameNativeDlssdPath(gameDir));
         }
 
         void ExecuteAction(string action, bool keepModelChoice = false, string compatibilityFingerprint = null)
@@ -2322,6 +2684,14 @@ namespace OptScalerNR.Launcher
             // Decisions are valid only for this attempt and its explicit needsInput retries.
             if (!keepModelChoice) { _decisions.ForeignProxy.Clear(); }
             var dir = Path.GetDirectoryName(_selectedGame.Exe);
+            var installMode = GetSelectedInstallMode();
+            var isOptiMode = IsOptiScalerSelectedMode();
+            var isRtxMc = IsRtxRemixMinecraftSelected();
+            if (installing && _lastPeInfo != null && _lastPeInfo.Is32Bit)
+            {
+                DialogTheme.Show(_window, L("当前选中的是 32 位程序，本插件仅支持 64 位 (x64) 程序。请改选 64 位主程序。", "The selected EXE is 32-bit; only 64-bit (x64) targets are supported."), _window.Title, MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
             if (!TryLockTarget(dir))
             {
                 if (_statusText != null)
@@ -2330,35 +2700,67 @@ namespace OptScalerNR.Launcher
             }
 
             var proxy = CurrentSelectedProxy;
-            if (installing && string.IsNullOrEmpty(proxy))
+            if (installing && isOptiMode && !isRtxMc && string.IsNullOrEmpty(proxy))
             {
                 DialogTheme.Show(_window, _language == "zh" ? "请先选择要注入的代理 DLL。" : "Please select a proxy DLL to inject first.", _window.Title);
                 ReleaseLock();
                 return;
             }
 
-            var checkedBackends = new List<string>();
-            if (_mochiCheck != null && _mochiCheck.IsChecked == true) checkedBackends.Add("mochizuki");
+            bool needElevation = (installing || action == "uninstall" || action == "repairXess" || action == "restoreXess") &&
+                DlssnrLocalData.IsProtectedDirectory(dir) && !DlssnrLocalData.IsCurrentProcessElevated();
+            if (needElevation)
+            {
+                var uacMsg = L(
+                    "目标目录受系统权限保护，需要管理员权限才能写入或卸载：\n\n" + dir + "\n\n是否请求管理员权限（UAC）并继续？",
+                    "This folder is protected and requires administrator privileges to install or uninstall:\n\n" + dir + "\n\nRequest administrator privileges (UAC) and continue?");
+                if (DialogTheme.Show(_window, uacMsg, _window.Title, MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                {
+                    ReleaseLock();
+                    return;
+                }
+            }
 
-            if (installing)
+            var checkedBackends = new List<string>();
+            if (!isOptiMode)
+            {
+                checkedBackends.Add("mochizuki");
+            }
+            else if (!IsMcMochiLocked() && _mochiCheck != null && _mochiCheck.IsChecked == true)
+            {
+                checkedBackends.Add("mochizuki");
+            }
+
+            if (installing && isOptiMode)
             {
                 bool nrOn = checkedBackends.Contains("mochizuki");
-                bool rrOn = _openRrToggle != null && _openRrToggle.IsChecked == true;
+                bool rrOn = !IsOpenRrUnsupportedLocked() && _openRrToggle != null && _openRrToggle.IsChecked == true;
                 if (!nrOn)
                 {
                     if (!keepModelChoice)
                     {
-                        string warnMsg = !rrOn
-                            ? L(
-                                "当前未启用神经渲染（Mochizuki）与 DLSS 光线重建（OpenRR），本次将仅安装官方基础版 OptiScaler（支持超分与帧生成），不安装神经渲染与光线重建插件。\n\n是否继续？",
-                                "Neither Mochizuki Neural Rendering nor OpenRR (DLSS Ray Reconstruction) is enabled. Only official base OptiScaler will be installed.\n\nContinue anyway?")
-                            : L(
-                                "当前未启用神经渲染（Mochizuki），本次将仅安装官方 OptiScaler 与 OpenRR 光线重建插件。\n\n是否继续？",
-                                "Mochizuki Neural Rendering is not enabled; only official OptiScaler and OpenRR will be installed.\n\nContinue anyway?");
-                        if (DialogTheme.Show(_window, warnMsg, _window.Title, MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                        if (isRtxMc && rrOn)
                         {
-                            ReleaseLock();
-                            return;
+                            // MC mode recommends OpenRR and locks NR by default; proceed without extra NR warning.
+                        }
+                        else
+                        {
+                            string warnMsg = isRtxMc
+                                ? L(
+                                    "当前未启用 OpenRR 光线重建与神经渲染（Mochizuki），本次将仅安装基础版 OptiScaler 与 AMD 兼容版 remixbridge.dll。\n\n是否继续？",
+                                    "Neither OpenRR (Ray Reconstruction) nor Mochizuki Neural Rendering is enabled. Only base OptiScaler and AMD-patched remixbridge.dll will be installed.\n\nContinue anyway?")
+                                : (!rrOn
+                                    ? L(
+                                        "当前未启用神经渲染（Mochizuki）与 DLSS 光线重建（OpenRR），本次将仅安装官方基础版 OptiScaler（支持超分与帧生成），不安装神经渲染与光线重建插件。\n\n是否继续？",
+                                        "Neither Mochizuki Neural Rendering nor OpenRR (DLSS Ray Reconstruction) is enabled. Only official base OptiScaler will be installed.\n\nContinue anyway?")
+                                    : L(
+                                        "当前未启用神经渲染（Mochizuki），本次将仅安装官方 OptiScaler 与 OpenRR 光线重建插件。\n\n是否继续？",
+                                        "Mochizuki Neural Rendering is not enabled; only official OptiScaler and OpenRR will be installed.\n\nContinue anyway?"));
+                            if (DialogTheme.Show(_window, warnMsg, _window.Title, MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                            {
+                                ReleaseLock();
+                                return;
+                            }
                         }
                     }
                     checkedBackends.Add("none");
@@ -2371,13 +2773,13 @@ namespace OptScalerNR.Launcher
                 _decisions.MochizukiModels = SelectMochizukiModels(action);
                 if (string.IsNullOrEmpty(_decisions.MochizukiModels)) { ReleaseLock(); return; }
             }
-            if (installing && !keepModelChoice && _openRrToggle != null && _openRrToggle.IsChecked == true)
+            if (installing && isOptiMode && !keepModelChoice && !IsOpenRrUnsupportedLocked() && !IsOpenRrForceUnlocked() && _openRrToggle != null && _openRrToggle.IsChecked == true)
             {
-                if (!GameDirectoryHasDlssdDll(dir))
+                if (!GameDirectoryHasNativeDlssdDll(dir))
                 {
                     var rrWarn = L(
-                        "未在当前游戏目录中检测到 nvngx_dlssd.dll，该游戏可能不支持英伟达光线重建（Ray Reconstruction）功能。\n\n是否仍要安装 OpenRR？",
-                        "nvngx_dlssd.dll was not found in the game folder. This game may not support NVIDIA Ray Reconstruction.\n\nInstall OpenRR anyway?");
+                        "未在当前游戏目录中检测到原生 nvngx_dlssd.dll，该游戏可能不支持 DLSS 光线重建（Ray Reconstruction）。\n\n是否仍要安装 OpenRR？",
+                        "No native nvngx_dlssd.dll was found in the game folder. This game may not support DLSS Ray Reconstruction.\n\nInstall OpenRR anyway?");
                     if (DialogTheme.Show(_window, rrWarn, _window.Title, MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
                     {
                         ReleaseLock();
@@ -2394,9 +2796,13 @@ namespace OptScalerNR.Launcher
             _pendingAction = action;
 
             _decisions.ExistingIni = (_replaceIni != null && _replaceIni.IsChecked == true) ? "overwrite" : "keep";
-            _decisions.OptiPatcher = (_optiPatcherToggle != null && _optiPatcherToggle.IsEnabled && _optiPatcherToggle.IsChecked == true) ? "install" : "skip";
-            _decisions.OpenRr = (_openRrToggle != null && _openRrToggle.IsChecked == true) ? "install" : "skip";
-            _decisions.OpenRrSpoof = (_decisions.OptiPatcher == "install" && GetOpenRrSpoof(_selectedGame) == "auto") ? "auto" : "full";
+            _decisions.OptiPatcher = (isOptiMode && !isRtxMc && _optiPatcherToggle != null && _optiPatcherToggle.IsEnabled && _optiPatcherToggle.IsChecked == true) ? "install" : "skip";
+            _decisions.OpenRr = (isOptiMode && !IsOpenRrUnsupportedLocked() && _openRrToggle != null && _openRrToggle.IsChecked == true) ? "install" : "skip";
+            _decisions.OpenRrSpoof = (isOptiMode && !isRtxMc && _decisions.OptiPatcher == "install" && GetOpenRrSpoof(_selectedGame) == "auto") ? "auto" : "full";
+            _decisions.InstallMode = installMode;
+            _decisions.RenoDX = GetSelectedRenoDx();
+            _decisions.Lumenite = GetSelectedLumenite();
+            _decisions.LumeniteZip = GetSelectedLumeniteZip();
 
             var req = new LauncherRequest
             {
@@ -2404,11 +2810,12 @@ namespace OptScalerNR.Launcher
                 Action = action,
                 Language = _language,
                 GameExe = _selectedGame.Exe,
-                ProxyChoice = proxy,
+                ProxyChoice = (isOptiMode && !isRtxMc) ? proxy : "dxgi.dll",
                 Backends = installing ? checkedBackends.ToArray() : null,
-                ActiveBackend = (installing && !checkedBackends.Contains("none")) ? _activeBackend : null,
+                ActiveBackend = (installing && !checkedBackends.Contains("none")) ? "mochizuki" : null,
                 PackageRoot = _packageRoot,
                 ExplicitDecisions = _decisions,
+                InstallMode = installMode,
                 Fingerprint = (action != "inspect" && _lastInspectResult != null) ? _lastInspectResult.Fingerprint : null,
                 CompatibilityFingerprint = compatibilityFingerprint ?? (_lastInspectResult != null && _lastInspectResult.Compatibility != null ? _lastInspectResult.Compatibility.Fingerprint : null)
             };
@@ -2416,9 +2823,19 @@ namespace OptScalerNR.Launcher
             var work = Path.Combine(Path.GetTempPath(), "OptScalerNR-launcher", req.RequestId);
             try
             {
-                _session = WorkerSession.Start(WorkerScript, req, work, canKill: false);
+                _session = needElevation
+                    ? WorkerSession.StartElevated(WorkerScript, req, work, canKill: false)
+                    : WorkerSession.Start(WorkerScript, req, work, canKill: false);
                 _session.EventReceived += OnEvent;
                 _session.Completed += OnCompleted;
+            }
+            catch (OperationCanceledException)
+            {
+                SetBusy(false, "");
+                ReleaseLock();
+                if (_statusLed != null) _statusLed.Fill = MissingBrush;
+                if (_progress != null) _progress.IsIndeterminate = false;
+                if (_statusText != null) _statusText.Text = L("已取消管理员权限授权。", "Administrator elevation was cancelled.");
             }
             catch (Exception ex)
             {
@@ -2528,6 +2945,7 @@ namespace OptScalerNR.Launcher
                         RecheckPackageComparison(_selectedGame);
                         SaveLibraryCache();
                         SelectGameProfiles();
+                        _modeAppliedForKey = "";
                         RefreshGameListView();
                         if (_selectedGame != null) InspectGame(_selectedGame);
                     }
@@ -2566,24 +2984,35 @@ namespace OptScalerNR.Launcher
 
             // Checkbox events can temporarily fall back while capabilities are applied
             // in worker order. Resolve the preferred backend after the complete batch.
-            var preferredActiveBackend = _activeBackend;
+            var preferredActiveBackend = IsMcMochiLocked() ? "" : _activeBackend;
             var hasUserChoice = CurrentBackendChoice() != null;
             _updatingBackends = true;
             try
             {
                 if (result.Backends != null)
                 {
-                    var savedChoice = CurrentBackendChoice();
-                    bool onlyRetiredSaved = savedChoice != null && savedChoice.Backends != null &&
-                        savedChoice.Backends.Length > 0 && Array.IndexOf(savedChoice.Backends, "mochizuki") < 0;
-                    if ((!hasUserChoice || onlyRetiredSaved) && _mochiCheck != null && _mochiCheck.IsChecked != true)
-                        _mochiCheck.IsChecked = true;
-                    foreach (var b in result.Backends)
+                    if (IsMcMochiLocked())
                     {
-                        if (b != null && b.Id == "mochizuki" && _mochiCheck != null)
+                        if (_mochiCheck != null)
                         {
-                            _mochiCheck.IsEnabled = true;
-                            if (!hasUserChoice) _mochiCheck.IsChecked = b.Enabled || b.RuntimeState == "ready";
+                            _mochiCheck.IsChecked = false;
+                            _mochiCheck.IsEnabled = false;
+                        }
+                    }
+                    else
+                    {
+                        var savedChoice = CurrentBackendChoice();
+                        bool onlyRetiredSaved = savedChoice != null && savedChoice.Backends != null &&
+                            savedChoice.Backends.Length > 0 && Array.IndexOf(savedChoice.Backends, "mochizuki") < 0;
+                        if ((!hasUserChoice || onlyRetiredSaved) && _mochiCheck != null && _mochiCheck.IsChecked != true)
+                            _mochiCheck.IsChecked = true;
+                        foreach (var b in result.Backends)
+                        {
+                            if (b != null && b.Id == "mochizuki" && _mochiCheck != null)
+                            {
+                                _mochiCheck.IsEnabled = true;
+                                if (!hasUserChoice) _mochiCheck.IsChecked = b.Enabled || b.RuntimeState == "ready";
+                            }
                         }
                     }
                 }
@@ -2593,6 +3022,19 @@ namespace OptScalerNR.Launcher
             }
             finally { _updatingBackends = false; }
             RefreshInspectionText();
+            if (_selectedGame != null && _selectedGame.HasExecutable)
+            {
+                bool detectedInstalled = !string.IsNullOrEmpty(result.InstalledMode) ||
+                    IsDirectoryInstalled(Path.GetDirectoryName(_selectedGame.Exe));
+                if (_selectedGame.Installed != detectedInstalled)
+                {
+                    _selectedGame.Installed = detectedInstalled;
+                    SaveLibraryCache();
+                    RefreshGameListView();
+                    RecheckPackageComparison(_selectedGame);
+                }
+            }
+            SelectModeForGame(result, null);
             UpdatePrimaryButtonState();
             DetectPackageUpdate(result, requestedPackageRoot);
 

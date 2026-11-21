@@ -23,6 +23,7 @@ namespace OptScalerNR.Launcher
         [DataMember(Name = "activeBackend")] public string ActiveBackend;
         [DataMember(Name = "language")] public string Language;
         [DataMember(Name = "compatibilityFingerprint")] public string CompatibilityFingerprint;
+        [DataMember(Name = "installMode", EmitDefaultValue = false)] public string InstallMode;
     }
 
     [DataContract]
@@ -41,6 +42,10 @@ namespace OptScalerNR.Launcher
         [DataMember(Name = "foreignProxy")] public Dictionary<string, string> ForeignProxy;
         [DataMember(Name = "xessGroups")] public string[] XessGroups;
         [DataMember(Name = "modelSourceDll")] public string ModelSourceDll;
+        [DataMember(Name = "installMode", EmitDefaultValue = false)] public string InstallMode;
+        [DataMember(Name = "renoDX", EmitDefaultValue = false)] public string RenoDX;
+        [DataMember(Name = "lumenite", EmitDefaultValue = false)] public string Lumenite;
+        [DataMember(Name = "lumeniteZip", EmitDefaultValue = false)] public string LumeniteZip;
     }
 
     [DataContract]
@@ -65,6 +70,11 @@ namespace OptScalerNR.Launcher
         [DataMember(Name = "packageRoot")] public string PackageRoot;
         [DataMember(Name = "compatibility")] public XessCompatibility Compatibility;
         [DataMember(Name = "mochizukiInstall")] public MochizukiInstallInfo MochizukiInstall;
+        [DataMember(Name = "installedMode", EmitDefaultValue = false)] public string InstalledMode;
+        [DataMember(Name = "recommendedMode", EmitDefaultValue = false)] public string RecommendedMode;
+        [DataMember(Name = "recommendedReshadeApi", EmitDefaultValue = false)] public string RecommendedReshadeApi;
+        [DataMember(Name = "detectedApi", EmitDefaultValue = false)] public string DetectedApi;
+        [DataMember(Name = "requiresAdmin", EmitDefaultValue = false)] public bool RequiresAdmin;
     }
 
     // A Mochizuki (DLSSNR-AMD) installation of its own found in the game folder (inspect is read-only).
@@ -138,11 +148,13 @@ namespace OptScalerNR.Launcher
         [DataMember(Name = "customName", EmitDefaultValue = false)] public string CustomName;
         [DataMember(Name = "customCover", EmitDefaultValue = false)] public string CustomCover;
         [DataMember(Name = "exeOverride", EmitDefaultValue = false)] public bool? ExeOverride;
+        [DataMember(Name = "targetKind", EmitDefaultValue = false)] public string TargetKind;
         public string DisplayName { get { return string.IsNullOrWhiteSpace(CustomName) ? Name : CustomName; } }
         public string DisplayCover { get { return !string.IsNullOrEmpty(CustomCover) && File.Exists(CustomCover) ? CustomCover : Cover; } }
         public string DisplayHero { get { return !string.IsNullOrEmpty(CustomCover) && File.Exists(CustomCover) ? CustomCover : Hero; } }
         public string RootDirectory { get { try { return !string.IsNullOrEmpty(Root) ? Root : !string.IsNullOrEmpty(Exe) ? Path.GetDirectoryName(Exe) : null; } catch { return null; } } }
         public bool HasExecutable { get { return !string.IsNullOrEmpty(Exe) && GamePaths.CanUse(Exe); } }
+        public bool IsRtxRemixMinecraft { get { return string.Equals(TargetKind, "rtx-remix-mc", StringComparison.OrdinalIgnoreCase) || PeProbe.IsRtxRemixMinecraftExe(Exe); } }
     }
 
     [DataContract]

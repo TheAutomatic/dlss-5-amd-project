@@ -23,6 +23,7 @@ namespace OptScalerNR.Launcher
         bool _comparisonWorkerRunning;
         PackageComparisonRequest _pendingPackageComparison;
         readonly Dictionary<string, bool?> _packageDifferences = new Dictionary<string, bool?>(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<string, string> _installedModes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         ComboBox _themeCombo;
         Button _themeToggle;
         static readonly Brush HeroMutedBrush = new SolidColorBrush(Color.FromRgb(204, 213, 228));
@@ -49,6 +50,8 @@ namespace OptScalerNR.Launcher
             addMenu.Click += delegate { if (PresentationIdle) addPopup.IsOpen = !addPopup.IsOpen; };
             ((Button)_window.FindName("AddButton")).Click += delegate { addPopup.IsOpen = false; };
             ((Button)_window.FindName("AddFolderButton")).Click += delegate { addPopup.IsOpen = false; };
+            var addRtxRemixMc = (Button)_window.FindName("AddRtxRemixMcButton");
+            if (addRtxRemixMc != null) addRtxRemixMc.Click += delegate { addPopup.IsOpen = false; };
             ((Button)_window.FindName("SettingsCloseButton")).Click += delegate { SwitchTab(false); };
             ((Button)_window.FindName("RefreshBackendsButton")).Click += delegate {
                 if (PresentationIdle && _selectedGame != null && _selectedGame.HasExecutable) InspectGame(_selectedGame);
@@ -256,6 +259,7 @@ namespace OptScalerNR.Launcher
         sealed class PackageComparisonResult
         {
             public readonly Dictionary<string, bool> Differences = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            public readonly Dictionary<string, string> InstalledModes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         }
         static string ComparisonPath(string path)
         {
@@ -281,10 +285,15 @@ namespace OptScalerNR.Launcher
         }
         string PackageStatusText(GameInfo game)
         {
+            string mode = null;
+            string path = game != null ? ComparisonPath(game.Exe) : null;
+            if (!string.IsNullOrEmpty(path)) _installedModes.TryGetValue(path, out mode);
+            string tag = (!string.IsNullOrEmpty(mode) && !string.Equals(mode, "optiscaler", StringComparison.OrdinalIgnoreCase))
+                ? (" · " + FormatModeShortTag(mode)) : "";
             bool? different;
-            if (!TryGetPackageDifference(game, out different)) return L("正在核对版本…", "Checking version…");
-            if (!different.HasValue) return L("已安装 · 版本未知", "Installed · Version unknown");
-            return different.Value ? L("版本不同", "Version differs") : L("已安装", "Installed");
+            if (!TryGetPackageDifference(game, out different)) return L("正在核对版本…", "Checking version…") + tag;
+            if (!different.HasValue) return L("已安装 · 版本未知", "Installed · Version unknown") + tag;
+            return (different.Value ? L("版本不同", "Version differs") : L("已安装", "Installed")) + tag;
         }
         void DetectPackageUpdate(LauncherResult result, string requestedPackageRoot)
         {
@@ -299,7 +308,7 @@ namespace OptScalerNR.Launcher
             string[] capturedPaths = ComparisonGamePaths();
             bool samePackage = string.Equals(root, _comparisonPackageRoot, StringComparison.OrdinalIgnoreCase);
             if (samePackage && !force && SameComparisonPaths(capturedPaths, _comparisonGamePaths)) return;
-            if (!samePackage) _packageDifferences.Clear();
+            if (!samePackage) { _packageDifferences.Clear(); _installedModes.Clear(); }
             if (!samePackage || force) {
                 ++_packageComparisonGeneration;
                 _pendingPackageComparison = null;
@@ -307,6 +316,8 @@ namespace OptScalerNR.Launcher
             var current = new HashSet<string>(capturedPaths, StringComparer.OrdinalIgnoreCase);
             foreach (var path in _packageDifferences.Keys.Where(path => !current.Contains(path)).ToArray())
                 _packageDifferences.Remove(path);
+            foreach (var path in _installedModes.Keys.Where(path => !current.Contains(path)).ToArray())
+                _installedModes.Remove(path);
             _comparisonPackageRoot = root;
             _comparisonGamePaths = capturedPaths;
             if (root != null) {
@@ -386,36 +397,107 @@ namespace OptScalerNR.Launcher
                 var compared = new PackageComparisonResult();
                 try {
                     using (var hash = SHA256.Create()) {
-                        byte[] packageHash;
-                        using (var source = File.OpenRead(Path.Combine(request.PackageRoot, "OptiScaler.dll"))) packageHash = hash.ComputeHash(source);
+                        byte[] packageHash = null;
+                        string optiDllPath = Path.Combine(request.PackageRoot, "OptiScaler.dll");
+                        if (File.Exists(optiDllPath)) using (var source = File.OpenRead(optiDllPath)) packageHash = hash.ComputeHash(source);
                         byte[] pkgMochiHash = null, pkgOpenRrHash = null;
+                        byte[] pkgStandaloneDxgiHash = null, pkgVulkanHash = null, pkgAddonHash = null, pkgReShadeHash = null, pkgDxvkD3d9Hash = null, pkgRemixBridgeHash = null;
                         string pkgMochiPath = Path.Combine(request.PackageRoot, @"OptiScaler\plugins\dlssnr-amd.asi");
                         if (File.Exists(pkgMochiPath)) using (var s = File.OpenRead(pkgMochiPath)) pkgMochiHash = hash.ComputeHash(s);
                         string pkgOpenRrPath = Path.Combine(request.PackageRoot, @"OptiScaler\plugins\openrr-amd.asi");
                         if (!File.Exists(pkgOpenRrPath)) pkgOpenRrPath = Path.Combine(request.PackageRoot, @"OptiScaler\plugins\openrr.asi");
                         if (File.Exists(pkgOpenRrPath) && new FileInfo(pkgOpenRrPath).Length > 0)
                             using (var s = File.OpenRead(pkgOpenRrPath)) pkgOpenRrHash = hash.ComputeHash(s);
+                        string pStandaloneDxgi = Path.Combine(request.PackageRoot, @"standalone\dxgi.dll");
+                        if (File.Exists(pStandaloneDxgi)) using (var s = File.OpenRead(pStandaloneDxgi)) pkgStandaloneDxgiHash = hash.ComputeHash(s);
+                        string pVulkan = Path.Combine(request.PackageRoot, @"vulkan\vulkan-1.dll");
+                        if (File.Exists(pVulkan)) using (var s = File.OpenRead(pVulkan)) pkgVulkanHash = hash.ComputeHash(s);
+                        string pAddon = Path.Combine(request.PackageRoot, @"reshade\dlssnr_amd.addon64");
+                        if (File.Exists(pAddon)) using (var s = File.OpenRead(pAddon)) pkgAddonHash = hash.ComputeHash(s);
+                        string pReShade = Path.Combine(request.PackageRoot, @"reshade\ReShade64.dll");
+                        if (File.Exists(pReShade)) using (var s = File.OpenRead(pReShade)) pkgReShadeHash = hash.ComputeHash(s);
+                        string pDxvkD3d9 = Path.Combine(request.PackageRoot, @"dxvk\d3d9.dll");
+                        if (File.Exists(pDxvkD3d9)) using (var s = File.OpenRead(pDxvkD3d9)) pkgDxvkD3d9Hash = hash.ComputeHash(s);
+                        string pRemixBridge = Path.Combine(request.PackageRoot, @"rtx-remix-mc\remixbridge.dll");
+                        if (File.Exists(pRemixBridge)) using (var s = File.OpenRead(pRemixBridge)) pkgRemixBridgeHash = hash.ComputeHash(s);
+
+                        Func<string, byte[], bool> fileDiffers = delegate(string gameFile, byte[] pkgBytes) {
+                            if (pkgBytes == null) return false;
+                            if (!File.Exists(gameFile)) return true;
+                            using (var fs = File.OpenRead(gameFile)) return !pkgBytes.SequenceEqual(hash.ComputeHash(fs));
+                        };
 
                         foreach (var exe in request.GamePaths) {
                             if (System.Threading.Thread.VolatileRead(ref _packageComparisonGeneration) != request.Generation) break;
                             try {
-                                string directory = Path.GetDirectoryName(exe), proxy = null, pluginDir = null;
+                                string directory = Path.GetDirectoryName(exe), proxy = null, pluginDir = null, installMode = null;
                                 bool expectsMochi = false, expectsOpenRr = false;
-                                using (var marker = new StreamReader(Path.Combine(directory, "amd-presr-install.txt"))) {
-                                    string line;
-                                    while ((line = marker.ReadLine()) != null) {
-                                        if (line.StartsWith("proxy=", StringComparison.OrdinalIgnoreCase)) proxy = line.Substring(6).Trim();
-                                        else if (line.StartsWith("pluginDir=", StringComparison.OrdinalIgnoreCase)) {
-                                            var recorded = line.Substring(10).Trim();
-                                            if (Path.IsPathRooted(recorded)) pluginDir = ComparisonPath(recorded);
+                                string markerPath = Path.Combine(directory, "amd-presr-install.txt");
+                                if (File.Exists(markerPath)) {
+                                    using (var marker = new StreamReader(markerPath)) {
+                                        string line;
+                                        while ((line = marker.ReadLine()) != null) {
+                                            if (line.StartsWith("installMode=", StringComparison.OrdinalIgnoreCase)) installMode = line.Substring(12).Trim().ToLowerInvariant();
+                                            else if (line.StartsWith("proxy=", StringComparison.OrdinalIgnoreCase)) proxy = line.Substring(6).Trim();
+                                            else if (line.StartsWith("pluginDir=", StringComparison.OrdinalIgnoreCase)) {
+                                                var recorded = line.Substring(10).Trim();
+                                                if (Path.IsPathRooted(recorded)) pluginDir = ComparisonPath(recorded);
+                                            }
+                                            else if (line.Equals("backend=mochizuki", StringComparison.OrdinalIgnoreCase)) expectsMochi = true;
+                                            else if (line.StartsWith("openRrSpoof=", StringComparison.OrdinalIgnoreCase)) expectsOpenRr = true;
                                         }
-                                        else if (line.Equals("backend=mochizuki", StringComparison.OrdinalIgnoreCase)) expectsMochi = true;
-                                        else if (line.StartsWith("openRrSpoof=", StringComparison.OrdinalIgnoreCase)) expectsOpenRr = true;
                                     }
                                 }
+                                if (string.IsNullOrEmpty(installMode))
+                                    installMode = PeProbe.DetectInstalledMode(directory) ?? "optiscaler";
+                                compared.InstalledModes[exe] = installMode;
+
+                                if (installMode == "standalone") {
+                                    bool diff = fileDiffers(Path.Combine(directory, "dxgi.dll"), pkgStandaloneDxgiHash) ||
+                                        fileDiffers(Path.Combine(directory, "dlssnr-amd.asi"), pkgMochiHash) ||
+                                        fileDiffers(Path.Combine(directory, "vulkan-1.dll"), pkgVulkanHash);
+                                    compared.Differences[exe] = diff;
+                                    continue;
+                                }
+                                if (installMode == "rtx-remix-mc") {
+                                    if (pluginDir == null)
+                                        pluginDir = UnlockerPlugin.DestinationDirectory(directory, UnlockerPlugin.ReadIni(Path.Combine(directory, "OptiScaler.ini")));
+                                    bool diff = fileDiffers(Path.Combine(directory, "OptiScaler.dll"), packageHash) ||
+                                        fileDiffers(Path.Combine(directory, "remixbridge.dll"), pkgRemixBridgeHash);
+                                    if (!diff && pkgMochiHash != null) {
+                                        string gameMochi = Path.Combine(pluginDir, "dlssnr-amd.asi");
+                                        if (File.Exists(gameMochi)) diff = fileDiffers(gameMochi, pkgMochiHash);
+                                        else if (expectsMochi) diff = true;
+                                    }
+                                    if (!diff && pkgOpenRrHash != null) {
+                                        string gameOpenRr = Path.Combine(pluginDir, "openrr-amd.asi");
+                                        if (!File.Exists(gameOpenRr)) gameOpenRr = Path.Combine(pluginDir, "openrr.asi");
+                                        if (File.Exists(gameOpenRr)) diff = fileDiffers(gameOpenRr, pkgOpenRrHash);
+                                        else if (expectsOpenRr || Directory.Exists(Path.Combine(directory, @"openrr-amd\shaders")) || Directory.Exists(Path.Combine(directory, @"opennr-rr\shaders"))) diff = true;
+                                    }
+                                    compared.Differences[exe] = diff;
+                                    continue;
+                                }
+                                if (installMode.StartsWith("reshade", StringComparison.OrdinalIgnoreCase)) {
+                                    bool diff = fileDiffers(Path.Combine(directory, "dlssnr_amd.addon64"), pkgAddonHash);
+                                    if (!diff) {
+                                        if (installMode == "reshade-feeder")
+                                            diff = fileDiffers(Path.Combine(directory, "dxgi.dll"), pkgReShadeHash);
+                                        else if (installMode == "reshade-feeder-dx9")
+                                            diff = fileDiffers(Path.Combine(directory, "ReShade64.dll"), pkgReShadeHash) ||
+                                                fileDiffers(Path.Combine(directory, "d3d9.dll"), pkgDxvkD3d9Hash) ||
+                                                fileDiffers(Path.Combine(directory, "vulkan-1.dll"), pkgVulkanHash);
+                                        else if (installMode == "reshade-feeder-vulkan")
+                                            diff = fileDiffers(Path.Combine(directory, "ReShade64.dll"), pkgReShadeHash) ||
+                                                fileDiffers(Path.Combine(directory, "vulkan-1.dll"), pkgVulkanHash);
+                                    }
+                                    compared.Differences[exe] = diff;
+                                    continue;
+                                }
+
                                 if (pluginDir == null)
                                     pluginDir = UnlockerPlugin.DestinationDirectory(directory, UnlockerPlugin.ReadIni(Path.Combine(directory, "OptiScaler.ini")));
-                                if (!ProxyRecommendations.Supports(proxy)) continue;
+                                if (packageHash == null || !ProxyRecommendations.Supports(proxy)) continue;
                                 byte[] installedHash;
                                 using (var target = File.OpenRead(Path.Combine(directory, proxy))) installedHash = hash.ComputeHash(target);
                                 bool different = !packageHash.SequenceEqual(installedHash);
@@ -463,6 +545,11 @@ namespace OptScalerNR.Launcher
                                     pending.GamePaths.Contains(path, StringComparer.OrdinalIgnoreCase))) continue;
                                 bool different;
                                 _packageDifferences[path] = result.Differences.TryGetValue(path, out different) ? (bool?)different : null;
+                                string instMode;
+                                if (result.InstalledModes.TryGetValue(path, out instMode))
+                                    _installedModes[path] = instMode;
+                                else
+                                    _installedModes.Remove(path);
                             }
                         }
                         RefreshGameListView();

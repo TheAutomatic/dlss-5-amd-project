@@ -251,7 +251,8 @@ function Get-LocalImportWalk([string]$startExe, [Diagnostics.Stopwatch]$sw) {
 
 function Get-DirFingerprint([string]$exe, [string]$dir) {
     $parts = New-Object System.Collections.Generic.List[string]
-    foreach ($p in @($exe) + @($CandidateNames | ForEach-Object { Join-Path $dir $_ })) {
+    $extra = @('OptiScaler.dll', 'remixbridge.dll', 'dlssnr-amd-backup\remixbridge.dll', 'd3d9.dll', 'vulkan-1.dll', 'dlssnr-amd.asi', 'dlssnr_amd.addon64', 'ReShade64.dll', 'amd-presr-install.txt', 'dlssnr-amd-install.txt')
+    foreach ($p in @($exe) + @(($CandidateNames + $extra) | ForEach-Object { Join-Path $dir $_ })) {
         if (Test-Path -LiteralPath $p -PathType Leaf) {
             try {
                 $i = Get-Item -LiteralPath $p
@@ -268,6 +269,85 @@ function Get-DirFingerprint([string]$exe, [string]$dir) {
     } finally { $sha.Dispose() }
 }
 
+function Test-DirRequiresAdmin([string]$dir) {
+    if (-not $dir -or $dir -match '(?i)\\WindowsApps\\') { return $false }
+    if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return $false }
+    try {
+        $me = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+        if ($me.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { return $false }
+    } catch { }
+    $probeFile = Join-Path $dir ('.nr-probe-' + [guid]::NewGuid().ToString('N') + '.tmp')
+    try {
+        [IO.File]::WriteAllText($probeFile, '')
+        Remove-Item -LiteralPath $probeFile -Force -ErrorAction SilentlyContinue
+        return $false
+    } catch {
+        return $true
+    }
+}
+
+function Test-RtxRemixMinecraftDir([string]$dir) {
+    if (-not $dir) { return $false }
+    if (-not (Test-Path -LiteralPath (Join-Path $dir 'remixbridge.dll') -PathType Leaf)) { return $false }
+    foreach ($marker in @('d3d9.dll', 'rtxio.dll', 'NRD.dll', 'NRC_Vulkan.dll')) {
+        if (Test-Path -LiteralPath (Join-Path $dir $marker) -PathType Leaf) { return $true }
+    }
+    return $false
+}
+
+function Get-InstalledModeFromDir([string]$dir) {
+    if (-not $dir) { return $null }
+    $mark = Join-Path $dir 'amd-presr-install.txt'
+    if (Test-Path -LiteralPath $mark -PathType Leaf) {
+        try {
+            $lines = [IO.File]::ReadAllLines($mark, [Text.Encoding]::UTF8)
+            $isOurProject = $false
+            $mode = $null
+            foreach ($raw in $lines) {
+                $line = $raw.TrimStart([char]0xFEFF).Trim()
+                if ($line -match '^(?i)project=(?:OptScaler\(NR\)|OptiScaler AMD pre-SR)$') { $isOurProject = $true }
+                elseif ($line -match '^(?i)installMode=(.+)$') { $mode = $Matches[1].Trim().ToLowerInvariant() }
+            }
+            if ($mode -in @('optiscaler', 'rtx-remix-mc', 'standalone', 'reshade-feeder', 'reshade-feeder-dx9', 'reshade-feeder-vulkan')) {
+                return $mode
+            }
+            if ($isOurProject) { return 'optiscaler' }
+        } catch { }
+    }
+    if (Test-RtxRemixMinecraftDir $dir) {
+        $optiDirect = Join-Path $dir 'OptiScaler.dll'
+        if (Test-Path -LiteralPath $optiDirect -PathType Leaf) {
+            try {
+                $vi = (Get-Item -LiteralPath $optiDirect).VersionInfo
+                if ($vi.ProductName -eq 'OptiScaler' -or $vi.FileDescription -eq 'OptiScaler') { return 'rtx-remix-mc' }
+            } catch { }
+        }
+    }
+    if (Test-Path -LiteralPath (Join-Path $dir 'dlssnr_amd.addon64') -PathType Leaf) {
+        if (Test-Path -LiteralPath (Join-Path $dir 'd3d9.dll') -PathType Leaf) { return 'reshade-feeder-dx9' }
+        if ((Test-Path -LiteralPath (Join-Path $dir 'vulkan-1.dll') -PathType Leaf) -or
+            (Test-Path -LiteralPath (Join-Path $dir 'ReShade64.dll') -PathType Leaf)) {
+            return 'reshade-feeder-vulkan'
+        }
+        return 'reshade-feeder'
+    }
+    if ((Test-Path -LiteralPath (Join-Path $dir 'dlssnr-amd.asi') -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-Path $dir 'vk-override\implicit_layer\dlssnr_standalone.json') -PathType Leaf) -and
+        -not (Test-Path -LiteralPath (Join-Path $dir 'ReShade64.dll') -PathType Leaf)) {
+        return 'standalone'
+    }
+    foreach ($c in $CandidateNames) {
+        $candPath = Join-Path $dir $c
+        if (Test-Path -LiteralPath $candPath -PathType Leaf) {
+            try {
+                $vi = (Get-Item -LiteralPath $candPath).VersionInfo
+                if ($vi.ProductName -eq 'OptiScaler' -or $vi.FileDescription -eq 'OptiScaler') { return 'optiscaler' }
+            } catch { }
+        }
+    }
+    return $null
+}
+
 function Get-ProxyRecommendation([string]$exe) {
     $sw = [Diagnostics.Stopwatch]::StartNew()
     $full = [IO.Path]::GetFullPath($exe)
@@ -282,6 +362,13 @@ function Get-ProxyRecommendation([string]$exe) {
         partial = $false
         walk = $null
         fingerprint = $null
+        installedMode = $null
+        recommendedMode = 'optiscaler'
+        recommendedReshadeApi = 'reshade-feeder'
+        detectedApi = 'Unknown'
+        hasUpscaler = $false
+        isKnownStandaloneApp = $false
+        requiresAdmin = $false
         limits = @{ maxFiles = $script:MaxFiles; maxDepth = $script:MaxDepth; maxBytes = [int]$script:MaxBytes; maxMs = $script:MaxMs }
     }
     $result.pe = Get-PeImports $full
@@ -342,6 +429,73 @@ function Get-ProxyRecommendation([string]$exe) {
     $result.partial = [bool]$result.pe.partial -or [bool]$walk.partial
     if ($sw.ElapsedMilliseconds -gt $script:MaxMs) { $result.partial = $true }
     $result.fingerprint = Get-DirFingerprint $full $dir
+
+    $allImports = New-Object System.Collections.Generic.HashSet[string] ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($imp in @($direct + $delay + $deps)) {
+        if ($imp) { [void]$allImports.Add([IO.Path]::GetFileName([string]$imp)) }
+    }
+    $hasD3d9 = $allImports.Contains('d3d9.dll')
+    $hasD3d11 = $allImports.Contains('d3d11.dll')
+    $hasD3d12 = $allImports.Contains('d3d12.dll')
+    $hasDxgi = $allImports.Contains('dxgi.dll')
+    $hasVulkan = $allImports.Contains('vulkan-1.dll')
+    foreach ($markerName in @('nvngx_dlss.dll', 'nvngx_dlssd.dll', 'nvngx_dlssg.dll', 'sl.interposer.dll', 'libxess.dll', 'libxess_dx11.dll', 'libxess_fg.dll', 'amd_fidelityfx_dx12.dll', 'amd_fidelityfx_upscaler_dx12.dll', 'amd_fidelityfx_vk.dll')) {
+        if ($allImports.Contains($markerName) -or (Test-Path -LiteralPath (Join-Path $dir $markerName) -PathType Leaf)) {
+            $result.hasUpscaler = $true
+            break
+        }
+    }
+    if (-not $result.hasUpscaler) {
+        foreach ($imp in $allImports) {
+            if ($imp -match '^(?i)(nvngx_dlss|sl\.interposer|libxess|amd_fidelityfx_|ffx_fsr|ffx_backend_)') {
+                $result.hasUpscaler = $true
+                break
+            }
+        }
+    }
+    $exeLeaf = [IO.Path]::GetFileName($full)
+    $standaloneNames = @('obs64.exe', 'mpv.exe', 'potplayermini64.exe', 'potplayer64.exe', 'magpie.exe', 'mpc-hc64.exe', 'mpc-be64.exe', 'vlc.exe', 'losslessscaling.exe')
+    $result.isKnownStandaloneApp = ($standaloneNames -contains $exeLeaf.ToLowerInvariant()) -or ($full -match '(?i)\\(obs-studio|potplayer|magpie|mpv|mpc-hc|mpc-be|vlc)\\')
+
+    if ($hasVulkan -and -not ($hasD3d11 -or $hasD3d12 -or $hasDxgi)) {
+        $result.detectedApi = 'Vulkan'
+        $result.recommendedReshadeApi = 'reshade-feeder-vulkan'
+    } elseif ($hasD3d9 -and -not ($hasD3d11 -or $hasD3d12 -or $hasDxgi -or $hasVulkan)) {
+        $result.detectedApi = 'DX9'
+        $result.recommendedReshadeApi = 'reshade-feeder-dx9'
+    } elseif ($hasD3d11 -or $hasD3d12 -or $hasDxgi) {
+        $result.detectedApi = 'DX11/12'
+        $result.recommendedReshadeApi = 'reshade-feeder'
+    } elseif ($hasVulkan) {
+        $result.detectedApi = 'Vulkan'
+        $result.recommendedReshadeApi = 'reshade-feeder-vulkan'
+    }
+
+    $isRtxRemixMc = Test-RtxRemixMinecraftDir $dir
+    if ($isRtxRemixMc) {
+        $result.conflicts = @()
+        $result.candidates = @()
+        $result.selectionRequired = $false
+        $result.hasUpscaler = $true
+        $result.detectedApi = 'Vulkan (RTX Remix)'
+        $result.recommendedMode = 'rtx-remix-mc'
+        if (-not $blockedArch) {
+            $result.blockInstall = $false
+            $result.recommend = $null
+            $result.hint = '检测到 RTX Remix for Minecraft：将原名安装 OptiScaler.dll 并应用 AMD remixbridge.dll 补丁。'
+        }
+    } else {
+        if ($result.isKnownStandaloneApp) {
+            $result.recommendedMode = 'standalone'
+        } elseif ($hasD3d9 -and -not ($hasD3d11 -or $hasD3d12 -or $hasDxgi -or $hasVulkan -or $result.hasUpscaler)) {
+            $result.recommendedMode = 'reshade'
+        } else {
+            $result.recommendedMode = 'optiscaler'
+        }
+    }
+
+    $result.installedMode = Get-InstalledModeFromDir $dir
+    $result.requiresAdmin = Test-DirRequiresAdmin $dir
     return $result
 }
 

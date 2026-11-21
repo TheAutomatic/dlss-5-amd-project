@@ -23,6 +23,13 @@ param(
     [switch]$NoPause,
     [ValidateSet('full', 'auto')]
     [string]$OpenRrSpoof = 'full',
+    [ValidateSet('optiscaler', 'rtx-remix-mc', 'standalone', 'reshade-feeder', 'reshade-feeder-dx9', 'reshade-feeder-vulkan')]
+    [string]$InstallMode = 'optiscaler',
+    [ValidateSet('on', 'off')]
+    [string]$RenoDX = 'on',
+    [ValidateSet('on', 'off')]
+    [string]$Lumenite = 'off',
+    [string]$LumeniteZip = '',
     [string]$DecisionJson
 )
 $ErrorActionPreference = 'Stop'
@@ -119,6 +126,40 @@ if ($launcherDecisions) {
             Fail 'DecisionJson openRrSpoof must be full or auto.'
         }
     }
+    if (-not $PSBoundParameters.ContainsKey('InstallMode') -and
+        $launcherDecisions.PSObject.Properties['installMode'] -and $launcherDecisions.installMode) {
+        $InstallMode = ([string]$launcherDecisions.installMode).Trim().ToLowerInvariant()
+        if ($InstallMode -notin @('optiscaler', 'rtx-remix-mc', 'standalone', 'reshade-feeder', 'reshade-feeder-dx9', 'reshade-feeder-vulkan')) {
+            Fail "DecisionJson installMode is invalid: $InstallMode"
+        }
+    }
+    if (-not $PSBoundParameters.ContainsKey('RenoDX') -and
+        $launcherDecisions.PSObject.Properties['renoDX'] -and $launcherDecisions.renoDX) {
+        $RenoDX = ([string]$launcherDecisions.renoDX).Trim().ToLowerInvariant()
+        if ($RenoDX -notin @('on', 'off')) { Fail 'DecisionJson renoDX must be on or off.' }
+    }
+    if (-not $PSBoundParameters.ContainsKey('Lumenite') -and
+        $launcherDecisions.PSObject.Properties['lumenite'] -and $launcherDecisions.lumenite) {
+        $Lumenite = ([string]$launcherDecisions.lumenite).Trim().ToLowerInvariant()
+        if ($Lumenite -notin @('on', 'off')) { Fail 'DecisionJson lumenite must be on or off.' }
+    }
+    if (-not $PSBoundParameters.ContainsKey('LumeniteZip') -and
+        $launcherDecisions.PSObject.Properties['lumeniteZip'] -and $launcherDecisions.lumeniteZip) {
+        $LumeniteZip = ([string]$launcherDecisions.lumeniteZip).Trim('"')
+    }
+}
+$isRtxRemixMc = ($InstallMode -eq 'rtx-remix-mc')
+$isOptiMode = ($InstallMode -eq 'optiscaler' -or $isRtxRemixMc)
+$effectiveProxy = if ($isRtxRemixMc) { 'OptiScaler.dll' } else { $Proxy }
+if ($InstallMode -eq 'standalone') {
+    $RenoDX = 'on'
+    $Lumenite = 'off'
+    $LumeniteZip = ''
+} elseif ($isOptiMode) {
+    $Lumenite = 'off'
+    $LumeniteZip = ''
+} elseif ($LumeniteZip -and $Lumenite -ne 'on') {
+    $Lumenite = 'on'
 }
 
 if ($PSBoundParameters.ContainsKey('ActiveBackend')) {
@@ -199,6 +240,67 @@ function Get-Sha256([string]$path) {
         try { return ([BitConverter]::ToString($sha.ComputeHash($fs))).Replace('-', '') }
         finally { $fs.Dispose() }
     } finally { $sha.Dispose() }
+}
+
+function Test-FilesEqualFast([string]$pathA, [string]$pathB) {
+    if ([string]::IsNullOrEmpty($pathA) -or [string]::IsNullOrEmpty($pathB)) { return $false }
+    if (-not (Test-Path -LiteralPath $pathA -PathType Leaf) -or -not (Test-Path -LiteralPath $pathB -PathType Leaf)) { return $false }
+    try {
+        $lenA = (Get-Item -LiteralPath $pathA -ErrorAction Stop).Length
+        $lenB = (Get-Item -LiteralPath $pathB -ErrorAction Stop).Length
+        if ($lenA -ne $lenB) { return $false }
+        return ((Get-Sha256 $pathA) -eq (Get-Sha256 $pathB))
+    } catch { return $false }
+}
+
+function Remove-OwnedTreeSafe([string]$dir) {
+    if ([string]::IsNullOrEmpty($dir) -or -not (Test-Path -LiteralPath $dir -PathType Container)) { return }
+    $full = Assert-LmxxfUnlinkedPath $dir
+    $longPath = if ($full.StartsWith('\\')) { '\\?\UNC\' + $full.Substring(2) } else { '\\?\' + $full }
+    $readOnlyFiles = [Collections.Generic.List[IO.FileInfo]]::new()
+    $stack = [Collections.Generic.Stack[IO.DirectoryInfo]]::new()
+    $stack.Push([IO.DirectoryInfo]::new($longPath))
+    while ($stack.Count -gt 0) {
+        foreach ($entry in $stack.Pop().EnumerateFileSystemInfos()) {
+            if ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw "Refusing linked path inside owned folder: $($entry.FullName)"
+            }
+            if ($entry -is [IO.DirectoryInfo]) {
+                $stack.Push($entry)
+            } elseif ($entry.IsReadOnly) {
+                $readOnlyFiles.Add($entry)
+            }
+        }
+    }
+    foreach ($ro in $readOnlyFiles) { $ro.IsReadOnly = $false }
+    [IO.Directory]::Delete($longPath, $true)
+}
+
+function Reset-ModelResourceTree([string]$dir, [string[]]$keep) {
+    # Same-volume renames preserve the only copy, including on a partial restore.
+    $stage = Join-Path (Split-Path -Parent $dir) ('.dlssnr-models-stage-' + [guid]::NewGuid().ToString('N'))
+    $stagingStarted = $false
+    try {
+        if ($keep.Count) {
+            [void][IO.Directory]::CreateDirectory($stage)
+            $stagingStarted = $true
+            foreach ($name in $keep) {
+                [IO.File]::Move((Join-Path $dir $name), (Join-Path $stage $name))
+            }
+        }
+        Remove-OwnedTreeSafe $dir
+        [void][IO.Directory]::CreateDirectory($dir)
+        foreach ($name in $keep) {
+            [IO.File]::Move((Join-Path $stage $name), (Join-Path $dir $name))
+            Write-Host "Preserved model: dlssnr-amd/$name" -ForegroundColor Cyan
+        }
+        if ($keep.Count) { [IO.Directory]::Delete($stage) } # Empty only.
+    } catch {
+        if ($stagingStarted) {
+            throw "Model refresh failed: $($_.Exception.Message) Check $dir and recover staged models from $stage."
+        }
+        throw
+    }
 }
 
 # PE-image SHA256 (headers + section raw bytes). 0.5.0+ may append a default ini
@@ -532,17 +634,27 @@ $priorOpenRrSpoof = $null
 $priorOpenRrInstalled = $false
 $priorOpenRrPluginDirs = @((Join-Path $game 'OptiScaler\plugins'), (Join-Path $game 'plugins'))
 $priorRecordPath = Join-Path $game 'amd-presr-install.txt'
+$priorInstallMode = $null
+$priorRecordIsProject = $false
 if (Test-Path -LiteralPath $priorRecordPath -PathType Leaf) {
     foreach ($line in [IO.File]::ReadAllLines($priorRecordPath, [Text.Encoding]::UTF8)) {
-        if ($line.TrimStart([char]0xFEFF).Trim() -match '^(?i)openRrSpoof=(full|auto)$') {
+        $cleanPriorLine = $line.TrimStart([char]0xFEFF).Trim()
+        if ($cleanPriorLine -match '^(?i)project=(?:OptScaler\(NR\)|OptiScaler AMD pre-SR)$') {
+            $priorRecordIsProject = $true
+        }
+        if ($cleanPriorLine -match '^(?i)installMode=(.+)$') {
+            $priorInstallMode = $Matches[1].Trim().ToLowerInvariant()
+        }
+        if ($cleanPriorLine -match '^(?i)openRrSpoof=(full|auto)$') {
             $priorOpenRrSpoof = $Matches[1].ToLowerInvariant()
         }
-        if ($line.TrimStart([char]0xFEFF).Trim() -match '^(?i)pluginDir=(.+)$') {
+        if ($cleanPriorLine -match '^(?i)pluginDir=(.+)$') {
             $priorDir = $Matches[1]
             if (-not [IO.Path]::IsPathRooted($priorDir)) { $priorDir = Join-Path $game $priorDir }
             $priorOpenRrPluginDirs += $priorDir
         }
     }
+    if (-not $priorInstallMode -and $priorRecordIsProject) { $priorInstallMode = 'optiscaler' }
 }
 # Capture legacy installation evidence before an uninstall/update removes it.
 $priorOpenRrInstalled = [bool]$priorOpenRrSpoof -or (Test-Path -LiteralPath (Join-Path $game 'openrr-amd.ini') -PathType Leaf)
@@ -574,7 +686,35 @@ try {
     [IO.File]::WriteAllText($probe, 'ok')
     Remove-Item -LiteralPath $probe -Force
 } catch {
-    Fail "Cannot write to $game ($($_.Exception.Message)). Pick a writable folder next to the game .exe."
+    $me = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+    if ($me.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        Fail "Cannot write to $game ($($_.Exception.Message)). Pick a writable folder next to the game .exe."
+    }
+    if ($NonInteractive) {
+        Fail "ADMIN_REQUIRED: Cannot write to $game without administrator privileges."
+    }
+    Write-Host ''
+    Write-Host 'Target folder requires administrator rights:' -ForegroundColor Yellow
+    Write-Host "  $game"
+    $allowElevate = $false
+    while ($true) {
+        $ans = (Read-Host 'Request administrator privileges (UAC) and continue? [Y/N]').Trim()
+        if ($ans -match '^(?i)y(es)?$') { $allowElevate = $true; break }
+        if ($ans -match '^(?i)n(o)?$') { $allowElevate = $false; break }
+        Write-Host 'Please type Y or N.'
+    }
+    if (-not $allowElevate) {
+        Write-Host 'Cancelled.'
+        Pause-Exit 0
+    }
+    $elevArgs = "-NoProfile -ExecutionPolicy Bypass -STA -File `"$PSCommandPath`" -GameDir `"$game`" -Root `"$Root`" -InstallMode $InstallMode -Proxy $Proxy -RenoDX $RenoDX -Lumenite $Lumenite -OpenRrSpoof $OpenRrSpoof"
+    if ($LumeniteZip) { $elevArgs += " -LumeniteZip `"$LumeniteZip`"" }
+    if ($MochizukiModels) { $elevArgs += " -MochizukiModels $MochizukiModels" }
+    if ($MochizukiActiveModel) { $elevArgs += " -MochizukiActiveModel $MochizukiActiveModel" }
+    if ($UninstallExisting) { $elevArgs += ' -UninstallExisting' }
+    if ($DecisionJson) { $elevArgs += " -DecisionJson `"$DecisionJson`"" }
+    $p = Start-Process powershell -Verb RunAs -ArgumentList $elevArgs -PassThru -Wait
+    exit $p.ExitCode
 }
 
 # The game must be closed: it holds dxgi/pass/weights while running.
@@ -605,7 +745,7 @@ foreach ($legacyRoot in @($game, (Join-Path $game '_storage_'))) {
 }
 
 $locked = @()
-foreach ($name in ($proxies + @('LmxxfNrRuntime.dll', 'OpenNrRrRuntime.dll', 'dlssnr_amd_pass1.dll', 'dlssnr_amd_pass2.dll', 'dlssnr_amd_pass3.dll', 'dlssnr_on_amd_weights.bin'))) {
+foreach ($name in ($proxies + @('d3d9.dll', 'vulkan-1.dll', 'dlssnr-amd.asi', 'dlssnr_amd.addon64', 'ReShade64.dll', 'LmxxfNrRuntime.dll', 'OpenNrRrRuntime.dll', 'dlssnr_amd_pass1.dll', 'dlssnr_amd_pass2.dll', 'dlssnr_amd_pass3.dll', 'dlssnr_on_amd_weights.bin'))) {
     $p = Join-Path $game $name
     if (Test-FileLocked $p) { $locked += $name }
 }
@@ -655,8 +795,9 @@ Close the game completely, then run Setup.bat again.
     }
 }
 
-if (!(Test-Path -LiteralPath (Join-Path $release 'OptiScaler.dll'))) {
-    Fail @"
+if ($isOptiMode) {
+    if (!(Test-Path -LiteralPath (Join-Path $release 'OptiScaler.dll'))) {
+        Fail @"
 Missing OptiScaler.dll.
 Looked in:
   $release\OptiScaler.dll
@@ -665,17 +806,62 @@ Looked in:
 Run Setup.bat from the folder you unzipped the package into, so that
 OptiScaler.dll sits next to Setup.ps1.
 "@
+    }
+    if ($isRtxRemixMc) {
+        $mcBridgeCheck = @((Join-Path $Root 'rtx-remix-mc\remixbridge.dll'), (Join-Path $release 'rtx-remix-mc\remixbridge.dll')) |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+        if (-not $mcBridgeCheck) {
+            Fail 'Missing RTX Remix for Minecraft patch component: rtx-remix-mc\remixbridge.dll. Re-extract the complete package.'
+        }
+    }
+} elseif ($InstallMode -eq 'standalone') {
+    foreach ($reqFile in @('standalone\dxgi.dll', 'vulkan\vulkan-1.dll', 'standalone\vk-override\implicit_layer\dlssnr_standalone.json')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $Root $reqFile) -PathType Leaf) -and
+            -not (Test-Path -LiteralPath (Join-Path $release $reqFile) -PathType Leaf)) {
+            Fail "Missing Standalone route component: $reqFile. Re-extract the complete package."
+        }
+    }
+} else {
+    foreach ($reqFile in @('reshade\ReShade64.dll', 'reshade\dlssnr_amd.addon64', 'reshade\reshade-shaders\Shaders\DLSS5_Feed.fx')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $Root $reqFile) -PathType Leaf) -and
+            -not (Test-Path -LiteralPath (Join-Path $release $reqFile) -PathType Leaf)) {
+            Fail "Missing ReShade route component: $reqFile. Re-extract the complete package."
+        }
+    }
+    if ($InstallMode -in @('reshade-feeder-dx9', 'reshade-feeder-vulkan')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $Root 'vulkan\vulkan-1.dll') -PathType Leaf) -and
+            -not (Test-Path -LiteralPath (Join-Path $release 'vulkan\vulkan-1.dll') -PathType Leaf)) {
+            Fail "Missing vulkan\vulkan-1.dll for $InstallMode. Re-extract the complete package."
+        }
+    }
+    if ($InstallMode -eq 'reshade-feeder-dx9') {
+        foreach ($dxvkFile in @('dxvk\d3d9.dll', 'dxvk\dxgi.dll')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $Root $dxvkFile) -PathType Leaf) -and
+                -not (Test-Path -LiteralPath (Join-Path $release $dxvkFile) -PathType Leaf)) {
+                Fail "Missing $dxvkFile for DX9 ReShade route. Re-extract the complete package."
+            }
+        }
+    }
 }
 
 # Ask once, immediately after selecting and checking the game folder. The actual
 # uninstall waits until the new package and any reusable sources are ready.
 $existingOpti = @($proxies | Where-Object { Test-OptiProxy (Join-Path $game $_) }).Count -gt 0
+$existingOptiDirect = $isRtxRemixMc -and (Test-OptiProxy (Join-Path $game 'OptiScaler.dll'))
 $existingRecord = Join-Path $game 'amd-presr-install.txt'
-if (-not $existingOpti -and (Test-Path -LiteralPath $existingRecord -PathType Leaf)) {
-    $existingOpti = [IO.File]::ReadAllText($existingRecord) -match '(?m)^project=(?:OptScaler\(NR\)|OptiScaler AMD pre-SR)\r?$'
+$existingModeRecord = $existingOpti -or $existingOptiDirect -or [bool]$priorInstallMode -or (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd-install.txt') -PathType Leaf)
+if (-not $existingModeRecord -and (Test-Path -LiteralPath $existingRecord -PathType Leaf)) {
+    $existingModeRecord = [IO.File]::ReadAllText($existingRecord) -match '(?m)^project=(?:OptScaler\(NR\)|OptiScaler AMD pre-SR)\r?$'
 }
+$modeSwitching = $existingModeRecord -and $priorInstallMode -and ($priorInstallMode -ine $InstallMode)
 $uninstallFirst = $false
-if ($existingOpti) {
+if ($modeSwitching) {
+    $uninstallFirst = $true
+    Write-Host "Switching install mode ($priorInstallMode -> $InstallMode); uninstalling previous files first (model weights preserved)." -ForegroundColor Cyan
+} elseif ((-not $isOptiMode -or $isRtxRemixMc) -and $existingModeRecord) {
+    $uninstallFirst = $true
+    Write-Host "Existing installation found; cleanly resetting binaries before reinstalling $InstallMode (original game backups & model weights preserved)." -ForegroundColor Cyan
+} elseif ($existingModeRecord) {
     if ($UninstallExisting) { $uninstallFirst = $true }
     elseif ($launcherDecisions -and $launcherDecisions.existingInstall) {
         if ($launcherDecisions.existingInstall -eq 'uninstall') { $uninstallFirst = $true }
@@ -687,7 +873,7 @@ if ($existingOpti) {
 }
 
 # Interactive proxy pick (like older 1.7.x installers). dinput8 is invalid for this build.
-if (-not $NonInteractive -and -not $PSBoundParameters.ContainsKey('Proxy')) {
+if ($isOptiMode -and -not $isRtxRemixMc -and -not $NonInteractive -and -not $PSBoundParameters.ContainsKey('Proxy')) {
     $proxyOptions = @(
         'dxgi.dll (default; if the game fails to start, try winmm.dll)',
         'winmm.dll (recommended by some games)',
@@ -756,10 +942,42 @@ $expectedA060 = '195C4A891B6EAC4C1CB7671E10FF62BBBE2B17F1DFAE1344DC5A6714E477572
 $knownA0217  = 'BC97F3B06718E19042ACAF227BFE15D1E43D4977F9DC2E39994FCC511445FF4E'
 $expectedAuthor = @($expectedA030, $expectedA031, $expectedA032, $expectedA033, $expectedA040, $expectedA041, $expectedA042, $expectedA043, $expectedA050, $expectedA051, $expectedA060)
 
+function Get-DlssnrLocalDataDirs {
+    $dirs = New-Object System.Collections.Generic.List[string]
+    try {
+        $localApp = [Environment]::GetFolderPath('LocalApplicationData')
+        if ($localApp) {
+            $base = Join-Path $localApp 'DLSSNR-AMD'
+            if (Test-Path -LiteralPath $base -PathType Container) {
+                foreach ($sub in @((Join-Path $base 'models'), (Join-Path $base 'dlssnr-amd'), $base)) {
+                    if ((Test-Path -LiteralPath $sub -PathType Container) -and -not $dirs.Contains($sub)) {
+                        [void]$dirs.Add($sub)
+                    }
+                }
+                $appsDir = Join-Path $base 'apps'
+                if (Test-Path -LiteralPath $appsDir -PathType Container) {
+                    foreach ($child in @(Get-ChildItem -LiteralPath $appsDir -Directory -ErrorAction SilentlyContinue | Select-Object -First 24)) {
+                        if (-not ($child.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                            [void]$dirs.Add($child.FullName)
+                            $subDlss = Join-Path $child.FullName 'dlssnr-amd'
+                            if (Test-Path -LiteralPath $subDlss -PathType Container) { [void]$dirs.Add($subDlss) }
+                        }
+                    }
+                }
+            }
+        }
+    } catch { }
+    return @($dirs)
+}
+$dlssnrLocalDataDirs = @(Get-DlssnrLocalDataDirs)
+
 $modelSourceCandidates = @(
     (Join-Path $Root 'nvngx_dlssnr.dll'),
     (Join-Path $game 'nvngx_dlssnr.dll')
 )
+foreach ($ld in $dlssnrLocalDataDirs) {
+    $modelSourceCandidates += (Join-Path $ld 'nvngx_dlssnr.dll')
+}
 if ($launcherDecisions -and $launcherDecisions.modelSourceDll) {
     $chosenModelSource = [string]$launcherDecisions.modelSourceDll
     if (-not [IO.Path]::IsPathRooted($chosenModelSource) -or -not (Test-Path -LiteralPath $chosenModelSource -PathType Leaf)) { Fail 'Selected model source DLL no longer exists. Select nvngx_dlssnr.dll again.' }
@@ -876,6 +1094,11 @@ if ($mochizukiAssets) {
 }
 $modelCandidates += (Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD.bin')
 $modelCandidates += (Join-Path $game 'dlssnr-amd/dlssnr.bin')
+foreach ($ld in $dlssnrLocalDataDirs) {
+    $modelCandidates += (Join-Path $ld 'CC_SILVER_AARDWOLD.bin')
+    $modelCandidates += (Join-Path $ld 'dlssnr-amd/CC_SILVER_AARDWOLD.bin')
+    $modelCandidates += (Join-Path $ld 'dlssnr.bin')
+}
 foreach ($candidate in $modelCandidates) {
     # Presence only: the ASI owns the model format.
     if ((Test-Path -LiteralPath $candidate -PathType Leaf) -and (Get-Item -LiteralPath $candidate).Length -gt 0) {
@@ -896,6 +1119,11 @@ if ($mochizukiAssets) {
 }
 $smallModelCandidates += (Join-Path $game 'dlssnr-amd/CC_SMALL_FP8.bin')
 $smallModelCandidates += (Join-Path $game 'dlssnr-amd/dlssnr-small.bin')
+foreach ($ld in $dlssnrLocalDataDirs) {
+    $smallModelCandidates += (Join-Path $ld 'CC_SMALL_FP8.bin')
+    $smallModelCandidates += (Join-Path $ld 'dlssnr-amd/CC_SMALL_FP8.bin')
+    $smallModelCandidates += (Join-Path $ld 'dlssnr-small.bin')
+}
 foreach ($candidate in $smallModelCandidates) {
     if ((Test-Path -LiteralPath $candidate -PathType Leaf) -and (Get-Item -LiteralPath $candidate).Length -gt 0) {
         $mochizukiSmallModel = $candidate; break
@@ -906,7 +1134,11 @@ $mochizukiNvSha = 'e16bcf15e16e13f527491cdf7845b2fe6521a738d8f7c9c721866a8496e1f
 Write-Host ''
 Write-Host ("Detected Mochizuki NR ASI: ASI/resources={0}; model={1}" -f $canMochizuki, $(if ($mochizukiModel -or $mochizukiSmallModel) { 'present' } else { 'not extracted yet' })) -ForegroundColor Cyan
 
-if ($hasBackendSelection) {
+if (-not $isOptiMode) {
+    if (-not $canMochizuki) { Fail 'Mochizuki ASI payload is missing from the package.' }
+    $installMochizuki = $true
+    $selectedActiveBackend = 'mochizuki'
+} elseif ($hasBackendSelection) {
     $seenBackend = @{}
     foreach ($id in @($Backends)) { $seenBackend[$id] = $true }
     if ($seenBackend.ContainsKey('mochizuki') -and -not $canMochizuki) {
@@ -1072,7 +1304,17 @@ if ($installMochizuki) {
                 Copy-Item -LiteralPath $pair[0] -Destination $target -Force -ErrorAction Stop
                 if ($pair[1] -eq 'CC_SILVER_AARDWOLD.bin') { $mochizukiModel = $target } else { $mochizukiSmallModel = $target }
             } catch {
-                Write-Host "Note: could not keep $($pair[1]) in the package folder; the staged copy is used for this install." -ForegroundColor Yellow
+                Write-Host "Note: could not keep $($pair[1]) in the package folder; saving to %LOCALAPPDATA%\DLSSNR-AMD\models\ if writable." -ForegroundColor Yellow
+                try {
+                    $localApp = [Environment]::GetFolderPath('LocalApplicationData')
+                    if ($localApp) {
+                        $localModelDir = Join-Path $localApp 'DLSSNR-AMD\models'
+                        [void][IO.Directory]::CreateDirectory($localModelDir)
+                        $localTarget = Join-Path $localModelDir $pair[1]
+                        Copy-Item -LiteralPath $pair[0] -Destination $localTarget -Force -ErrorAction Stop
+                        if ($pair[1] -eq 'CC_SILVER_AARDWOLD.bin') { $mochizukiModel = $localTarget } else { $mochizukiSmallModel = $localTarget }
+                    }
+                } catch { }
             }
         }
     }
@@ -1101,8 +1343,172 @@ if ($installMochizuki) {
         }
     }
 }
-$wantOpenRr = (-not $launcherDecisions) -or (-not $launcherDecisions.PSObject.Properties['openRr']) -or ([string]$launcherDecisions.openRr -ne 'skip')
-$openRrExplicit = $launcherDecisions -and $launcherDecisions.PSObject.Properties['openRr'] -and ([string]$launcherDecisions.openRr -eq 'install')
+function Test-ExcludedDlssdFolder([string]$name) {
+    if ([string]::IsNullOrEmpty($name)) { return $true }
+    if ($name -imatch 'backup') { return $true }
+    return ($name.ToLowerInvariant() -in @('openrr-amd', 'opennr-rr', 'dlssnr-amd'))
+}
+
+function Test-ClimbableGameSubdir([string]$name) {
+    if ([string]::IsNullOrEmpty($name)) { return $false }
+    return ($name.ToLowerInvariant() -in @(
+        'win64', 'wingdk', 'win32', 'binaries', 'bin', 'x64',
+        'x64_dx12', 'x64_dx11', 'x86_64', 'retail', 'shipping',
+        'release', 'game', 'pc'
+    ))
+}
+
+function Test-AllowedDlssdSubdir([string]$name) {
+    if (Test-ExcludedDlssdFolder $name) { return $false }
+    $low = $name.ToLowerInvariant()
+    if ($low -in @(
+        'runtime', 'marketplace', 'thirdparty', 'vendor',
+        'binaries', 'bin', 'win64', 'wingdk', 'x64', 'x64_dx12',
+        'x86_64', 'plugins', 'sl', '.trex', 'core'
+    )) { return $true }
+    foreach ($kw in @('nvidia', 'streamline', 'dlss', 'ngx', 'rtx', 'remix', 'interposer')) {
+        if ($low.Contains($kw)) { return $true }
+    }
+    return $false
+}
+
+function Test-DirectUePluginDlssd([string]$pluginRoot) {
+    if ([string]::IsNullOrEmpty($pluginRoot) -or (-not [IO.Directory]::Exists($pluginRoot))) { return $false }
+    $prefixes = @(
+        'Runtime\Nvidia\Streamline',
+        'Runtime\Nvidia\StreamlineCore',
+        'Runtime\Nvidia\StreamlineDLSSG',
+        'Runtime\Nvidia\DLSS',
+        'Marketplace\Streamline',
+        'Marketplace\StreamlineCore',
+        'Marketplace\DLSS',
+        'Nvidia\Streamline',
+        'Nvidia\DLSS',
+        'Streamline',
+        'DLSS'
+    )
+    foreach ($prefix in $prefixes) {
+        $pBase = Join-Path $pluginRoot $prefix
+        foreach ($plat in @('Win64', 'WinGDK')) {
+            $cand = Join-Path (Join-Path (Join-Path $pBase 'Binaries') 'ThirdParty') (Join-Path $plat 'nvngx_dlssd.dll')
+            if ([IO.File]::Exists($cand)) { return $true }
+        }
+    }
+    return $false
+}
+
+function Test-GameHasNativeDlssd([string]$gameDir) {
+    if ([string]::IsNullOrEmpty($gameDir) -or (-not (Test-Path -LiteralPath $gameDir -PathType Container))) { return $false }
+    try {
+        # Tier 1: O(1) fixed-location probes (zero directory enumeration).
+        if ([IO.File]::Exists((Join-Path $gameDir 'nvngx_dlssd.dll'))) { return $true }
+        foreach ($sub in @('.trex', 'Streamline', 'dlss', 'nvngx', 'ThirdParty', 'bin', 'x64', 'Win64')) {
+            if ([IO.File]::Exists((Join-Path (Join-Path $gameDir $sub) 'nvngx_dlssd.dll'))) { return $true }
+        }
+
+        $climbed = New-Object 'System.Collections.Generic.List[string]'
+        $current = $gameDir
+        $sawBinaries = $false
+        for ($up = 0; $up -lt 4 -and (-not [string]::IsNullOrEmpty($current)); $up++) {
+            $leaf = [IO.Path]::GetFileName($current.TrimEnd('\', '/'))
+            if ($leaf -ieq 'Binaries') { $sawBinaries = $true }
+            if (-not (Test-ClimbableGameSubdir $leaf)) { break }
+            $parent = [IO.Path]::GetDirectoryName($current.TrimEnd('\', '/'))
+            if ([string]::IsNullOrEmpty($parent) -or ($parent -ieq $current)) { break }
+            $climbed.Add($parent)
+            $current = $parent
+        }
+        $gameRoot = $current
+        $ueRoot = $null
+        if ($sawBinaries) {
+            $p = [IO.Path]::GetDirectoryName($gameRoot.TrimEnd('\', '/'))
+            if ((-not [string]::IsNullOrEmpty($p)) -and ($p -ine $gameRoot) -and [IO.Directory]::Exists($p)) {
+                $ueRoot = $p
+            }
+        }
+
+        foreach ($cDir in $climbed) {
+            if ([IO.File]::Exists((Join-Path $cDir 'nvngx_dlssd.dll'))) { return $true }
+        }
+        if ($ueRoot -and [IO.File]::Exists((Join-Path $ueRoot 'nvngx_dlssd.dll'))) { return $true }
+        foreach ($rel in @('Streamline', 'bin', 'bin\x64', 'bin\.trex', 'Plugins\x86_64')) {
+            if ([IO.File]::Exists((Join-Path (Join-Path $gameRoot $rel) 'nvngx_dlssd.dll'))) { return $true }
+        }
+
+        $uePluginRoots = New-Object 'System.Collections.Generic.List[string]'
+        $uePluginRoots.Add((Join-Path $gameRoot 'Plugins'))
+        $uePluginRoots.Add((Join-Path (Join-Path $gameRoot 'Engine') 'Plugins'))
+        if ($ueRoot) { $uePluginRoots.Add((Join-Path (Join-Path $ueRoot 'Engine') 'Plugins')) }
+        foreach ($pr in $uePluginRoots) {
+            if (Test-DirectUePluginDlssd $pr) { return $true }
+        }
+
+        try {
+            if ([IO.Directory]::Exists($gameRoot)) {
+                foreach ($dataDir in [IO.Directory]::GetDirectories($gameRoot, '*_Data')) {
+                    if ([IO.File]::Exists((Join-Path (Join-Path (Join-Path $dataDir 'Plugins') 'x86_64') 'nvngx_dlssd.dll'))) { return $true }
+                    if ([IO.File]::Exists((Join-Path (Join-Path $dataDir 'Plugins') 'nvngx_dlssd.dll'))) { return $true }
+                }
+            }
+        } catch { }
+
+        # Tier 2: shallow depth-1 check under gameDir + whitelist-pruned BFS (visited dedup, max 64 dirs).
+        try {
+            foreach ($sub in [IO.Directory]::GetDirectories($gameDir)) {
+                $leaf = [IO.Path]::GetFileName($sub.TrimEnd('\', '/'))
+                if (Test-ExcludedDlssdFolder $leaf) { continue }
+                if ([IO.File]::Exists((Join-Path $sub 'nvngx_dlssd.dll'))) { return $true }
+            }
+        } catch { }
+
+        $seeds = New-Object 'System.Collections.Generic.List[string]'
+        foreach ($base in @($gameDir, $gameRoot)) {
+            foreach ($rel in @('Plugins', 'Streamline', 'ThirdParty', '.trex', 'bin')) {
+                $seeds.Add((Join-Path $base $rel))
+            }
+        }
+        $seeds.Add((Join-Path (Join-Path $gameRoot 'Engine') 'Plugins'))
+        if ($ueRoot) { $seeds.Add((Join-Path (Join-Path $ueRoot 'Engine') 'Plugins')) }
+
+        $queue = New-Object 'System.Collections.Generic.Queue[object]'
+        $visited = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+        foreach ($seed in $seeds) {
+            if ([IO.Directory]::Exists($seed)) {
+                $queue.Enqueue(@($seed, 0))
+            }
+        }
+
+        $maxDirs = 64
+        $maxDepth = 7
+        $visitedCount = 0
+        while (($queue.Count -gt 0) -and ($visitedCount -lt $maxDirs)) {
+            $item = $queue.Dequeue()
+            $dir = [string]$item[0]
+            $depth = [int]$item[1]
+            $norm = [IO.Path]::GetFullPath($dir).TrimEnd('\', '/')
+            if (-not $visited.Add($norm)) { continue }
+            $visitedCount++
+            if ([IO.File]::Exists((Join-Path $norm 'nvngx_dlssd.dll'))) { return $true }
+            if ($depth -ge $maxDepth) { continue }
+            $children = $null
+            try { $children = [IO.Directory]::GetDirectories($norm) } catch { continue }
+            foreach ($child in $children) {
+                $cLeaf = [IO.Path]::GetFileName($child.TrimEnd('\', '/'))
+                if (Test-AllowedDlssdSubdir $cLeaf) {
+                    $queue.Enqueue(@($child, ($depth + 1)))
+                }
+            }
+        }
+    } catch { }
+    return $false
+}
+
+$wantOpenRr = $isOptiMode -and ((-not $launcherDecisions) -or (-not $launcherDecisions.PSObject.Properties['openRr']) -or ([string]$launcherDecisions.openRr -ne 'skip'))
+$openRrExplicit = $isOptiMode -and $launcherDecisions -and $launcherDecisions.PSObject.Properties['openRr'] -and ([string]$launcherDecisions.openRr -eq 'install')
+if ($wantOpenRr -and (-not $launcherDecisions) -and (-not (Test-GameHasNativeDlssd $game))) {
+    $wantOpenRr = $false
+    Write-Host 'Skipping OpenRR ASI plugin (no native nvngx_dlssd.dll found in game folder; game may not support DLSS Ray Reconstruction).' -ForegroundColor Cyan
+}
 $userDlssd = $null
 if ($wantOpenRr) {
     foreach ($cand in @(
@@ -1166,12 +1572,188 @@ if ($wantOpenRr) {
         ) | Where-Object { Test-Path -LiteralPath $_ -PathType Container } | Select-Object -First 1
     }
 }
+# ---- LumeniteFX Kernel (ReShade routes only; fetched and verified before any changes) ----------
+$LumeniteCommit = 'f80e98d716ad72e12af6f7baa727bcfeb4be5094'
+function Strip-Comments([string]$text) {
+    $text = [regex]::Replace($text, '/\*.*?\*/', ' ', [System.Text.RegularExpressions.RegexOptions]::Singleline)
+    return [regex]::Replace($text, '//[^\n]*', '')
+}
+function Normal-Text([string]$text) { return [regex]::Replace($text, '\s+', '') }
+function Get-ZipComment([string]$path) {
+    $bytes = [System.IO.File]::ReadAllBytes($path)
+    for ($i = $bytes.Length - 22; $i -ge [Math]::Max(0, $bytes.Length - 65557); $i--) {
+        if ($bytes[$i] -eq 0x50 -and $bytes[$i + 1] -eq 0x4B -and $bytes[$i + 2] -eq 0x05 -and $bytes[$i + 3] -eq 0x06) {
+            $n = [BitConverter]::ToUInt16($bytes, $i + 20)
+            if ($i + 22 + $n -le $bytes.Length) { return [System.Text.Encoding]::ASCII.GetString($bytes, $i + 22, $n).Trim() }
+        }
+    }
+    return ''
+}
+function Read-Lumenite([string]$zipPath, [string]$feedPath) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    try { $zip = [System.IO.Compression.ZipFile]::OpenRead($zipPath) }
+    catch { throw "$zipPath is not a zip that can be opened: $($_.Exception.Message)" }
+    $found = @{}
+    foreach ($e in $zip.Entries) {
+        if ($e.FullName.EndsWith('/') -or $e.FullName.EndsWith('\')) { continue }
+        $name = $e.FullName.Replace('\', '/')
+        $m = [regex]::Match($name, '(?:^|/)((?:Shaders|Textures)/.+|LICENSE\.md|NOTICE)$')
+        if ($m.Success -and -not $name.Substring(0, $m.Groups[1].Index).TrimEnd('/').Contains('/') -and
+            -not $found.ContainsKey($m.Groups[1].Value)) { $found[$m.Groups[1].Value] = $e }
+    }
+    $read = { param($entry) $s = New-Object System.IO.StreamReader($entry.Open(), [System.Text.Encoding]::UTF8); try { $s.ReadToEnd() } finally { $s.Close() } }
+    try {
+        if (-not $found.ContainsKey('Shaders/lumenite_Kernel.fx')) { throw 'the zip has no Shaders/lumenite_Kernel.fx (not a LumeniteFX zip?)' }
+        $kernel = Strip-Comments (& $read $found['Shaders/lumenite_Kernel.fx'])
+        if ($kernel -cnotmatch '\btechnique\s+Lumenite_Kernel\b') {
+            throw 'lumenite_Kernel.fx has no technique Lumenite_Kernel (this LumeniteFX version does not work with this package)'
+        }
+        foreach ($inc in [regex]::Matches($kernel, '#\s*include\s+"([^"]+)"')) {
+            $name = $inc.Groups[1].Value.TrimStart('.', '/')
+            if ('ReShade.fxh', 'ReShadeUI.fxh' -contains $name) { continue }
+            if (-not $found.ContainsKey("Shaders/$name")) { throw "$name, included by lumenite_Kernel.fx, is not in the zip" }
+        }
+        $feed = [System.IO.File]::ReadAllText($feedPath)
+        $part = [regex]::Match($feed, '#elif\s+DLSS5_MV_PROVIDER\s*==\s*3\b(.*?)#elif', [System.Text.RegularExpressions.RegexOptions]::Singleline)
+        if (-not $part.Success) { throw "$feedPath has no DLSS5_MV_PROVIDER == 3 part" }
+        $wanted = @([regex]::Matches((Strip-Comments $part.Groups[1].Value), 'texture2D\s+\w+\s*\{[^}]*\}\s*;') | ForEach-Object { $_.Value })
+        if ($wanted.Count -eq 0 -or -not $part.Groups[1].Value.Contains('namespace Kernel')) { throw "the LumeniteFX part of $feedPath is not as expected" }
+        if ($kernel -cnotmatch '\bnamespace\s+Kernel\b') {
+            throw 'lumenite_Kernel.fx has no namespace Kernel (this LumeniteFX version does not work with this package)'
+        }
+        $flat = Normal-Text $kernel
+        foreach ($decl in $wanted) {
+            if (-not $flat.Contains((Normal-Text $decl))) {
+                throw "$(($decl -split '\s+')[1]) in lumenite_Kernel.fx differs from what DLSS5_Feed.fx reads (this LumeniteFX version does not work with this package)"
+            }
+        }
+    } catch { $zip.Dispose(); throw }
+    return @{ zip = $zip; found = $found }
+}
+function Install-Lumenite($lum, [string]$dest) {
+    $picked = @{ 'Shaders/lumenite_Kernel.fx' = 'Shaders\lumenite_Kernel.fx' }
+    foreach ($name in $lum.found.Keys) {
+        $parts = $name.Split('/')
+        if ($name.StartsWith('Shaders/include/') -and $name.EndsWith('.fxh') -and $parts.Count -eq 3) { $picked[$name] = "Shaders\include\$($parts[2])" }
+        elseif ($name.StartsWith('Textures/') -and $parts.Count -eq 2) { $picked[$name] = "Textures\$($parts[1])" }
+    }
+    if ($lum.found.ContainsKey('LICENSE.md')) { $picked['LICENSE.md'] = 'Shaders\LumeniteFX-LICENSE.md' }
+    if ($lum.found.ContainsKey('NOTICE')) { $picked['NOTICE'] = 'Shaders\LumeniteFX-NOTICE.txt' }
+    try {
+        foreach ($name in $picked.Keys) {
+            $out = Join-Path $dest $picked[$name]
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $out) | Out-Null
+            $in = $lum.found[$name].Open()
+            try { $f = [System.IO.File]::Create($out); try { $in.CopyTo($f) } finally { $f.Close() } } finally { $in.Close() }
+        }
+    } finally { $lum.zip.Dispose() }
+    return $picked.Count
+}
+
+$lumeniteFx = $null
+if ($InstallMode -like 'reshade-feeder*' -and $Lumenite -eq 'on') {
+    $feedFx = Find-FirstFile @((Join-Path $Root 'reshade\reshade-shaders\Shaders\DLSS5_Feed.fx'), (Join-Path $release 'reshade\reshade-shaders\Shaders\DLSS5_Feed.fx'))
+    if (-not $feedFx) { Fail 'Missing reshade\reshade-shaders\Shaders\DLSS5_Feed.fx in package.' }
+    if ($LumeniteZip) {
+        if (-not (Test-Path -LiteralPath $LumeniteZip -PathType Leaf)) { Fail "LumeniteFX zip not found: $LumeniteZip" }
+        $lumeniteSrc = (Resolve-Path -LiteralPath $LumeniteZip).Path
+    } else {
+        $lumeniteSrc = Join-Path $Root "lumenite\LumeniteFX-$LumeniteCommit.zip"
+        $localLumSrc = $null
+        try {
+            $localApp = [Environment]::GetFolderPath('LocalApplicationData')
+            if ($localApp) { $localLumSrc = Join-Path $localApp "DLSSNR-AMD\lumenite\LumeniteFX-$LumeniteCommit.zip" }
+        } catch { }
+        if (-not (Test-Path -LiteralPath $lumeniteSrc -PathType Leaf) -and $localLumSrc -and (Test-Path -LiteralPath $localLumSrc -PathType Leaf)) {
+            $lumeniteSrc = $localLumSrc
+        }
+        if (-not (Test-Path -LiteralPath $lumeniteSrc -PathType Leaf)) {
+            $url = "https://github.com/umar-afzaal/LumeniteFX/archive/$LumeniteCommit.zip"
+            Write-Host "Downloading LumeniteFX from GitHub ($url)..." -ForegroundColor Cyan
+            $part = "$lumeniteSrc.part"
+            try {
+                try {
+                    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $lumeniteSrc) | Out-Null
+                    $probeLum = Join-Path (Split-Path -Parent $lumeniteSrc) ('.lum-' + [guid]::NewGuid().ToString('N'))
+                    [IO.File]::WriteAllText($probeLum, ''); Remove-Item -LiteralPath $probeLum -Force -ErrorAction SilentlyContinue
+                } catch {
+                    if ($localLumSrc) {
+                        $lumeniteSrc = $localLumSrc
+                        $part = "$lumeniteSrc.part"
+                        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $lumeniteSrc) | Out-Null
+                    } else { throw }
+                }
+                [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+                Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $part
+                Move-Item -LiteralPath $part -Destination $lumeniteSrc -Force
+            } catch {
+                Remove-Item -LiteralPath $part -Force -ErrorAction SilentlyContinue
+                Fail ("LumeniteFX download failed ($($_.Exception.Message)). Download from https://github.com/umar-afzaal/LumeniteFX and pass it via LumeniteFX local ZIP picker.")
+            }
+        }
+    }
+    try { $lumeniteFx = Read-Lumenite $lumeniteSrc $feedFx }
+    catch { Fail ("LumeniteFX validation failed: $($_.Exception.Message)") }
+}
+
+$gameIni = Join-Path $game 'OptiScaler.ini'
+$anyExistingIni = (Test-Path -LiteralPath $gameIni -PathType Leaf) -or
+    (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd.ini') -PathType Leaf) -or
+    (Test-Path -LiteralPath (Join-Path $game 'openrr-amd.ini') -PathType Leaf) -or
+    (Test-Path -LiteralPath (Join-Path $game 'ReShade.ini') -PathType Leaf) -or
+    (Test-Path -LiteralPath (Join-Path $game 'ReShadePreset.ini') -PathType Leaf)
+$overwriteIni = $false
+if ($modeSwitching) {
+    $overwriteIni = $true
+} elseif ($lmxxfIniAction) {
+    $overwriteIni = ($lmxxfIniAction -eq 'overwrite')
+} elseif ($launcherDecisions -and $launcherDecisions.existingIni) {
+    if ($launcherDecisions.existingIni -eq 'overwrite') { $overwriteIni = $true }
+    elseif ($launcherDecisions.existingIni -eq 'keep') { $overwriteIni = $false }
+    else { Fail 'DecisionJson existingIni must be overwrite or keep.' }
+} elseif ($anyExistingIni) {
+    # Recommended on a large version jump. -NonInteractive takes that option.
+    if ($NonInteractive) {
+        $overwriteIni = $true
+    } else {
+        $iniChoice = Ask-Choice 'Configuration files (.ini) already exist in the game folder.' @(
+            'Overwrite existing .ini files (Recommended: major version update!)'
+            'Keep the existing .ini files'
+        )
+        $overwriteIni = ($iniChoice -eq 1)
+    }
+}
+
+$preservedGameModels = @{}
+$preservedUserInis = @{}
 if ($uninstallFirst) {
     try {
-        $optiSource = Save-ReinstallSource (Join-Path $release 'OptiScaler.dll')
-        foreach ($name in @('OptiScaler.ini', 'OptiScaler', 'dlssnr-amd-optiscaler-renodx.ini', 'dlssnr-amd-optiscaler.ini', 'openrr-amd.ini')) {
+        foreach ($binName in @('CC_SILVER_AARDWOLD.bin', 'CC_SMALL_FP8.bin', 'CC_SMALL_FP8_EXPERIMENTAL.bin', 'CC_SILVER_AARDWOLD_OPTIMIZED.bin', 'CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin')) {
+            $existingBin = Join-Path $game (Join-Path 'dlssnr-amd' $binName)
+            if ((Test-Path -LiteralPath $existingBin -PathType Leaf) -and (Get-Item -LiteralPath $existingBin).Length -gt 0) {
+                $preservedGameModels[$binName] = Save-ReinstallSource $existingBin
+            }
+        }
+        if (-not $overwriteIni -and -not $modeSwitching) {
+            foreach ($iniName in @('dlssnr-amd.ini', 'OptiScaler.ini', 'openrr-amd.ini', 'ReShade.ini', 'ReShadePreset.ini')) {
+                $existingIniFile = Join-Path $game $iniName
+                if (Test-Path -LiteralPath $existingIniFile -PathType Leaf) {
+                    $preservedUserInis[$iniName] = Save-ReinstallSource $existingIniFile
+                }
+            }
+        }
+        $optiDllCand = Join-Path $release 'OptiScaler.dll'
+        if (Test-Path -LiteralPath $optiDllCand -PathType Leaf) {
+            $optiSource = Save-ReinstallSource $optiDllCand
+            $release = [IO.Path]::GetDirectoryName($optiSource)
+        }
+        foreach ($name in @('OptiScaler.ini', 'OptiScaler', 'rtx-remix-mc', 'dlssnr-amd-optiscaler-renodx.ini', 'dlssnr-amd-optiscaler.ini', 'dlssnr-amd-standalone.ini', 'dlssnr-amd-addon.ini', 'openrr-amd.ini', 'standalone', 'reshade', 'dxvk', 'vulkan', 'Licenses')) {
             $path = Join-Path $release $name
             if (Test-Path -LiteralPath $path) { $null = Save-ReinstallSource $path }
+            if ($Root -ne $release) {
+                $rPath = Join-Path $Root $name
+                if (Test-Path -LiteralPath $rPath) { $null = Save-ReinstallSource $rPath }
+            }
         }
         if ($openRrAssetsSrc) {
             $openRrAssetsSrc = Save-ReinstallSource $openRrAssetsSrc
@@ -1182,7 +1764,6 @@ if ($uninstallFirst) {
             $openRrShadersSrc = Save-ReinstallSource $openRrShadersSrc
             $openRrShadersGfx11Src = Save-ReinstallSource $openRrShadersGfx11Src
         }
-        $release = [IO.Path]::GetDirectoryName($optiSource)
         if ($installMochizuki) {
             if ($wantOriginal) { $mochizukiModel = Save-ReinstallSource $mochizukiModel }
             if ($wantSmall) { $mochizukiSmallModel = Save-ReinstallSource $mochizukiSmallModel }
@@ -1191,15 +1772,23 @@ if ($uninstallFirst) {
             $mochizukiTools = Save-ReinstallSource $mochizukiTools
             if ($mochizukiInt4Tool) { $mochizukiInt4Tool = Save-ReinstallSource $mochizukiInt4Tool }
             if ($mochizukiProbe) { $mochizukiProbe = Save-ReinstallSource $mochizukiProbe }
+            foreach ($deltaName in @('experimental\dlssnr-small-experimental.delta', 'experimental\CC_SMALL_FP8_EXPERIMENTAL.bin.sha256', 'optimized\dlssnr-optimized.delta', 'optimized\CC_SILVER_AARDWOLD_OPTIMIZED.bin.sha256', 'model-tools\dlssnr-int4.sha256')) {
+                $dCand = Join-Path $Root $deltaName
+                if (Test-Path -LiteralPath $dCand -PathType Leaf) { $null = Save-ReinstallSource $dCand }
+            }
         }
         if ($wantOpenRr -and $userDlssd) { $userDlssd = Save-ReinstallSource $userDlssd }
         $ps1Src = Save-ReinstallSource $ps1Src
         $batSrc = Save-ReinstallSource $batSrc
         if ($xessCompatSrc) { $xessCompatSrc = Save-ReinstallSource $xessCompatSrc }
+        if ($setupSourceStage -and ($Root.TrimEnd('\', '/') -like ($game.TrimEnd('\', '/') + '*'))) {
+            $Root = $setupSourceStage
+            if (Test-Path -LiteralPath (Join-Path $setupSourceStage 'OptiScaler.dll') -PathType Leaf) { $release = $setupSourceStage }
+        }
     } catch { Fail ("Could not preserve installation sources before uninstall: " + $_.Exception.Message) }
 
     Write-Host ''
-    Write-Host 'Uninstalling the existing OptiScaler installation...' -ForegroundColor Cyan
+    Write-Host 'Uninstalling the existing installation...' -ForegroundColor Cyan
     Write-Host ("Uninstall script: {0}" -f $ps1Src)
     # A child process isolates the uninstaller's exit statement. Y already grants
     # consent: no second confirmation, backup deletion, or intermediate pause.
@@ -1207,6 +1796,13 @@ if ($uninstallFirst) {
     $uninstallStarted = $true
     & $powershell -NoProfile -ExecutionPolicy Bypass -File $ps1Src -GameDir $game -NonInteractive -NoPause
     if ($LASTEXITCODE -ne 0) { Fail "Uninstall failed (exit code $LASTEXITCODE). Installation stopped; fix the reported error and run Setup again." }
+    if ($preservedUserInis.Count -gt 0 -and -not $overwriteIni -and -not $modeSwitching) {
+        foreach ($iniName in @('dlssnr-amd.ini', 'OptiScaler.ini', 'openrr-amd.ini')) {
+            if ($preservedUserInis.ContainsKey($iniName) -and (Test-Path -LiteralPath $preservedUserInis[$iniName] -PathType Leaf)) {
+                Copy-Item -LiteralPath $preservedUserInis[$iniName] -Destination (Join-Path $game $iniName) -Force
+            }
+        }
+    }
     Write-Host 'Uninstall completed. Continuing installation...' -ForegroundColor Green
 }
 
@@ -1257,31 +1853,38 @@ function Remove-PluginFileChecked([string]$pluginPath) {
 }
 
 $found = @()
-foreach ($name in $proxies) {
-    $p = Join-Path $game $name
-    if (Test-Path -LiteralPath $p -PathType Leaf) {
-        $item = Get-Item -LiteralPath $p
-        $found += [pscustomobject]@{
-            Name = $name
-            Path = $p
-            Size = $item.Length
-            IsOptiScaler = (Test-OptiProxy $p)
+if ($isOptiMode -and -not $isRtxRemixMc) {
+    foreach ($name in $proxies) {
+        $p = Join-Path $game $name
+        if (Test-Path -LiteralPath $p -PathType Leaf) {
+            $item = Get-Item -LiteralPath $p
+            $found += [pscustomobject]@{
+                Name = $name
+                Path = $p
+                Size = $item.Length
+                IsOptiScaler = (Test-OptiProxy $p)
+            }
         }
     }
 }
 
 Write-Host ''
 Write-Host "Game folder: $game"
-Write-Host "Proxy:       $Proxy   (OptiScaler.dll installed under this name)"
-if ($found.Count -eq 0) {
-    Write-Host 'No common injection DLLs found in the game folder.' -ForegroundColor Green
-} else {
-    Write-Host 'Existing injection-related DLLs:' -ForegroundColor Yellow
-    foreach ($f in $found) {
-        $tag = if ($f.IsOptiScaler) { ' [OptiScaler]' } else { '' }
-        Write-Host ("  - {0}  ({1} bytes){2}" -f $f.Name, $f.Size, $tag)
+Write-Host "Mode:        $InstallMode"
+if ($isRtxRemixMc) {
+    Write-Host 'Proxy:       OptiScaler.dll (RTX Remix for Minecraft direct bridge load)'
+} elseif ($isOptiMode) {
+    Write-Host "Proxy:       $Proxy   (OptiScaler.dll installed under this name)"
+    if ($found.Count -eq 0) {
+        Write-Host 'No common injection DLLs found in the game folder.' -ForegroundColor Green
+    } else {
+        Write-Host 'Existing injection-related DLLs:' -ForegroundColor Yellow
+        foreach ($f in $found) {
+            $tag = if ($f.IsOptiScaler) { ' [OptiScaler]' } else { '' }
+            Write-Host ("  - {0}  ({1} bytes){2}" -f $f.Name, $f.Size, $tag)
+        }
+        Write-Host 'For ReShade or another mod: choose Ignore only if you know they can coexist.'
     }
-    Write-Host 'For ReShade or another mod: choose Ignore only if you know they can coexist.'
 }
 
 $stamp = (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8)
@@ -1372,7 +1975,7 @@ foreach ($f in $found) {
 # for the author runtime or another proxy explicitly selected for moving aside.
 foreach ($f in $toMove) {
     if ($f.IsOptiScaler) {
-        if ($f.Name -ine $Proxy) { Remove-Item -LiteralPath $f.Path -Force -ErrorAction Stop }
+        if ($f.Name -ine $effectiveProxy) { Remove-Item -LiteralPath $f.Path -Force -ErrorAction Stop }
         continue
     }
     if (-not (Test-Path -LiteralPath $backup)) {
@@ -1408,7 +2011,7 @@ function Install-One([string]$src, [string]$rel) {
         if (Test-Path -LiteralPath $dest) {
             if ($isMochizukiModel) {
                 $expectedEntries = if ($rel -eq 'dlssnr-amd/CC_SMALL_FP8.bin') { 255 } else { 599 }
-                if ((Test-MochizukiModelFile $dest $expectedEntries) -and ((Get-Sha256 $dest) -eq (Get-Sha256 $src))) {
+                if ((Test-MochizukiModelFile $dest $expectedEntries) -and (Test-FilesEqualFast $dest $src)) {
                     Write-Host ("Skip (verified model already in place): {0}" -f $rel)
                     return
                 }
@@ -1529,68 +2132,105 @@ function Get-PluginsTargetDirectory([string]$gameDir, [string]$iniPath) {
     return Join-Path $mainPath 'plugins'
 }
 
-Write-Host ''
-Write-Host "Installing $productTitle as $Proxy ..." -ForegroundColor Cyan
-Install-One (Join-Path $release 'OptiScaler.dll') $Proxy
-
 $ini = Join-Path $release 'OptiScaler.ini'
 $gameIni = Join-Path $game 'OptiScaler.ini'
 $iniFromTemplate = $false
-$anyExistingIni = (Test-Path -LiteralPath $gameIni -PathType Leaf) -or
-    (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd.ini') -PathType Leaf) -or
-    (Test-Path -LiteralPath (Join-Path $game 'openrr-amd.ini') -PathType Leaf)
-$overwriteIni = $false
-if ($lmxxfIniAction) {
-    $overwriteIni = ($lmxxfIniAction -eq 'overwrite')
-} elseif ($launcherDecisions -and $launcherDecisions.existingIni) {
-    if ($launcherDecisions.existingIni -eq 'overwrite') { $overwriteIni = $true }
-    elseif ($launcherDecisions.existingIni -eq 'keep') { $overwriteIni = $false }
-    else { Fail 'DecisionJson existingIni must be overwrite or keep.' }
-} elseif ($anyExistingIni) {
-    # Recommended on a large version jump. -NonInteractive takes that option.
-    if ($NonInteractive) {
-        $overwriteIni = $true
-    } else {
-        $iniChoice = Ask-Choice 'Configuration files (.ini) already exist in the game folder.' @(
-            'Overwrite existing .ini files (Recommended: major version update!)'
-            'Keep the existing .ini files'
-        )
-        $overwriteIni = ($iniChoice -eq 1)
-    }
-}
-if (Test-Path -LiteralPath $ini -PathType Leaf) {
-    if (-not (Test-Path -LiteralPath $gameIni -PathType Leaf)) {
-        Install-One $ini 'OptiScaler.ini'
-        if (-not $keep.ContainsKey('OptiScaler.ini')) { $iniFromTemplate = $true }
-    } elseif ($overwriteIni) {
-        Install-One $ini 'OptiScaler.ini'
-        if (-not $keep.ContainsKey('OptiScaler.ini')) { $iniFromTemplate = $true }
-        Write-Host 'Replaced OptiScaler.ini with the package file.' -ForegroundColor Cyan
-    } else {
-        Write-Host 'Keeping the existing OptiScaler.ini.' -ForegroundColor Cyan
-    }
-}
-# Apply the launcher's UI language only to a template that this run created or
-# overwrote. A kept user ini keeps its own [Menu] Language.
 $uiLanguage = $null
 $asiMenuLanguage = $null
 if ($launcherDecisions -and $launcherDecisions.PSObject.Properties['language']) {
     if ($launcherDecisions.language -eq 'zh') { $uiLanguage = 'zh-CN'; $asiMenuLanguage = 'zh-CN' }
     elseif ($launcherDecisions.language -eq 'en') { $uiLanguage = 'en'; $asiMenuLanguage = 'English' }
 }
-if ($iniFromTemplate -and $uiLanguage -and (Test-Path -LiteralPath $gameIni -PathType Leaf)) {
-    Set-IniSettings $gameIni 'Menu' ([ordered]@{ 'Language' = $uiLanguage })
-}
-$deps = Join-Path $release 'OptiScaler'
-if (Test-Path -LiteralPath $deps) {
-    Get-ChildItem -LiteralPath $deps -Recurse -File | Where-Object {
-        # Custom plugins go through the resolved-path/config-preservation flow below.
-        $relative = $_.FullName.Substring($deps.Length)
-        $relative -notmatch '^[\\/]plugins[\\/]' -or
-            $relative -ieq '\plugins\OptScaler-NR-plugins-README.txt'
-    } | ForEach-Object {
-        $rel = Join-Path 'OptiScaler' $_.FullName.Substring($deps.Length).TrimStart('\','/')
-        Install-One $_.FullName $rel
+
+$rtxBridgeManifestLines = New-Object System.Collections.Generic.List[string]
+$remixBridgePrePatched = $false
+if ($isOptiMode) {
+    Write-Host ''
+    Write-Host "Installing $productTitle as $effectiveProxy ..." -ForegroundColor Cyan
+    Install-One (Join-Path $release 'OptiScaler.dll') $effectiveProxy
+    if ($isRtxRemixMc) {
+        $rtxBridgeSrc = Find-FirstFile @(
+            (Join-Path $Root 'rtx-remix-mc\remixbridge.dll'),
+            (Join-Path $release 'rtx-remix-mc\remixbridge.dll')
+        )
+        if (-not $rtxBridgeSrc) { Fail 'Missing rtx-remix-mc\remixbridge.dll in package.' }
+        $bridgeDst = Join-Path $game 'remixbridge.dll'
+        $bridgeBakDir = Join-Path $game 'dlssnr-amd-backup'
+        $bridgeBak = Join-Path $bridgeBakDir 'remixbridge.dll'
+        $hasBridgeBackup = $false
+        if (Test-Path -LiteralPath $bridgeBak -PathType Leaf) {
+            $hasBridgeBackup = $true
+        } elseif (Test-Path -LiteralPath $bridgeDst -PathType Leaf) {
+            $alreadyPatched = $false
+            try {
+                $rawBridgeBytes = [IO.File]::ReadAllBytes($bridgeDst)
+                $alreadyPatched = [Text.Encoding]::ASCII.GetString($rawBridgeBytes).IndexOf('OptiScaler.dll', [StringComparison]::OrdinalIgnoreCase) -ge 0
+            } catch { $alreadyPatched = $false }
+            if (-not $alreadyPatched) {
+                if (-not (Test-Path -LiteralPath $bridgeBakDir -PathType Container)) {
+                    [void][IO.Directory]::CreateDirectory($bridgeBakDir)
+                }
+                Copy-Item -LiteralPath $bridgeDst -Destination $bridgeBak -Force
+                $hasBridgeBackup = $true
+                Write-Host 'Backed up original NVIDIA remixbridge.dll -> dlssnr-amd-backup\remixbridge.dll' -ForegroundColor Green
+            } else {
+                $remixBridgePrePatched = $true
+                Write-Host 'NOTE: existing remixbridge.dll is already AMD-patched (no original NVIDIA backup found). Updating in place; full uninstall will keep remixbridge.dll.' -ForegroundColor Yellow
+            }
+        }
+        Install-One $rtxBridgeSrc 'remixbridge.dll'
+        Unblock-File -LiteralPath $bridgeDst -ErrorAction SilentlyContinue
+        Write-Host 'Installed AMD-patched remixbridge.dll -> remixbridge.dll' -ForegroundColor Green
+        if ($hasBridgeBackup) {
+            $rtxBridgeManifestLines.Add('B remixbridge.dll')
+            $rtxBridgeManifestLines.Add('F remixbridge.dll')
+        } elseif (-not $remixBridgePrePatched) {
+            $rtxBridgeManifestLines.Add('F remixbridge.dll')
+        }
+    }
+    if (Test-Path -LiteralPath $ini -PathType Leaf) {
+        if (-not (Test-Path -LiteralPath $gameIni -PathType Leaf)) {
+            Install-One $ini 'OptiScaler.ini'
+            if (-not $keep.ContainsKey('OptiScaler.ini')) { $iniFromTemplate = $true }
+        } elseif ($overwriteIni) {
+            Install-One $ini 'OptiScaler.ini'
+            if (-not $keep.ContainsKey('OptiScaler.ini')) { $iniFromTemplate = $true }
+            Write-Host 'Replaced OptiScaler.ini with the package file.' -ForegroundColor Cyan
+        } else {
+            Write-Host 'Keeping the existing OptiScaler.ini.' -ForegroundColor Cyan
+        }
+    }
+    if ($iniFromTemplate -and $uiLanguage -and (Test-Path -LiteralPath $gameIni -PathType Leaf)) {
+        Set-IniSettings $gameIni 'Menu' ([ordered]@{ 'Language' = $uiLanguage })
+    }
+    $deps = Join-Path $release 'OptiScaler'
+    if (Test-Path -LiteralPath $deps) {
+        $gameOptiDir = Join-Path $game 'OptiScaler'
+        if (Test-Path -LiteralPath $gameOptiDir -PathType Container) {
+            try {
+                $null = Assert-LmxxfUnlinkedPath $gameOptiDir
+                foreach ($child in @(Get-ChildItem -LiteralPath $gameOptiDir -Force -ErrorAction SilentlyContinue)) {
+                    if ($child.Name -ieq 'plugins') { continue }
+                    if ($child.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+                    if ($child.PSIsContainer) {
+                        Remove-OwnedTreeSafe $child.FullName
+                    } elseif (-not $keep.ContainsKey($child.Name)) {
+                        Remove-Item -LiteralPath $child.FullName -Force -ErrorAction SilentlyContinue
+                    }
+                }
+            } catch {
+                Write-Host "NOTE: could not pre-clean OptiScaler dependency folder: $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+        }
+        Get-ChildItem -LiteralPath $deps -Recurse -File | Where-Object {
+            # Custom plugins go through the resolved-path/config-preservation flow below.
+            $relative = $_.FullName.Substring($deps.Length)
+            $relative -notmatch '^[\\/]plugins[\\/]' -or
+                $relative -ieq '\plugins\OptScaler-NR-plugins-README.txt'
+        } | ForEach-Object {
+            $rel = Join-Path 'OptiScaler' $_.FullName.Substring($deps.Length).TrimStart('\','/')
+            Install-One $_.FullName $rel
+        }
     }
 }
 
@@ -1699,156 +2339,118 @@ function New-MochizukiExperimentalWeights([string]$Small, [string]$Delta, [strin
     [IO.File]::WriteAllBytes($Output, $pack)
 }
 
-# --- Install the Neural Rendering ASI payload ---
+# --- Install the Neural Rendering ASI / Route payload ---
 if ($installMochizuki) {
     $asiManifest = Join-Path $game 'dlssnr-amd-install.txt'
     $asiFiles = New-Object System.Collections.Generic.HashSet[string] ([StringComparer]::OrdinalIgnoreCase)
-    $asiTargetDir = Get-PluginsTargetDirectory $game $gameIni
-    if (-not (Test-Path -LiteralPath $asiTargetDir -PathType Container)) {
-        [void][IO.Directory]::CreateDirectory($asiTargetDir)
-    }
-    $asiTarget = Join-Path $asiTargetDir 'dlssnr-amd.asi'
+    $modeManifestLines = New-Object System.Collections.Generic.List[string]
+    $dlssnrBackupDir = Join-Path $game 'dlssnr-amd-backup'
     $gameFullPrefix = [IO.Path]::GetFullPath($game).TrimEnd('\', '/') + '\'
+
+    function Find-PkgFile([string]$rel) {
+        return Find-FirstFile @(
+            (Join-Path $Root $rel),
+            (Join-Path $release $rel)
+        )
+    }
+    function Find-PkgDir([string]$rel) {
+        foreach ($baseDir in @($Root, $release)) {
+            if (-not $baseDir) { continue }
+            $cand = Join-Path $baseDir $rel
+            if (Test-Path -LiteralPath $cand -PathType Container) { return $cand }
+        }
+        return $null
+    }
+    function Save-ModeExisting([string]$rel) {
+        $dst = Join-Path $game $rel
+        if (-not (Test-Path -LiteralPath $dst)) { return }
+        $keepPath = Join-Path $dlssnrBackupDir $rel
+        $keepParent = Split-Path -Parent $keepPath
+        if ($keepParent -and -not (Test-Path -LiteralPath $keepParent -PathType Container)) {
+            [void][IO.Directory]::CreateDirectory($keepParent)
+        }
+        if (Test-Path -LiteralPath $keepPath) {
+            if (Test-Path -LiteralPath $keepPath -PathType Container) {
+                Remove-Item -LiteralPath $keepPath -Recurse -Force
+            } else {
+                Remove-Item -LiteralPath $keepPath -Force
+            }
+        }
+        Move-Item -LiteralPath $dst -Destination $keepPath -Force
+        $modeManifestLines.Add("B $rel")
+    }
+    function Put-ModeFile([string]$src, [string]$rel) {
+        if (-not $src -or -not (Test-Path -LiteralPath $src -PathType Leaf)) {
+            Fail "Missing route source file for ${rel}: $src"
+        }
+        Save-ModeExisting $rel
+        $dst = Join-Path $game $rel
+        $dstParent = Split-Path -Parent $dst
+        if ($dstParent -and -not (Test-Path -LiteralPath $dstParent -PathType Container)) {
+            [void][IO.Directory]::CreateDirectory($dstParent)
+        }
+        Copy-Item -LiteralPath $src -Destination $dst -Force
+        Unblock-File -LiteralPath $dst -ErrorAction SilentlyContinue
+        $modeManifestLines.Add("F $rel")
+    }
+    function Put-ModeTree([string]$src, [string]$rel) {
+        if (-not $src -or -not (Test-Path -LiteralPath $src -PathType Container)) {
+            Fail "Missing route source directory for ${rel}: $src"
+        }
+        Save-ModeExisting $rel
+        $dst = Join-Path $game $rel
+        Copy-Item -LiteralPath $src -Destination $dst -Recurse -Force
+        Get-ChildItem -LiteralPath $dst -Recurse -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue
+        $modeManifestLines.Add("D $rel")
+    }
+    function Record-ModeLogs([string[]]$rels) {
+        foreach ($r in $rels) {
+            if ($r) { $modeManifestLines.Add("L $r") }
+        }
+    }
+    function Move-OtherAddons {
+        foreach ($item in @(Get-ChildItem -LiteralPath $game -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in @('.addon', '.addon64') })) {
+            if ($item.Name -ne 'dlssnr_amd.addon64') {
+                Save-ModeExisting $item.Name
+                Write-Host "Moved another ReShade add-on aside: $($item.Name)" -ForegroundColor Yellow
+            }
+        }
+    }
+    function Put-ReShadeMode([bool]$asLayer) {
+        Move-OtherAddons
+        $rsDir = Find-PkgDir 'reshade'
+        if (-not $rsDir) { Fail 'Missing reshade directory in package.' }
+        foreach ($item in @(Get-ChildItem -LiteralPath $rsDir -Force)) {
+            if ($item.Name -ieq 'ReShadePreset-d3d9.ini') { continue }
+            if (-not $asLayer -and ($item.Name -ieq 'vk-override' -or $item.Name -ieq 'ReShade64.dll')) { continue }
+            if ($item.PSIsContainer) {
+                Put-ModeTree $item.FullName $item.Name
+            } else {
+                Put-ModeFile $item.FullName $item.Name
+            }
+        }
+        if (-not $asLayer) {
+            $rsDll = Find-PkgFile 'reshade\ReShade64.dll'
+            Put-ModeFile $rsDll 'dxgi.dll'
+        }
+        Record-ModeLogs @('ReShade.log')
+    }
+
+    $asiTargetDir = $null
+    $asiTarget = $null
+    if ($isOptiMode) {
+        $asiTargetDir = Get-PluginsTargetDirectory $game $gameIni
+        if (-not (Test-Path -LiteralPath $asiTargetDir -PathType Container)) {
+            [void][IO.Directory]::CreateDirectory($asiTargetDir)
+        }
+        $asiTarget = Join-Path $asiTargetDir 'dlssnr-amd.asi'
+    }
 
     function Add-AsiOwned([string]$fullPath) {
         $full = [IO.Path]::GetFullPath($fullPath)
         if ($full.StartsWith($gameFullPrefix, [StringComparison]::OrdinalIgnoreCase)) {
             [void]$asiFiles.Add($full.Substring($gameFullPrefix.Length))
         }
-    }
-
-    # The previous install's own inventory decides what this version may remove.
-    # Models and user files are never in it; a manifest entry outside the shared
-    # resource tree or this install's plugin path is ignored.
-    $previousAsi = New-Object System.Collections.Generic.HashSet[string] ([StringComparer]::OrdinalIgnoreCase)
-    $asiTargetRel = $null
-    if ($asiTarget.StartsWith($gameFullPrefix, [StringComparison]::OrdinalIgnoreCase)) {
-        $asiTargetRel = $asiTarget.Substring($gameFullPrefix.Length)
-    }
-    if (Test-Path -LiteralPath $asiManifest -PathType Leaf) {
-        foreach ($line in [IO.File]::ReadAllLines($asiManifest)) {
-            if ($line -notmatch '^(?i)F (.+)$') { continue }
-            $oldRel = $Matches[1].Trim()
-            if ($oldRel -match '(^|[\\/])\.\.([\\/]|$)' -or [IO.Path]::IsPathRooted($oldRel)) { continue }
-            $normalized = $oldRel.Replace('\', '/')
-            if ($normalized -match '^(?i)dlssnr-amd/' -or
-                ($asiTargetRel -and $oldRel -ieq $asiTargetRel)) {
-                [void]$previousAsi.Add($oldRel)
-            }
-        }
-    }
-
-    # Replace our shared resource folder with this ASI version. The retired
-    # built-in runtime's files are removed only where the legacy inventory owns
-    # them, so user files and other runtimes are untouched.
-    $resourceRoot = Join-Path $mochizukiAssets ''
-    $modelNames = @(
-        'CC_SILVER_AARDWOLD.bin', 'CC_SMALL_FP8.bin',
-        'CC_SMALL_FP8_EXPERIMENTAL.bin', 'CC_SILVER_AARDWOLD_OPTIMIZED.bin',
-        'CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin',
-        'dlssnr.bin', 'dlssnr-small.bin', 'dlssnr-int4.bin', 'dlssnr-small-experimental.bin'
-    )
-    $legacyPin = Find-FirstFile @((Join-Path $Root 'mochizuki-owned.txt'), (Join-Path $PSScriptRoot 'install/mochizuki-owned.txt'))
-    $newRelative = New-Object System.Collections.Generic.HashSet[string] ([StringComparer]::OrdinalIgnoreCase)
-    foreach ($file in @(Get-LmxxfUnlinkedFiles $resourceRoot)) {
-        if ($modelNames -contains $file.Name) { continue }
-        $rel = $file.FullName.Substring($resourceRoot.Length).TrimStart('\', '/')
-        [void]$newRelative.Add(('dlssnr-amd/' + $rel.Replace('\', '/')))
-    }
-    if ($legacyPin -and (Test-Path -LiteralPath $legacyPin -PathType Leaf)) {
-        foreach ($line in [IO.File]::ReadAllLines($legacyPin)) {
-            $rel = $line.Trim().Replace('\', '/')
-            if ($rel.Length -eq 0 -or $rel.StartsWith('#')) { continue }
-            if ($rel.IndexOfAny([char[]]@('*', '?')) -ge 0) { continue }
-            $ownedRel = 'dlssnr-amd/' + $rel
-            if ($newRelative.Contains($ownedRel)) { continue }
-            $stale = Join-Path $game $ownedRel
-            if (Test-Path -LiteralPath $stale -PathType Leaf) {
-                try { Remove-Item -LiteralPath $stale -Force -ErrorAction Stop }
-                catch { Write-Host "NOTE: could not remove retired asset $ownedRel (game running?): $($_.Exception.Message)" -ForegroundColor Yellow }
-            }
-        }
-    }
-    $acoCacheDir = Join-Path $game 'dlssnr-amd/aco-cache'
-    if ((Test-Path -LiteralPath $acoCacheDir -PathType Container) -and
-        -not ((Get-Item -LiteralPath $acoCacheDir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-        foreach ($staleDxbc in @(Get-ChildItem -LiteralPath $acoCacheDir -Filter '*.dxbc' -File -ErrorAction SilentlyContinue)) {
-            try { Remove-Item -LiteralPath $staleDxbc.FullName -Force -ErrorAction Stop } catch { }
-        }
-    }
-    $legacyPipeBinDir = Join-Path $game 'dlssnr-amd/int4-ultra/pipeline-binaries'
-    if ((Test-Path -LiteralPath $legacyPipeBinDir -PathType Container) -and
-        -not ((Get-Item -LiteralPath $legacyPipeBinDir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-        try {
-            if (@(Get-ChildItem -LiteralPath $legacyPipeBinDir -Force -ErrorAction Stop).Count -eq 0) {
-                [IO.Directory]::Delete($legacyPipeBinDir, $false)
-            }
-        } catch { }
-    }
-    $legacyRuntime = Join-Path $game 'MochizukiNrRuntime.dll'
-    if (Test-Path -LiteralPath $legacyRuntime -PathType Leaf) {
-        $movedTo = Join-Path $backup 'MochizukiNrRuntime.dll.retired'
-        if (-not (Test-Path -LiteralPath $backup -PathType Container)) { [void][IO.Directory]::CreateDirectory($backup) }
-        try {
-            Move-Item -LiteralPath $legacyRuntime -Destination $movedTo -Force -ErrorAction Stop
-            Write-Host "Moved the retired built-in runtime to $movedTo" -ForegroundColor Yellow
-        } catch {
-            Write-Host "NOTE: could not move the retired MochizukiNrRuntime.dll aside: $($_.Exception.Message)" -ForegroundColor Yellow
-        }
-    }
-
-    # Plugin and probe. The shared resource folder may not exist yet on a clean game.
-    [void][IO.Directory]::CreateDirectory((Join-Path $game 'dlssnr-amd'))
-    Copy-Item -LiteralPath $mochizukiAsi -Destination $asiTarget -Force
-    Add-AsiOwned $asiTarget
-    $asiTargetFull = [IO.Path]::GetFullPath($asiTarget)
-    if (-not $asiTargetFull.StartsWith($gameFullPrefix, [StringComparison]::OrdinalIgnoreCase)) {
-        if (-not $script:installedExternalPlugins) { $script:installedExternalPlugins = New-Object System.Collections.Generic.List[string] }
-        $script:installedExternalPlugins.Add(("{0}|{1}" -f (Get-Sha256 $asiTargetFull).ToLowerInvariant(), $asiTargetFull))
-    }
-    if ($mochizukiProbe -and (Test-Path -LiteralPath $mochizukiProbe -PathType Leaf)) {
-        $probeTarget = Join-Path $game 'dlssnr-amd/nr_present_probe.exe'
-        Copy-Item -LiteralPath $mochizukiProbe -Destination $probeTarget -Force
-        Add-AsiOwned $probeTarget
-    }
-
-    # Shared resources: this version's files, never a mixture with the old set.
-    foreach ($file in @(Get-LmxxfUnlinkedFiles $resourceRoot)) {
-        if ($modelNames -contains $file.Name) { continue }
-        $rel = $file.FullName.Substring($resourceRoot.Length).TrimStart('\', '/')
-        $target = Join-Path $game (Join-Path 'dlssnr-amd' $rel)
-        $parent = Split-Path -Parent $target
-        if ($parent) { [void][IO.Directory]::CreateDirectory($parent) }
-        Copy-Item -LiteralPath $file.FullName -Destination $target -Force
-        Add-AsiOwned $target
-    }
-
-    # Models: presence-driven, no format or version gate.
-    $mochizukiModelsToInstall = @()
-    if ($wantOriginal -and $mochizukiModel) {
-        $mochizukiModelsToInstall += @{ Src = $mochizukiModel; Rel = 'dlssnr-amd/CC_SILVER_AARDWOLD.bin' }
-    }
-    if ($wantSmall -and $mochizukiSmallModel) {
-        $mochizukiModelsToInstall += @{ Src = $mochizukiSmallModel; Rel = 'dlssnr-amd/CC_SMALL_FP8.bin' }
-    }
-    foreach ($m in $mochizukiModelsToInstall) {
-        $destPath = Join-Path $game $m.Rel
-        $destExisted = Test-Path -LiteralPath $destPath -PathType Leaf
-        if ($destExisted) {
-            $same = $false
-            try { $same = (Get-Sha256 $destPath) -eq (Get-Sha256 $m.Src) } catch { }
-            if ($same) {
-                Write-Host ("Skip (model already in place): {0}" -f $m.Rel)
-                continue
-            }
-            $backupPath = $destPath + '.bak-' + (Get-Date -Format 'yyyyMMddHHmmss')
-            Move-Item -LiteralPath $destPath -Destination $backupPath -Force -ErrorAction Stop
-            Write-Host "Backed up existing model: $destPath -> $backupPath" -ForegroundColor Yellow
-        }
-        $parentDir = Split-Path -Parent $destPath
-        if ($parentDir) { [void][IO.Directory]::CreateDirectory($parentDir) }
-        Copy-Item -LiteralPath $m.Src -Destination $destPath -Force
-        Write-Host "Installed ASI model: $($m.Rel)" -ForegroundColor Green
     }
 
     function Get-ExpectedSha256FromFile([string]$ShaFile) {
@@ -1859,11 +2461,11 @@ if ($installMochizuki) {
         if ($tok -match '^[0-9A-F]{64}$') { return $tok }
         return $null
     }
-    function Test-MatchesSha256File([string]$BinPath, [string]$ShaFile) {
+    function Test-MatchesSha256File([string]$BinPath, [string]$ShaFile, [switch]$ThrowOnError) {
         $expected = Get-ExpectedSha256FromFile $ShaFile
         if (-not $expected) { return $true }
         if (-not (Test-Path -LiteralPath $BinPath -PathType Leaf)) { return $false }
-        try { return ((Get-Sha256 $BinPath).ToUpperInvariant() -eq $expected) } catch { return $false }
+        try { return ((Get-Sha256 $BinPath).ToUpperInvariant() -eq $expected) } catch { if ($ThrowOnError) { throw }; return $false }
     }
     $expShaFile = Find-FirstFile @(
         (Join-Path $Root 'experimental/CC_SMALL_FP8_EXPERIMENTAL.bin.sha256'),
@@ -1878,14 +2480,207 @@ if ($installMochizuki) {
         (Join-Path $release 'model-tools/dlssnr-int4.sha256')
     )
 
+    $resourceRoot = Join-Path $mochizukiAssets ''
+    $modelNames = @(
+        'CC_SILVER_AARDWOLD.bin', 'CC_SMALL_FP8.bin',
+        'CC_SMALL_FP8_EXPERIMENTAL.bin', 'CC_SILVER_AARDWOLD_OPTIMIZED.bin',
+        'CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin',
+        'dlssnr.bin', 'dlssnr-small.bin', 'dlssnr-int4.bin', 'dlssnr-small-experimental.bin'
+    )
+
+    $legacyRuntime = Join-Path $game 'MochizukiNrRuntime.dll'
+    if (Test-Path -LiteralPath $legacyRuntime -PathType Leaf) {
+        $movedTo = Join-Path $backup 'MochizukiNrRuntime.dll.retired'
+        if (-not (Test-Path -LiteralPath $backup -PathType Container)) { [void][IO.Directory]::CreateDirectory($backup) }
+        try {
+            Move-Item -LiteralPath $legacyRuntime -Destination $movedTo -Force -ErrorAction Stop
+            Write-Host "Moved the retired built-in runtime to $movedTo" -ForegroundColor Yellow
+        } catch {
+            Write-Host "NOTE: could not move the retired MochizukiNrRuntime.dll aside: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+    }
+
+    # Refresh shaders and caches without losing base weights or verified derived weights.
+    $dlssnrDir = Join-Path $game 'dlssnr-amd'
+    $preservedModelNames = New-Object System.Collections.Generic.List[string]
+    if (Test-Path -LiteralPath $dlssnrDir -PathType Container) {
+        $null = Assert-LmxxfUnlinkedPath $dlssnrDir
+        foreach ($modelFile in $modelNames) {
+            $cand = Join-Path $dlssnrDir $modelFile
+            if (-not (Test-Path -LiteralPath $cand -PathType Leaf)) { continue }
+            $null = Assert-LmxxfUnlinkedPath $cand
+            if ((Get-Item -LiteralPath $cand -ErrorAction Stop).Length -eq 0) { continue }
+            # Base weights are presence-driven. Keep both the existing destination
+            # and any legacy-named source until the normal copy/backup step.
+            $preserveModel = $modelFile -in @('CC_SILVER_AARDWOLD.bin', 'CC_SMALL_FP8.bin') -or
+                ($mochizukiModel -and $cand -ieq [IO.Path]::GetFullPath($mochizukiModel)) -or
+                ($mochizukiSmallModel -and $cand -ieq [IO.Path]::GetFullPath($mochizukiSmallModel))
+            if (-not $preserveModel) {
+                switch ($modelFile) {
+                    'CC_SMALL_FP8_EXPERIMENTAL.bin' {
+                        $magic = New-Object byte[] 8
+                        $stream = [IO.File]::OpenRead($cand)
+                        try { $read = $stream.Read($magic, 0, 8) } finally { $stream.Dispose() }
+                        $preserveModel = ($read -eq 8) -and ([Text.Encoding]::ASCII.GetString($magic) -eq 'NRMODEL1') -and
+                            (Test-MatchesSha256File $cand $expShaFile -ThrowOnError)
+                    }
+                    'CC_SILVER_AARDWOLD_OPTIMIZED.bin' { $preserveModel = Test-MatchesSha256File $cand $optShaFile -ThrowOnError }
+                    'CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin' { $preserveModel = Test-MatchesSha256File $cand $int4ShaFile -ThrowOnError }
+                }
+            }
+            if ($preserveModel) { [void]$preservedModelNames.Add($modelFile) }
+        }
+    }
+    Reset-ModelResourceTree $dlssnrDir @($preservedModelNames)
+
+    # Deploy route payload and shared dlssnr-amd resource folder.
+    if ($isOptiMode) {
+        Copy-Item -LiteralPath $mochizukiAsi -Destination $asiTarget -Force
+        Add-AsiOwned $asiTarget
+        $asiTargetFull = [IO.Path]::GetFullPath($asiTarget)
+        if (-not $asiTargetFull.StartsWith($gameFullPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+            if (-not $script:installedExternalPlugins) { $script:installedExternalPlugins = New-Object System.Collections.Generic.List[string] }
+            $script:installedExternalPlugins.Add(("{0}|{1}" -f (Get-Sha256 $asiTargetFull).ToLowerInvariant(), $asiTargetFull))
+        }
+    } elseif ($InstallMode -eq 'standalone') {
+        Put-ModeFile (Find-PkgFile 'standalone\dxgi.dll') 'dxgi.dll'
+        Put-ModeFile $mochizukiAsi 'dlssnr-amd.asi'
+        Put-ModeFile (Find-PkgFile 'vulkan\vulkan-1.dll') 'vulkan-1.dll'
+        Put-ModeTree (Find-PkgDir 'standalone\vk-override') 'vk-override'
+        foreach ($licName in @('DearImGui-LICENSE.txt', 'Inter-LICENSE.txt')) {
+            $licSrc = Find-PkgFile ("Licenses\$licName")
+            if (-not $licSrc) { $licSrc = Find-PkgFile ("dlssnr-amd\$licName") }
+            if ($licSrc) {
+                $licDst = Join-Path $game (Join-Path 'dlssnr-amd' $licName)
+                Copy-Item -LiteralPath $licSrc -Destination $licDst -Force
+                Add-AsiOwned $licDst
+            }
+        }
+        Record-ModeLogs @('dlssnr-amd.log', 'dlssnr-amd-crash.dmp')
+        Write-Host 'Installed Standalone route (dxgi.dll + dlssnr-amd.asi + vulkan-1.dll + vk-override\).' -ForegroundColor Green
+    } elseif ($InstallMode -eq 'reshade-feeder') {
+        Put-ReShadeMode $false
+        Record-ModeLogs @('dlssnr-amd.log', 'dlssnr-amd-crash.dmp')
+        Write-Host 'Installed ReShade DX10/11/12 route (dxgi.dll + dlssnr_amd.addon64 + reshade-shaders\).' -ForegroundColor Green
+    } elseif ($InstallMode -eq 'reshade-feeder-dx9') {
+        Put-ModeFile (Find-PkgFile 'vulkan\vulkan-1.dll') 'vulkan-1.dll'
+        Put-ModeFile (Find-PkgFile 'dxvk\d3d9.dll') 'd3d9.dll'
+        Put-ModeFile (Find-PkgFile 'dxvk\dxgi.dll') 'dxgi.dll'
+        foreach ($exeItem in @(Get-ChildItem -LiteralPath $game -Filter '*.exe' -File -ErrorAction SilentlyContinue)) {
+            $stem = [IO.Path]::GetFileNameWithoutExtension($exeItem.Name)
+            if ($stem) { Record-ModeLogs @("${stem}_dxgi.log", "${stem}_d3d9.log") }
+        }
+        Put-ReShadeMode $true
+        $dx9Preset = Find-PkgFile 'reshade\ReShadePreset-d3d9.ini'
+        if ($dx9Preset) {
+            Copy-Item -LiteralPath $dx9Preset -Destination (Join-Path $game 'ReShadePreset.ini') -Force
+        }
+        Record-ModeLogs @('dlssnr-amd.log', 'dlssnr-amd-crash.dmp')
+        Write-Host 'Installed ReShade DX9 (DXVK) route (d3d9.dll + dxgi.dll + vulkan-1.dll + ReShade64.dll + vk-override\ + dlssnr_amd.addon64).' -ForegroundColor Green
+    } elseif ($InstallMode -eq 'reshade-feeder-vulkan') {
+        Put-ModeFile (Find-PkgFile 'vulkan\vulkan-1.dll') 'vulkan-1.dll'
+        Put-ReShadeMode $true
+        Record-ModeLogs @('dlssnr-amd.log', 'dlssnr-amd-crash.dmp')
+        Write-Host 'Installed ReShade Vulkan route (vulkan-1.dll + ReShade64.dll + vk-override\ + dlssnr_amd.addon64).' -ForegroundColor Green
+    }
+
+    if ($InstallMode -like 'reshade-feeder*' -and $preservedUserInis.Count -gt 0 -and -not $overwriteIni -and -not $modeSwitching) {
+        foreach ($rsIni in @('ReShade.ini', 'ReShadePreset.ini')) {
+            if ($preservedUserInis.ContainsKey($rsIni) -and (Test-Path -LiteralPath $preservedUserInis[$rsIni] -PathType Leaf)) {
+                Copy-Item -LiteralPath $preservedUserInis[$rsIni] -Destination (Join-Path $game $rsIni) -Force
+                Write-Host "Kept existing $rsIni." -ForegroundColor Cyan
+            }
+        }
+    }
+
+    if ($lumeniteFx -and $InstallMode -like 'reshade-feeder*') {
+        $lumCount = Install-Lumenite $lumeniteFx (Join-Path $game 'reshade-shaders')
+        Write-Host "LumeniteFX: $lumCount files installed into $(Join-Path $game 'reshade-shaders')" -ForegroundColor Green
+        $preset = Join-Path $game 'ReShadePreset.ini'
+        if (-not (Test-Path -LiteralPath $preset -PathType Leaf)) {
+            Fail "ReShadePreset.ini missing for LumeniteFX setup: $preset"
+        }
+        $presetLines = [System.IO.File]::ReadAllLines($preset)
+        for ($li = 0; $li -lt $presetLines.Count; $li++) {
+            if ($presetLines[$li] -like 'PreprocessorDefinitions=*') {
+                $presetLines[$li] = $presetLines[$li].Replace('DLSS5_MV_PROVIDER=2', 'DLSS5_MV_PROVIDER=3')
+            } elseif ($presetLines[$li] -like 'Techniques=*') {
+                $presetLines[$li] = $presetLines[$li].Replace('vort_MotionEffects@vort_Motion.fx', 'Lumenite_Kernel@lumenite_Kernel.fx')
+            } elseif ($presetLines[$li] -like 'TechniqueSorting=*' -and -not $presetLines[$li].Contains('Lumenite_Kernel@lumenite_Kernel.fx')) {
+                $presetLines[$li] = 'TechniqueSorting=Lumenite_Kernel@lumenite_Kernel.fx,' + $presetLines[$li].Substring(17)
+            }
+        }
+        [System.IO.File]::WriteAllText($preset, (($presetLines -join "`r`n") + "`r`n"), [Text.UTF8Encoding]::new($false))
+        $presetText = [System.IO.File]::ReadAllText($preset)
+        if ($presetText -cnotmatch '(?m)^PreprocessorDefinitions=.*DLSS5_MV_PROVIDER=3' -or
+            $presetText -cnotmatch '(?m)^Techniques=Lumenite_Kernel@lumenite_Kernel\.fx,DLSS5_Feed@DLSS5_Feed\.fx') {
+            Fail "ReShadePreset.ini could not be switched to LumeniteFX ($preset)."
+        }
+    }
+
+    if ($mochizukiProbe -and (Test-Path -LiteralPath $mochizukiProbe -PathType Leaf)) {
+        $probeTarget = Join-Path $game 'dlssnr-amd/nr_present_probe.exe'
+        Copy-Item -LiteralPath $mochizukiProbe -Destination $probeTarget -Force
+    }
+
+    # Shared resources: clean copy into recreated dlssnr-amd\ (outside-dir manifest excludes per-shader entries).
+    foreach ($file in @(Get-LmxxfUnlinkedFiles $resourceRoot)) {
+        if ($modelNames -contains $file.Name) { continue }
+        $rel = $file.FullName.Substring($resourceRoot.Length).TrimStart('\', '/')
+        $target = Join-Path $game (Join-Path 'dlssnr-amd' $rel)
+        $parent = Split-Path -Parent $target
+        if ($parent) { [void][IO.Directory]::CreateDirectory($parent) }
+        Copy-Item -LiteralPath $file.FullName -Destination $target -Force
+    }
+
+    # Models: presence-driven, no format or version gate.
+    if ($wantOriginal -and (-not $mochizukiModel -or -not (Test-Path -LiteralPath $mochizukiModel -PathType Leaf)) -and $preservedGameModels.ContainsKey('CC_SILVER_AARDWOLD.bin')) {
+        $mochizukiModel = $preservedGameModels['CC_SILVER_AARDWOLD.bin']
+    }
+    if ($wantSmall -and (-not $mochizukiSmallModel -or -not (Test-Path -LiteralPath $mochizukiSmallModel -PathType Leaf)) -and $preservedGameModels.ContainsKey('CC_SMALL_FP8.bin')) {
+        $mochizukiSmallModel = $preservedGameModels['CC_SMALL_FP8.bin']
+    }
+    $mochizukiModelsToInstall = @()
+    if ($wantOriginal -and $mochizukiModel) {
+        $mochizukiModelsToInstall += @{ Src = $mochizukiModel; Rel = 'dlssnr-amd/CC_SILVER_AARDWOLD.bin' }
+    }
+    if ($wantSmall -and $mochizukiSmallModel) {
+        $mochizukiModelsToInstall += @{ Src = $mochizukiSmallModel; Rel = 'dlssnr-amd/CC_SMALL_FP8.bin' }
+    }
+    foreach ($m in $mochizukiModelsToInstall) {
+        $destPath = Join-Path $game $m.Rel
+        if ([IO.Path]::GetFullPath($m.Src) -ieq [IO.Path]::GetFullPath($destPath)) { continue }
+        $destExisted = Test-Path -LiteralPath $destPath -PathType Leaf
+        if ($destExisted) {
+            if (Test-FilesEqualFast $destPath $m.Src) {
+                Write-Host ("Skip (model already in place): {0}" -f $m.Rel)
+                continue
+            }
+            $backupPath = $destPath + '.bak-' + (Get-Date -Format 'yyyyMMddHHmmss')
+            Move-Item -LiteralPath $destPath -Destination $backupPath -Force -ErrorAction Stop
+            Write-Host "Backed up existing model: $destPath -> $backupPath" -ForegroundColor Yellow
+        }
+        $parentDir = Split-Path -Parent $destPath
+        if ($parentDir) { [void][IO.Directory]::CreateDirectory($parentDir) }
+        Copy-Item -LiteralPath $m.Src -Destination $destPath -Force
+        Write-Host "Installed ASI model: $($m.Rel)" -ForegroundColor Green
+    }
+
     # A previous game's derived files were cached in the package by
     # Save-GameModelForNextInstall. A new game gets that real cache instead of
     # regenerating (and failing when the package tools are unavailable),
     # provided the cached weights still match the packaged .sha256 pin.
-    $cachedExperimental = Find-FirstFile @(
+    $expCandidates = @()
+    if ($preservedGameModels.ContainsKey('CC_SMALL_FP8_EXPERIMENTAL.bin')) { $expCandidates += $preservedGameModels['CC_SMALL_FP8_EXPERIMENTAL.bin'] }
+    $expCandidates += @(
         (Join-Path $mochizukiAssets 'CC_SMALL_FP8_EXPERIMENTAL.bin'),
         (Join-Path $Root 'dlssnr-amd/CC_SMALL_FP8_EXPERIMENTAL.bin')
     )
+    foreach ($ld in $dlssnrLocalDataDirs) {
+        $expCandidates += (Join-Path $ld 'CC_SMALL_FP8_EXPERIMENTAL.bin')
+        $expCandidates += (Join-Path $ld 'dlssnr-amd/CC_SMALL_FP8_EXPERIMENTAL.bin')
+    }
+    $cachedExperimental = Find-FirstFile $expCandidates
     $cachedExperimentalTarget = Join-Path $game 'dlssnr-amd/CC_SMALL_FP8_EXPERIMENTAL.bin'
     if ($generateExperimental -and $cachedExperimental -and
         [IO.Path]::GetFullPath($cachedExperimental) -ne [IO.Path]::GetFullPath($cachedExperimentalTarget) -and
@@ -1894,10 +2689,17 @@ if ($installMochizuki) {
         Copy-Item -LiteralPath $cachedExperimental -Destination $cachedExperimentalTarget -Force
         Write-Host 'Copied cached CC_SMALL_FP8_EXPERIMENTAL weights.' -ForegroundColor Green
     }
-    $cachedOptimized = Find-FirstFile @(
+    $optCandidates = @()
+    if ($preservedGameModels.ContainsKey('CC_SILVER_AARDWOLD_OPTIMIZED.bin')) { $optCandidates += $preservedGameModels['CC_SILVER_AARDWOLD_OPTIMIZED.bin'] }
+    $optCandidates += @(
         (Join-Path $mochizukiAssets 'CC_SILVER_AARDWOLD_OPTIMIZED.bin'),
         (Join-Path $Root 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED.bin')
     )
+    foreach ($ld in $dlssnrLocalDataDirs) {
+        $optCandidates += (Join-Path $ld 'CC_SILVER_AARDWOLD_OPTIMIZED.bin')
+        $optCandidates += (Join-Path $ld 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED.bin')
+    }
+    $cachedOptimized = Find-FirstFile $optCandidates
     $cachedOptimizedTarget = Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED.bin'
     if ($generateInt4 -and $cachedOptimized -and
         [IO.Path]::GetFullPath($cachedOptimized) -ne [IO.Path]::GetFullPath($cachedOptimizedTarget) -and
@@ -1906,10 +2708,17 @@ if ($installMochizuki) {
         Copy-Item -LiteralPath $cachedOptimized -Destination $cachedOptimizedTarget -Force
         Write-Host 'Copied cached CC_SILVER_AARDWOLD_OPTIMIZED weights.' -ForegroundColor Green
     }
-    $cachedInt4 = Find-FirstFile @(
+    $int4Candidates = @()
+    if ($preservedGameModels.ContainsKey('CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin')) { $int4Candidates += $preservedGameModels['CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin'] }
+    $int4Candidates += @(
         (Join-Path $mochizukiAssets 'CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin'),
         (Join-Path $Root 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin')
     )
+    foreach ($ld in $dlssnrLocalDataDirs) {
+        $int4Candidates += (Join-Path $ld 'CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin')
+        $int4Candidates += (Join-Path $ld 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin')
+    }
+    $cachedInt4 = Find-FirstFile $int4Candidates
     $cachedInt4Target = Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin'
     if ($generateInt4 -and $cachedInt4 -and
         [IO.Path]::GetFullPath($cachedInt4) -ne [IO.Path]::GetFullPath($cachedInt4Target) -and
@@ -2119,55 +2928,56 @@ if ($installMochizuki) {
         } catch { }
     }
 
-    # Assets this version no longer installs, but the previous install owned.
-    # Removal happens only after the new payload is in place.
-    foreach ($oldRel in $previousAsi) {
-        if ($asiFiles.Contains($oldRel)) { continue }
-        $stale = Join-Path $game $oldRel
-        if (Test-Path -LiteralPath $stale -PathType Leaf) {
-            try {
-                Remove-Item -LiteralPath $stale -Force -ErrorAction Stop
-                Write-Host "Removed asset no longer installed: $oldRel" -ForegroundColor DarkYellow
-            } catch {
-                Write-Host "NOTE: could not remove $oldRel (game running?): $($_.Exception.Message)" -ForegroundColor Yellow
-            }
-        }
-    }
-
-    # Prune empty directories left behind under dlssnr-amd\ after retired assets are removed
-    # (for example, retired shaders\d3d12\* and shaders\renodx\renodx-prep).
-    $asiAssetDir = Join-Path $game 'dlssnr-amd'
-    if (Test-Path -LiteralPath $asiAssetDir -PathType Container) {
-        try {
-            $null = Assert-LmxxfUnlinkedPath $asiAssetDir
-            Get-ChildItem -LiteralPath $asiAssetDir -Directory -Recurse -ErrorAction SilentlyContinue |
-                Where-Object { -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } |
-                Sort-Object { $_.FullName.Length } -Descending |
-                ForEach-Object {
-                    try {
-                        if (@(Get-ChildItem -LiteralPath $_.FullName -Force -ErrorAction Stop).Count -eq 0) {
-                            [IO.Directory]::Delete($_.FullName, $false)
-                        }
-                    } catch { }
-                }
-        } catch { }
-    }
-
-    # Ownership record: upgrade and uninstall delete exactly these files.
-    $manifestLines = @('# Files installed by OptScaler(NR) for dlssnr-amd.asi; models are not listed.')
-    foreach ($rel in @($asiFiles | Sort-Object)) { $manifestLines += ('F ' + $rel) }
-    Set-Content -LiteralPath $asiManifest -Value ($manifestLines -join "`r`n") -Encoding ASCII
+    # Ownership record: upgrade and uninstall replay/delete entries in reverse order.
+    $manifestLines = New-Object System.Collections.Generic.List[string]
+    $manifestLines.Add("# Files installed by OptScaler(NR) ($InstallMode); models are not listed.")
+    foreach ($rLine in $rtxBridgeManifestLines) { $manifestLines.Add($rLine) }
+    foreach ($mLine in $modeManifestLines) { $manifestLines.Add($mLine) }
+    foreach ($rel in @($asiFiles | Sort-Object)) { $manifestLines.Add('F ' + $rel) }
+    [System.IO.File]::WriteAllText($asiManifest, (($manifestLines -join "`r`n") + "`r`n"), [Text.UTF8Encoding]::new($false))
 
     # The ASI config template is installed once; a user's later edits win.
     $asiIni = Join-Path $game 'dlssnr-amd.ini'
-    # The upstream default is the RenoDX style. The plain wilsjo2 template remains
-    # a fallback and can be selected later in NR Control.
-    $asiTemplate = Find-FirstFile @(
-        (Join-Path $Root 'dlssnr-amd-optiscaler-renodx.ini'),
-        (Join-Path $release 'dlssnr-amd-optiscaler-renodx.ini'),
-        (Join-Path $Root 'dlssnr-amd-optiscaler.ini'),
-        (Join-Path $release 'dlssnr-amd-optiscaler.ini')
-    )
+    $templateCandidates = switch ($InstallMode) {
+        'standalone' {
+            @(
+                (Join-Path $Root 'ini\dlssnr-amd-standalone.ini'),
+                (Join-Path $release 'ini\dlssnr-amd-standalone.ini'),
+                (Join-Path $Root 'dlssnr-amd-standalone.ini'),
+                (Join-Path $release 'dlssnr-amd-standalone.ini')
+            )
+        }
+        { $_ -like 'reshade-feeder*' } {
+            @(
+                (Join-Path $Root 'ini\dlssnr-amd-addon.ini'),
+                (Join-Path $release 'ini\dlssnr-amd-addon.ini'),
+                (Join-Path $Root 'dlssnr-amd-addon.ini'),
+                (Join-Path $release 'dlssnr-amd-addon.ini')
+            )
+        }
+        default {
+            if ($RenoDX -eq 'off') {
+                @(
+                    (Join-Path $Root 'ini\dlssnr-amd-optiscaler.ini'),
+                    (Join-Path $release 'ini\dlssnr-amd-optiscaler.ini'),
+                    (Join-Path $Root 'dlssnr-amd-optiscaler.ini'),
+                    (Join-Path $release 'dlssnr-amd-optiscaler.ini')
+                )
+            } else {
+                @(
+                    (Join-Path $Root 'ini\dlssnr-amd-optiscaler-renodx.ini'),
+                    (Join-Path $release 'ini\dlssnr-amd-optiscaler-renodx.ini'),
+                    (Join-Path $Root 'dlssnr-amd-optiscaler-renodx.ini'),
+                    (Join-Path $release 'dlssnr-amd-optiscaler-renodx.ini'),
+                    (Join-Path $Root 'ini\dlssnr-amd-optiscaler.ini'),
+                    (Join-Path $release 'ini\dlssnr-amd-optiscaler.ini'),
+                    (Join-Path $Root 'dlssnr-amd-optiscaler.ini'),
+                    (Join-Path $release 'dlssnr-amd-optiscaler.ini')
+                )
+            }
+        }
+    }
+    $asiTemplate = Find-FirstFile $templateCandidates
     $asiIniExisted = Test-Path -LiteralPath $asiIni -PathType Leaf
     $asiIniFresh = (-not $asiIniExisted) -or $overwriteIni
     if ($asiIniFresh -and $asiTemplate) {
@@ -2177,13 +2987,18 @@ if ($installMochizuki) {
         }
     } elseif ($asiIniExisted) {
         Write-Host 'Keeping the existing dlssnr-amd.ini.' -ForegroundColor Cyan
-        # Strip any UTF-8 BOM left by a prior Set-IniSettings call so the native
-        # C++ parser in dlssnr-amd.asi can recognize the first [Network] section.
-        $asiBytes = [System.IO.File]::ReadAllBytes($asiIni)
-        if ($asiBytes.Length -ge 3 -and $asiBytes[0] -eq 0xEF -and $asiBytes[1] -eq 0xBB -and $asiBytes[2] -eq 0xBF) {
-            $cleanBytes = New-Object byte[] ($asiBytes.Length - 3)
-            [System.Array]::Copy($asiBytes, 3, $cleanBytes, 0, $cleanBytes.Length)
-            [System.IO.File]::WriteAllBytes($asiIni, $cleanBytes)
+    }
+    if ($asiIniFresh -and ($InstallMode -like 'reshade-feeder*') -and (Test-Path -LiteralPath $asiIni -PathType Leaf)) {
+        $renoVal = if ($RenoDX -eq 'off') { '0' } else { '1' }
+        Set-IniSettings $asiIni 'RenoDX' ([ordered]@{ 'Enabled' = $renoVal })
+        if ($lumeniteFx) {
+            $iniText = [System.IO.File]::ReadAllText($asiIni)
+            if ($iniText -cmatch '(?m)^MotionVectors\s*=\s*vort\r?$') {
+                $iniText = [regex]::Replace($iniText, '(?m)^MotionVectors\s*=\s*vort(\r?)$', 'MotionVectors=lumenite$1')
+                [System.IO.File]::WriteAllText($asiIni, $iniText, [Text.UTF8Encoding]::new($false))
+            } else {
+                Fail 'dlssnr-amd.ini: could not set MotionVectors=lumenite.'
+            }
         }
     }
     # [NRControl] Language names a file in dlssnr-amd\lang without .txt:
@@ -2264,6 +3079,16 @@ if ($installMochizuki) {
             $mochizukiActiveNetwork = $activeModelName
         }
     }
+    # Strip any UTF-8 BOM before dlssnr-amd.asi's native C++ INI parser reads it or
+    # we mirror dlssnr-amd.default.ini.
+    if (Test-Path -LiteralPath $asiIni -PathType Leaf) {
+        $asiBytes = [System.IO.File]::ReadAllBytes($asiIni)
+        if ($asiBytes.Length -ge 3 -and $asiBytes[0] -eq 0xEF -and $asiBytes[1] -eq 0xBB -and $asiBytes[2] -eq 0xBF) {
+            $cleanBytes = New-Object byte[] ($asiBytes.Length - 3)
+            [System.Array]::Copy($asiBytes, 3, $cleanBytes, 0, $cleanBytes.Length)
+            [System.IO.File]::WriteAllBytes($asiIni, $cleanBytes)
+        }
+    }
     # Upstream keeps the resolved config as dlssnr-amd\dlssnr-amd.default.ini;
     # the ASI restores a deleted dlssnr-amd.ini from it. Mirror the current main
     # file so user edits and this install's choices are what gets restored.
@@ -2282,6 +3107,12 @@ if ($installMochizuki) {
     if ($wantOriginal -and -not (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD.bin'))) {
         Write-Host 'Mochizuki original model not installed. Run Mochizuki-Model.bat beside Setup.bat with your nvngx_dlssnr.dll, then run Setup again.' -ForegroundColor Yellow
     }
+} elseif ($rtxBridgeManifestLines.Count -gt 0) {
+    $asiManifest = Join-Path $game 'dlssnr-amd-install.txt'
+    $manifestLines = New-Object System.Collections.Generic.List[string]
+    $manifestLines.Add("# Files installed by OptScaler(NR) ($InstallMode); models are not listed.")
+    foreach ($rLine in $rtxBridgeManifestLines) { $manifestLines.Add($rLine) }
+    [System.IO.File]::WriteAllText($asiManifest, (($manifestLines -join "`r`n") + "`r`n"), [Text.UTF8Encoding]::new($false))
 }
 
 # The staged extraction is only needed until the models are installed.
@@ -2291,7 +3122,7 @@ if ($mochizukiModelStage -and (Test-Path -LiteralPath $mochizukiModelStage)) {
 }
 
 $targetNetworkModel = if ($MochizukiModels -in @('original', 'int4') -or $MochizukiActiveModel -in @('original', 'int4')) { 0 } else { 1 }
-if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
+if ($isOptiMode -and (Test-Path -LiteralPath $gameIni -PathType Leaf)) {
     if (-not $installMochizuki) {
         $asiPluginDirs = @((Join-Path $game 'OptiScaler/plugins'))
         try {
@@ -2431,161 +3262,94 @@ function Install-OptiPatcherPlugin {
 }
 
 $installedOptiPatcher = $false
-$isInteractiveUser = (-not $NonInteractive) -and (-not [Console]::IsInputRedirected -or [Console]::In.Peek() -ge 0)
-if ($launcherDecisions) {
-    $isInteractiveUser = $false
-    if ([string]$launcherDecisions.optiPatcher -eq 'install') {
-        Write-Host 'DecisionJson requested OptiPatcher; fetching latest with bundled fallback (30s deadline).' -ForegroundColor Cyan
-        $installedOptiPatcher = Install-OptiPatcherPlugin 30
-    }
-}
-if ($isInteractiveUser) {
-    Write-Host ''
-    Write-Host '===================================================' -ForegroundColor Cyan
-    Write-Host 'OptiPatcher (DLSS Spoofing Enhancement / Native ASI Plugin)' -ForegroundColor Yellow
-    Write-Host 'Unlocks native DLSS / DLSS-FG options in 270+ supported games without spoofing overhead.' -ForegroundColor Gray
-    Write-Host 'More info: https://github.com/optiscaler/OptiPatcher' -ForegroundColor Gray
-    Write-Host '---------------------------------------------------' -ForegroundColor Gray
-    Write-Host 'Install OptiPatcher (DLSS Spoofing Enhancement)?' -ForegroundColor Yellow
-    Write-Host '  [1] Yes (Recommended: fetch latest release or use bundled offline version)'
-    Write-Host '  [2] No  (Skip)'
-
-    $optiPatcherChoice = $false
-    $maxAttempts = if ([Console]::IsInputRedirected) { 1 } else { 5 }
-    $attempts = 0
-    while ($attempts -lt $maxAttempts) {
-        $attempts++
-        $rawAns = Read-Host 'Enter choice [1/2] (Default: 1)'
-        $ans = if ($null -ne $rawAns) { $rawAns.Trim() } else { '' }
-        if ([string]::IsNullOrWhiteSpace($ans) -or $ans -eq '1' -or $ans -match '^(?i)y(es)?$') {
-            $optiPatcherChoice = $true
-            break
-        } elseif ($ans -eq '2' -or $ans -match '^(?i)n(o)?$') {
-            $optiPatcherChoice = $false
-            break
-        } else {
-            Write-Host 'Invalid choice. Enter 1 or 2 (or press Enter for default [1]).' -ForegroundColor Yellow
+$isInteractiveUser = $isOptiMode -and (-not $isRtxRemixMc) -and (-not $NonInteractive) -and (-not [Console]::IsInputRedirected -or [Console]::In.Peek() -ge 0)
+if ($isOptiMode -and -not $isRtxRemixMc) {
+    if ($launcherDecisions) {
+        $isInteractiveUser = $false
+        if ([string]$launcherDecisions.optiPatcher -eq 'install') {
+            Write-Host 'DecisionJson requested OptiPatcher; fetching latest with bundled fallback (30s deadline).' -ForegroundColor Cyan
+            $installedOptiPatcher = Install-OptiPatcherPlugin 30
         }
     }
+    if ($isInteractiveUser) {
+        Write-Host ''
+        Write-Host '===================================================' -ForegroundColor Cyan
+        Write-Host 'OptiPatcher (DLSS Spoofing Enhancement / Native ASI Plugin)' -ForegroundColor Yellow
+        Write-Host 'Unlocks native DLSS / DLSS-FG options in 270+ supported games without spoofing overhead.' -ForegroundColor Gray
+        Write-Host 'More info: https://github.com/optiscaler/OptiPatcher' -ForegroundColor Gray
+        Write-Host '---------------------------------------------------' -ForegroundColor Gray
+        Write-Host 'Install OptiPatcher (DLSS Spoofing Enhancement)?' -ForegroundColor Yellow
+        Write-Host '  [1] Yes (Recommended: fetch latest release or use bundled offline version)'
+        Write-Host '  [2] No  (Skip)'
 
-    if ($optiPatcherChoice) {
-        $installedOptiPatcher = Install-OptiPatcherPlugin 60
-    }
-}
-
-# ASI plugins are on by default: an ASI component is part of this product, so the install
-# always writes true, overriding an explicit false in the game ini on purpose. Users who do
-# not want it can set false by hand afterwards; the launcher no longer exposes a toggle.
-if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
-    Set-IniSettings $gameIni 'Plugins' ([ordered]@{ 'LoadAsiPlugins' = 'true' })
-    Write-Host 'Enabled LoadAsiPlugins=true in OptiScaler.ini.' -ForegroundColor Green
-}
-
-# Ensure the resolved plugins directory always exists in the game folder and copy any
-# user-supplied custom .asi / .ini files placed in the package's plugins\ directory before Setup.
-try {
-    $resolvedPluginsDir = Get-PluginsTargetDirectory $game $gameIni
-    if (-not (Test-Path -LiteralPath $resolvedPluginsDir -PathType Container)) {
-        [void][IO.Directory]::CreateDirectory($resolvedPluginsDir)
-    }
-    $gameFullPrefix = [IO.Path]::GetFullPath($game).TrimEnd('\', '/') + '\'
-    foreach ($srcPluginDir in @((Join-Path $release 'OptiScaler\plugins'), (Join-Path $release 'plugins'))) {
-        if (-not (Test-Path -LiteralPath $srcPluginDir -PathType Container)) { continue }
-        if ([IO.Path]::GetFullPath($srcPluginDir).TrimEnd('\', '/') -ieq [IO.Path]::GetFullPath($resolvedPluginsDir).TrimEnd('\', '/')) { continue }
-        Get-ChildItem -LiteralPath $srcPluginDir -File -ErrorAction SilentlyContinue | Where-Object {
-            $_.Name -notmatch '(?i)^(OptiPatcher.*|dlssnr-amd|openrr|openrr-amd)\.asi$' -and
-                $_.Name -notin @('README.txt', 'OptScaler-NR-plugins-README.txt') -and
-                $_.Extension -in @('.asi', '.ini', '.txt', '.json')
-        } | ForEach-Object {
-            $destFile = Join-Path $resolvedPluginsDir $_.Name
-            if ($_.Extension -ine '.asi' -and (Test-Path -LiteralPath $destFile)) {
-                Write-Host "Keeping existing plugin configuration: $destFile"
-                return
-            }
-            if ([IO.Path]::GetFullPath($destFile).StartsWith($gameFullPrefix, [StringComparison]::OrdinalIgnoreCase)) {
-                $rel = [IO.Path]::GetFullPath($destFile).Substring($gameFullPrefix.Length)
-                Install-One $_.FullName $rel
+        $optiPatcherChoice = $false
+        $maxAttempts = if ([Console]::IsInputRedirected) { 1 } else { 5 }
+        $attempts = 0
+        while ($attempts -lt $maxAttempts) {
+            $attempts++
+            $rawAns = Read-Host 'Enter choice [1/2] (Default: 1)'
+            $ans = if ($null -ne $rawAns) { $rawAns.Trim() } else { '' }
+            if ([string]::IsNullOrWhiteSpace($ans) -or $ans -eq '1' -or $ans -match '^(?i)y(es)?$') {
+                $optiPatcherChoice = $true
+                break
+            } elseif ($ans -eq '2' -or $ans -match '^(?i)n(o)?$') {
+                $optiPatcherChoice = $false
+                break
             } else {
-                Copy-Item -LiteralPath $_.FullName -Destination $destFile -Force
+                Write-Host 'Invalid choice. Enter 1 or 2 (or press Enter for default [1]).' -ForegroundColor Yellow
             }
         }
+
+        if ($optiPatcherChoice) {
+            $installedOptiPatcher = Install-OptiPatcherPlugin 60
+        }
     }
-} catch {
-    Write-Host "NOTE: could not initialize plugins folder: $($_.Exception.Message)" -ForegroundColor Yellow
+
+    # ASI plugins are on by default: an ASI component is part of this product, so the install
+    # always writes true, overriding an explicit false in the game ini on purpose. Users who do
+    # not want it can set false by hand afterwards; the launcher no longer exposes a toggle.
+    if (Test-Path -LiteralPath $gameIni -PathType Leaf) {
+        Set-IniSettings $gameIni 'Plugins' ([ordered]@{ 'LoadAsiPlugins' = 'true' })
+        Write-Host 'Enabled LoadAsiPlugins=true in OptiScaler.ini.' -ForegroundColor Green
+    }
+
+    # Ensure the resolved plugins directory always exists in the game folder and copy any
+    # user-supplied custom .asi / .ini files placed in the package's plugins\ directory before Setup.
+    try {
+        $resolvedPluginsDir = Get-PluginsTargetDirectory $game $gameIni
+        if (-not (Test-Path -LiteralPath $resolvedPluginsDir -PathType Container)) {
+            [void][IO.Directory]::CreateDirectory($resolvedPluginsDir)
+        }
+        $gameFullPrefix = [IO.Path]::GetFullPath($game).TrimEnd('\', '/') + '\'
+        foreach ($srcPluginDir in @((Join-Path $release 'OptiScaler\plugins'), (Join-Path $release 'plugins'))) {
+            if (-not (Test-Path -LiteralPath $srcPluginDir -PathType Container)) { continue }
+            if ([IO.Path]::GetFullPath($srcPluginDir).TrimEnd('\', '/') -ieq [IO.Path]::GetFullPath($resolvedPluginsDir).TrimEnd('\', '/')) { continue }
+            Get-ChildItem -LiteralPath $srcPluginDir -File -ErrorAction SilentlyContinue | Where-Object {
+                $_.Name -notmatch '(?i)^(OptiPatcher.*|dlssnr-amd|openrr|openrr-amd)\.asi$' -and
+                    $_.Name -notin @('README.txt', 'OptScaler-NR-plugins-README.txt') -and
+                    $_.Extension -in @('.asi', '.ini', '.txt', '.json')
+            } | ForEach-Object {
+                $destFile = Join-Path $resolvedPluginsDir $_.Name
+                if ($_.Extension -ine '.asi' -and (Test-Path -LiteralPath $destFile)) {
+                    Write-Host "Keeping existing plugin configuration: $destFile"
+                    return
+                }
+                if ([IO.Path]::GetFullPath($destFile).StartsWith($gameFullPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+                    $rel = [IO.Path]::GetFullPath($destFile).Substring($gameFullPrefix.Length)
+                    Install-One $_.FullName $rel
+                } else {
+                    Copy-Item -LiteralPath $_.FullName -Destination $destFile -Force
+                }
+            }
+        }
+    } catch {
+        Write-Host "NOTE: could not initialize plugins folder: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
 }
 
 # OpenRR ASI plugin (openrr-amd.asi + openrr-amd.ini + openrr-amd/{shaders,shaders-gfx11,aco,lang} + optional nvngx_dlssd.dll 310.9.1)
 $openRrPluginDir = try { Get-PluginsTargetDirectory $game $gameIni } catch { Join-Path $game 'OptiScaler\plugins' }
 $gameFullPrefixForRr = [IO.Path]::GetFullPath($game).TrimEnd('\', '/') + '\'
-$openRrShaderManifest = Join-Path $game 'openrr-shaders-install.txt'
-function Install-OpenRrShaders([string]$standard, [string]$gfx11, [string]$assetsRoot = '') {
-    $manifest = Assert-LmxxfUnlinkedPath $openRrShaderManifest
-    $previous = @()
-    if (Test-Path -LiteralPath $manifest -PathType Leaf) {
-        $previous = @(Get-Content -LiteralPath $manifest | Where-Object {
-            $_ -match '^openrr-amd/(?:shaders(?:-gfx11)?/[^\\/:*?"<>|\x00-\x1F]+\.spv|aco/(?:gfx1200|gfx1201)/openrr-d3d12-v1/[^\\/:*?"<>|\x00-\x1F]+\.(?:nrp|json|msgpack)|lang/(?:fonts/)?[^\\/:*?"<>|\x00-\x1F]+\.(?:txt|ttf)|OpenRR_(?:LICENSE\.txt|THIRD_PARTY\.md))$'
-        })
-    }
-    $installed = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-    if ($assetsRoot -and (Test-Path -LiteralPath $assetsRoot -PathType Container)) {
-        $assetsPrefix = [IO.Path]::GetFullPath($assetsRoot).TrimEnd('\', '/')
-        foreach ($file in @(Get-LmxxfUnlinkedFiles $assetsRoot)) {
-            if ($file.Name -ieq 'nvngx_dlssd.dll') { continue }
-            $subRel = $file.FullName.Substring($assetsPrefix.Length).TrimStart('\', '/').Replace('\', '/')
-            $rel = 'openrr-amd/' + $subRel
-            if ($keep.ContainsKey($file.Name)) { continue }
-            [void](Assert-LmxxfUnlinkedPath (Join-Path $game $rel))
-            Install-One $file.FullName $rel
-            [void]$installed.Add($rel)
-        }
-    } else {
-        foreach ($source in @(@{ Path = $standard; Name = 'shaders' }, @{ Path = $gfx11; Name = 'shaders-gfx11' })) {
-            if (-not $source.Path) { continue }
-            foreach ($file in Get-ChildItem -LiteralPath $source.Path -Filter '*.spv' -File) {
-                $rel = 'openrr-amd/' + $source.Name + '/' + $file.Name
-                if ($keep.ContainsKey($file.Name)) { continue }
-                [void](Assert-LmxxfUnlinkedPath (Join-Path $game $rel))
-                Install-One $file.FullName $rel
-                [void]$installed.Add($rel)
-            }
-        }
-    }
-    foreach ($rel in $previous) {
-        if ($installed.Contains($rel)) { continue }
-        if ($keep.ContainsKey((Split-Path -Leaf $rel))) {
-            [void]$installed.Add($rel)
-            continue
-        }
-        try {
-            $stale = Assert-LmxxfUnlinkedPath (Join-Path $game $rel)
-            if (Test-Path -LiteralPath $stale -PathType Leaf) {
-                Remove-Item -LiteralPath $stale -Force -ErrorAction Stop
-            }
-        } catch {
-            [void]$installed.Add($rel)
-            Write-Host "NOTE: could not remove retired OpenRR asset $rel ($($_.Exception.Message))" -ForegroundColor Yellow
-        }
-    }
-    $rrGameDir = Join-Path $game 'openrr-amd'
-    if (Test-Path -LiteralPath $rrGameDir -PathType Container) {
-        try {
-            $null = Assert-LmxxfUnlinkedPath $rrGameDir
-            Get-ChildItem -LiteralPath $rrGameDir -Directory -Recurse -ErrorAction SilentlyContinue |
-                Where-Object { -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } |
-                Sort-Object { $_.FullName.Length } -Descending |
-                ForEach-Object {
-                    try {
-                        if (@(Get-ChildItem -LiteralPath $_.FullName -Force -ErrorAction Stop).Count -eq 0) {
-                            [IO.Directory]::Delete($_.FullName, $false)
-                        }
-                    } catch { }
-                }
-        } catch { }
-    }
-    # An empty inventory still marks a managed installation for future cleanup.
-    $lines = @('# OpenRR resources installed by OptiScaler(NR).') + @($installed | Sort-Object)
-    Set-Content -LiteralPath $manifest -Value $lines -Encoding UTF8
-}
 
 if ($wantOpenRr) {
     $openRrAsiSrc = $null
@@ -2691,14 +3455,7 @@ if ($wantOpenRr) {
         }
     }
     Set-OpenRrSpoof $gameIni $(if ($OpenRrSpoof -eq 'auto') { 'auto' } else { 'true' })
-    foreach ($legacyRrDir in @('opennr-rr\shaders', 'opennr-rr\shaders-gfx11')) {
-        $legacyRrPath = Join-Path $game $legacyRrDir
-        if (Test-Path -LiteralPath $legacyRrPath -PathType Container) {
-            Remove-Item -LiteralPath $legacyRrPath -Recurse -Force -ErrorAction SilentlyContinue
-        }
-    }
     if ($openRrAssetsSrc -or $openRrShadersSrc) {
-        Install-OpenRrShaders $openRrShadersSrc $openRrShadersGfx11Src $openRrAssetsSrc
         if (-not $userDlssd) {
             foreach ($cand in @((Join-Path $Root 'nvngx_dlssd.dll'), (Join-Path $release 'nvngx_dlssd.dll'), (Join-Path $Root 'openrr-amd\nvngx_dlssd.dll'), (Join-Path $Root 'opennr-rr\nvngx_dlssd.dll'), (Join-Path $game 'openrr-amd\nvngx_dlssd.dll'), (Join-Path $game 'opennr-rr\nvngx_dlssd.dll'), (Join-Path $game 'nvngx_dlssd.dll'))) {
                 if (Test-Path -LiteralPath $cand -PathType Leaf) {
@@ -2712,14 +3469,85 @@ if ($wantOpenRr) {
                 }
             }
         }
-        if ($userDlssd) {
-            Install-One $userDlssd 'openrr-amd\nvngx_dlssd.dll'
-            Write-Host "Installed user-supplied nvngx_dlssd.dll (310.9.1) into openrr-amd\nvngx_dlssd.dll." -ForegroundColor Green
+        $gameRootDlssd = Join-Path $game 'nvngx_dlssd.dll'
+        $existingRrDlssd = Join-Path $game 'openrr-amd\nvngx_dlssd.dll'
+        $staleRrDlssd = $false
+        $rrDlssdStage = $null
+        if (Test-Path -LiteralPath $existingRrDlssd -PathType Leaf) {
+            $staleRrDlssd = $true
+            try {
+                $ev = (Get-Item -LiteralPath $existingRrDlssd).VersionInfo
+                if ($ev.FileMajorPart -eq 310 -and $ev.FileMinorPart -eq 9 -and $ev.FileBuildPart -eq 1) {
+                    $staleRrDlssd = $false
+                    $rrDlssdStage = Join-Path $game ('.openrr-dlssd-' + [guid]::NewGuid().ToString('N') + '.dll')
+                    Move-Item -LiteralPath $existingRrDlssd -Destination $rrDlssdStage -Force -ErrorAction Stop
+                    if ($userDlssd -and ([IO.Path]::GetFullPath($userDlssd) -ieq [IO.Path]::GetFullPath($existingRrDlssd))) {
+                        $userDlssd = $rrDlssdStage
+                    }
+                }
+            } catch {
+                $rrDlssdStage = $null
+            }
         }
-        Write-Host 'Installed OpenRR resources (openrr-amd\shaders, shaders-gfx11, aco, lang).' -ForegroundColor Green
+        $gameHasRootDlssd31091 = $false
+        if ((-not $staleRrDlssd) -and (-not (Test-Path -LiteralPath (Join-Path $game '_storage_') -PathType Container)) -and (Test-Path -LiteralPath $gameRootDlssd -PathType Leaf)) {
+            try {
+                $gv = (Get-Item -LiteralPath $gameRootDlssd).VersionInfo
+                if ($gv.FileMajorPart -eq 310 -and $gv.FileMinorPart -eq 9 -and $gv.FileBuildPart -eq 1) {
+                    $gameHasRootDlssd31091 = $true
+                }
+            } catch { }
+        }
+        $rrDir = Join-Path $game 'openrr-amd'
+        $legacyOpenRrManifest = Join-Path $game 'openrr-shaders-install.txt'
+        try {
+            Remove-OwnedTreeSafe $rrDir
+            Remove-OwnedTreeSafe (Join-Path $game 'opennr-rr')
+            if (Test-Path -LiteralPath $legacyOpenRrManifest -PathType Leaf) {
+                Remove-Item -LiteralPath $legacyOpenRrManifest -Force -ErrorAction SilentlyContinue
+            }
+            [void][IO.Directory]::CreateDirectory($rrDir)
+            if ($openRrAssetsSrc -and (Test-Path -LiteralPath $openRrAssetsSrc -PathType Container)) {
+                $assetsPrefix = [IO.Path]::GetFullPath($openRrAssetsSrc).TrimEnd('\', '/')
+                foreach ($file in @(Get-LmxxfUnlinkedFiles $openRrAssetsSrc)) {
+                    if ($file.Name -ieq 'nvngx_dlssd.dll') { continue }
+                    if ($keep.ContainsKey($file.Name)) { continue }
+                    $subRel = $file.FullName.Substring($assetsPrefix.Length).TrimStart('\', '/')
+                    $dst = Join-Path $rrDir $subRel
+                    $dstParent = Split-Path -Parent $dst
+                    if ($dstParent) { [void][IO.Directory]::CreateDirectory($dstParent) }
+                    Copy-Item -LiteralPath $file.FullName -Destination $dst -Force
+                }
+            } else {
+                foreach ($source in @(@{ Path = $openRrShadersSrc; Name = 'shaders' }, @{ Path = $openRrShadersGfx11Src; Name = 'shaders-gfx11' })) {
+                    if (-not $source.Path) { continue }
+                    $dstDir = Join-Path $rrDir $source.Name
+                    [void][IO.Directory]::CreateDirectory($dstDir)
+                    foreach ($file in Get-ChildItem -LiteralPath $source.Path -Filter '*.spv' -File) {
+                        if ($keep.ContainsKey($file.Name)) { continue }
+                        Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $dstDir $file.Name) -Force
+                    }
+                }
+            }
+            if ($gameHasRootDlssd31091) {
+                Write-Host 'Using game-bundled nvngx_dlssd.dll (310.9.1) beside OptiScaler; skipped redundant copy into openrr-amd\.' -ForegroundColor Green
+            } elseif ($rrDlssdStage -and (Test-Path -LiteralPath $rrDlssdStage -PathType Leaf)) {
+                Move-Item -LiteralPath $rrDlssdStage -Destination (Join-Path $rrDir 'nvngx_dlssd.dll') -Force -ErrorAction Stop
+                $rrDlssdStage = $null
+                Write-Host 'Reused existing openrr-amd\nvngx_dlssd.dll (310.9.1).' -ForegroundColor Green
+            } elseif ($userDlssd) {
+                Install-One $userDlssd 'openrr-amd\nvngx_dlssd.dll'
+                Write-Host "Installed user-supplied nvngx_dlssd.dll (310.9.1) into openrr-amd\nvngx_dlssd.dll." -ForegroundColor Green
+            }
+            Write-Host 'Installed OpenRR resources (openrr-amd\shaders, shaders-gfx11, aco, lang).' -ForegroundColor Green
+        } finally {
+            if ($rrDlssdStage -and (Test-Path -LiteralPath $rrDlssdStage -PathType Leaf)) {
+                Remove-Item -LiteralPath $rrDlssdStage -Force -ErrorAction SilentlyContinue
+            }
+        }
     }
 } else {
-    if ($priorOpenRrInstalled) { Set-OpenRrSpoof $gameIni 'auto' } # OpenRR was installed before: hand spoofing back.
+    if ($isOptiMode -and $priorOpenRrInstalled) { Set-OpenRrSpoof $gameIni 'auto' } # OpenRR was installed before: hand spoofing back.
     foreach ($stalePluginAsi in @(
         (Join-Path $openRrPluginDir 'openrr-amd.asi'),
         (Join-Path $openRrPluginDir 'openrr.asi'),
@@ -2729,40 +3557,20 @@ if ($wantOpenRr) {
             [void](Remove-PluginFileChecked $stalePluginAsi)
         }
     }
-    foreach ($staleRr in @('OptiScaler\plugins\openrr.asi', 'OptiScaler\plugins\openrr-amd.asi', 'OptiScaler\plugins\openrr-ngx-host.dll', 'plugins\openrr.asi', 'plugins\openrr-amd.asi', 'plugins\openrr-ngx-host.dll', 'openrr-ngx-host.dll', 'openrr-amd.ini', 'openrr-amd.log', 'openrr-amd-crash.dmp', 'openrr-control.bin', 'opennr_rr.log', 'OpenNrRrRuntime.dll', 'opennr_rr.dll', 'OptiScaler\OpenNrRrRuntime.dll', 'OptiScaler\opennr_rr.dll', 'openrr-amd\OpenRR_LICENSE.txt', 'openrr-amd\OpenRR_THIRD_PARTY.md')) {
+    foreach ($staleRr in @('OptiScaler\plugins\openrr.asi', 'OptiScaler\plugins\openrr-amd.asi', 'OptiScaler\plugins\openrr-ngx-host.dll', 'plugins\openrr.asi', 'plugins\openrr-amd.asi', 'plugins\openrr-ngx-host.dll', 'openrr-ngx-host.dll', 'openrr-amd.ini', 'openrr-amd.log', 'openrr-amd-crash.dmp', 'openrr-control.bin', 'opennr_rr.log', 'OpenNrRrRuntime.dll', 'opennr_rr.dll', 'OptiScaler\OpenNrRrRuntime.dll', 'OptiScaler\opennr_rr.dll', 'openrr-shaders-install.txt')) {
         $stalePath = Join-Path $game $staleRr
         if (Test-Path -LiteralPath $stalePath -PathType Leaf) {
             Remove-Item -LiteralPath $stalePath -Force -ErrorAction SilentlyContinue
         }
     }
-    $staleRrDirs = @('openrr-amd\cache', 'openrr-amd\aco', 'openrr-amd\lang', 'opennr-rr\shaders', 'opennr-rr\shaders-gfx11')
-    if (Test-Path -LiteralPath $openRrShaderManifest -PathType Leaf) {
-        Install-OpenRrShaders '' '' ''
-        Remove-Item -LiteralPath $openRrShaderManifest -Force -ErrorAction SilentlyContinue
-        foreach ($shaderDir in @('openrr-amd\shaders', 'openrr-amd\shaders-gfx11', 'openrr-amd\aco', 'openrr-amd\lang')) {
-            $shaderPath = Assert-LmxxfUnlinkedPath (Join-Path $game $shaderDir)
-            if ((Test-Path -LiteralPath $shaderPath -PathType Container) -and
-                @(Get-ChildItem -LiteralPath $shaderPath -Force).Count -eq 0) {
-                [IO.Directory]::Delete($shaderPath, $false)
-            }
-        }
-    } else {
-        $staleRrDirs += @('openrr-amd\shaders', 'openrr-amd\shaders-gfx11')
-    }
-    foreach ($staleDir in $staleRrDirs) {
-        $staleRrShaders = Join-Path $game $staleDir
-        if (Test-Path -LiteralPath $staleRrShaders -PathType Container) {
-            Remove-Item -LiteralPath $staleRrShaders -Recurse -Force -ErrorAction SilentlyContinue
-        }
-    }
-    foreach ($parentRr in @('openrr-amd', 'opennr-rr')) {
-        $parentPath = Join-Path $game $parentRr
-        if ((Test-Path -LiteralPath $parentPath -PathType Container) -and @(Get-ChildItem -LiteralPath $parentPath -Force -ErrorAction SilentlyContinue).Count -eq 0) {
-            [IO.Directory]::Delete($parentPath, $false)
-        }
-    }
+    Remove-OwnedTreeSafe (Join-Path $game 'openrr-amd')
+    Remove-OwnedTreeSafe (Join-Path $game 'opennr-rr')
 
     Write-Host 'Removed/skipped OpenRR ASI plugin (unchecked).' -ForegroundColor Cyan
+}
+if ($isRtxRemixMc -and (Test-Path -LiteralPath $gameIni -PathType Leaf)) {
+    Set-IniSettings $gameIni 'Spoofing' ([ordered]@{ 'VulkanExtensionSpoofing' = 'true' })
+    Write-Host 'Set [Spoofing] VulkanExtensionSpoofing=true in OptiScaler.ini (RTX Remix Minecraft).' -ForegroundColor Green
 }
 # Uninstaller is copied into the game folder. Double-click it there; it
 # targets that directory (no folder picker). Sources were resolved before install
@@ -2771,9 +3579,9 @@ Install-One $ps1Src 'Uninstall_OptiScaler_NR.ps1'
 if ($xessCompatSrc) {
     Install-One $xessCompatSrc 'xess-compat.ps1'
 }
-$ownedPin = Join-Path $Root 'mochizuki-owned.txt'
-if (Test-Path -LiteralPath $ownedPin -PathType Leaf) {
-    Install-One $ownedPin 'mochizuki-owned.txt'
+$staleOwnedPin = Join-Path $game 'mochizuki-owned.txt'
+if (Test-Path -LiteralPath $staleOwnedPin -PathType Leaf) {
+    Remove-Item -LiteralPath $staleOwnedPin -Force -ErrorAction SilentlyContinue
 }
 if ($batSrc) {
     Install-One $batSrc 'Uninstall_OptiScaler_NR.bat'
@@ -2801,16 +3609,22 @@ exit /b %EC%
 # Uninstall still verifies OptiScaler by VersionInfo; this is a hint, not a trust root.
 $installMark = Join-Path $game 'amd-presr-install.txt'
 try {
-    $resolvedPluginDirRecord = try { Get-PluginsTargetDirectory $game $gameIni } catch { '' }
+    $resolvedPluginDirRecord = if ($isOptiMode) { try { Get-PluginsTargetDirectory $game $gameIni } catch { '' } } else { '' }
     $markLines = @(
         'project=OptScaler(NR)',
-        ('proxy=' + $Proxy),
+        ('installMode=' + $InstallMode),
+        ('renoDX=' + $RenoDX),
+        ('lumenite=' + $Lumenite),
+        ('proxy=' + $(if ($isOptiMode) { $effectiveProxy } else { 'none' })),
         ('backend=' + $selectedActiveBackend),
         ('pluginDir=' + $resolvedPluginDirRecord),
         ('uninstallFirst=' + $uninstallFirst.ToString().ToLowerInvariant()),
         ('installed=' + (Get-Date -Format 'yyyy-MM-ddTHH:mm:ssK')),
         ('game=' + $game)
     )
+    if ($remixBridgePrePatched) {
+        $markLines += 'remixBridgePrePatched=true'
+    }
     if ($wantOpenRr) {
         $markLines += ('openRrSpoof=' + $(if ($OpenRrSpoof -eq 'auto') { 'auto' } else { 'full' }))
     }
@@ -2846,10 +3660,12 @@ try {
 function Save-GameModelForNextInstall([ValidateSet('mochizuki', 'mochizuki-small',
         'mochizuki-experimental', 'mochizuki-optimized', 'mochizuki-int4')][string]$Kind) {
     $stage = $null
+    $cacheBaseRoot = $null
     try {
         $packageRoot = [IO.Path]::GetFullPath($Root)
         $gameRoot = [IO.Path]::GetFullPath($game)
-        if ($packageRoot.TrimEnd('\', '/') -ieq $gameRoot.TrimEnd('\', '/')) { return }        $relative = switch ($Kind) {
+        if ($packageRoot.TrimEnd('\', '/') -ieq $gameRoot.TrimEnd('\', '/')) { return }
+        $relative = switch ($Kind) {
             'mochizuki-small' { 'dlssnr-amd/CC_SMALL_FP8.bin' }
             'mochizuki-experimental' { 'dlssnr-amd/CC_SMALL_FP8_EXPERIMENTAL.bin' }
             'mochizuki-optimized' { 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED.bin' }
@@ -2863,11 +3679,25 @@ function Save-GameModelForNextInstall([ValidateSet('mochizuki', 'mochizuki-small
         $source = Join-Path $gameRoot $relative
         if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { return }
         $source = Assert-LmxxfUnlinkedPath $source
-        $destination = Assert-LmxxfUnlinkedPath $destination
         $packageRoot = Assert-LmxxfUnlinkedPath $packageRoot
+        $cacheBaseRoot = $packageRoot
+        try {
+            $probeFile = Join-Path $packageRoot ('.nr-save-probe-' + [guid]::NewGuid().ToString('N'))
+            [IO.File]::WriteAllText($probeFile, 'ok')
+            Remove-Item -LiteralPath $probeFile -Force -ErrorAction SilentlyContinue
+        } catch {
+            $localApp = $null
+            try { $localApp = [Environment]::GetFolderPath('LocalApplicationData') } catch { }
+            if (-not $localApp) { return }
+            $cacheBaseRoot = Join-Path $localApp 'DLSSNR-AMD'
+            [void][IO.Directory]::CreateDirectory((Join-Path $cacheBaseRoot 'models'))
+            $destination = Join-Path (Join-Path $cacheBaseRoot 'models') ([IO.Path]::GetFileName($relative))
+            if (Test-Path -LiteralPath $destination) { return }
+        }
+        $destination = Assert-LmxxfUnlinkedPath $destination
         if ($needsHeader -and -not (Test-MochizukiModelHeader $source $entries)) { return }
         $files = @(Get-Item -LiteralPath $source -ErrorAction Stop)
-        $stage = Join-Path $packageRoot ('.amd-presr-model-' + [guid]::NewGuid().ToString('N'))
+        $stage = Join-Path $cacheBaseRoot ('.amd-presr-model-' + [guid]::NewGuid().ToString('N'))
         [void][IO.Directory]::CreateDirectory($stage)
         $payload = Join-Path $stage 'model'
         foreach ($file in $files) {
@@ -2885,14 +3715,14 @@ function Save-GameModelForNextInstall([ValidateSet('mochizuki', 'mochizuki-small
         [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($destination))
         # The two-argument Move APIs fail if the destination appeared during copying.
         [IO.File]::Move($payload, $destination)
-        Write-Host "Saved $relative in the package folder for the next install: $destination" -ForegroundColor Green
+        Write-Host "Saved $relative for the next install: $destination" -ForegroundColor Green
     } catch {
         Write-Host "NOTE: could not save $Kind game model for the next install: $($_.Exception.Message)" -ForegroundColor Yellow
     } finally {
         if ($stage -and (Test-Path -LiteralPath $stage)) {
             try {
                 $safeStage = Assert-LmxxfUnlinkedPath $stage
-                if ([IO.Path]::GetDirectoryName($safeStage) -ine $packageRoot -or
+                if (-not $cacheBaseRoot -or [IO.Path]::GetDirectoryName($safeStage) -ine $cacheBaseRoot -or
                     [IO.Path]::GetFileName($safeStage) -notmatch '^\.amd-presr-model-[0-9a-f]{32}$') {
                     throw "Unexpected model staging path: $safeStage"
                 }
@@ -2920,12 +3750,26 @@ foreach ($path in $legacyCleanupFiles) {
 }
 Write-Host 'Done.' -ForegroundColor Green
 Write-Host "  Game:           $game"
-Write-Host "  Proxy:          $Proxy"
+Write-Host "  Mode:           $InstallMode"
+if ($isOptiMode) {
+    Write-Host "  Proxy:          $effectiveProxy"
+}
 if (Test-Path -LiteralPath $backup) {
     Write-Host "  Backup:         $backup"
 }
+if (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd-backup')) {
+    Write-Host "  Mode backup:    $(Join-Path $game 'dlssnr-amd-backup')"
+}
 if ($installMochizuki) {
-    Write-Host "  Installed:      OptiScaler + dlssnr-amd.asi (OptiScaler/plugins/dlssnr-amd.asi, resources)" -ForegroundColor Green
+    $routeDesc = switch ($InstallMode) {
+        'rtx-remix-mc' { 'RTX Remix Minecraft (OptiScaler.dll + remixbridge.dll patch + dlssnr-amd.asi)' }
+        'standalone' { 'Standalone (dxgi.dll + dlssnr-amd.asi + vulkan-1.dll + vk-override\)' }
+        'reshade-feeder' { 'ReShade DX10/11/12 (dxgi.dll + dlssnr_amd.addon64 + reshade-shaders\)' }
+        'reshade-feeder-dx9' { 'ReShade DX9 / DXVK (d3d9.dll + dxgi.dll + vulkan-1.dll + ReShade64.dll + vk-override\ + dlssnr_amd.addon64)' }
+        'reshade-feeder-vulkan' { 'ReShade Vulkan (vulkan-1.dll + ReShade64.dll + vk-override\ + dlssnr_amd.addon64)' }
+        default { 'OptiScaler + dlssnr-amd.asi (OptiScaler/plugins/dlssnr-amd.asi, resources)' }
+    }
+    Write-Host "  Installed:      $routeDesc" -ForegroundColor Green
     $activeModelStr = if ($targetNetworkModel -eq 1) { 'Small' } else { 'Original' }
     Write-Host "  Mochizuki model: $MochizukiModels (active: $activeModelStr)" -ForegroundColor Green
 }
@@ -2935,10 +3779,14 @@ if ($wantOpenRr) {
 if ($installedOptiPatcher) {
     Write-Host "  OptiPatcher:    Installed (DLSS spoofing enhancement, LoadAsiPlugins=true)" -ForegroundColor Green
 }
+if ($InstallMode -like 'reshade-feeder*') {
+    Write-Host ("  ReShade style:  {0}; LumeniteFX: {1}" -f $(if ($RenoDX -eq 'off') { 'wilsjo2' } else { 'RenoDX' }), $(if ($lumeniteFx) { 'on' } else { 'off' })) -ForegroundColor Cyan
+}
 Write-Host ''
 $activeNeedsSmall = if ($mochizukiActiveNetwork) { $mochizukiActiveNetwork -in @('small', 'experimental') } else { $targetNetworkModel -eq 1 }
 $mochizukiActiveValid = if ($activeNeedsSmall) { (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/CC_SMALL_FP8.bin') -PathType Leaf) } else { (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD.bin') -PathType Leaf) }
 $activeModelPending = ($selectedActiveBackend -eq 'mochizuki' -and -not $mochizukiActiveValid)
 if ($activeModelPending) {
-    Write-Host "Installation completed, but dlssnr-amd.asi cannot run yet: MODEL SETUP REQUIRED. Follow the model instructions above, then restart the game." -ForegroundColor Yellow
-} else { Write-Host 'Install SUCCEEDED.' -ForegroundColor Green }Pause-Exit 0
+    Write-Host "Installation completed, but DLSSNR-AMD cannot run yet: MODEL SETUP REQUIRED. Follow the model instructions above, then restart the game." -ForegroundColor Yellow
+} else { Write-Host 'Install SUCCEEDED.' -ForegroundColor Green }
+Pause-Exit 0

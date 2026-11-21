@@ -33,12 +33,12 @@
     }
   },
   "dlssnr": {
-    "version": "0.0.9m1",
-    "archiveName": "DLSSNR-AMD-Vulkan-Windows-0.0.9m1-preview-x86_64.zip",
-    "archiveUrl": "https://github.com/TheAutomatic/DLSSNR-AMD/releases/download/v0.0.9m1/DLSSNR-AMD-Vulkan-Windows-0.0.9m1-preview-x86_64.zip",
-    "archiveSha256": "0242c0307cb6b18798662cfa529c26f5ffee513acc0e975d9003a92a0c6b80d7",
+    "version": "0.0.9m3",
+    "archiveName": "DLSSNR-AMD-Vulkan-Windows-0.0.9m3-preview-x86_64.zip",
+    "archiveUrl": "https://github.com/TheAutomatic/DLSSNR-AMD/releases/download/v0.0.9m3/DLSSNR-AMD-Vulkan-Windows-0.0.9m3-preview-x86_64.zip",
+    "archiveSha256": "0e12d52ae30aa12eda9a9ebc672b312a7240d1e0cc7c827eb36b061cc8890294",
     "langArchiveName": "DLSSNR-AMD-lang-CJK-0.0.9m1.zip",
-    "langArchiveUrl": "https://github.com/TheAutomatic/DLSSNR-AMD/releases/download/v0.0.9m1/DLSSNR-AMD-lang-CJK-0.0.9m1.zip",
+    "langArchiveUrl": "https://github.com/TheAutomatic/DLSSNR-AMD/releases/download/v0.0.9m3/DLSSNR-AMD-lang-CJK-0.0.9m1.zip",
     "langArchiveSha256": "14736abe9d8f9e763574603780993aaa285776c285264894d749e781704bd7c4"
   },
   "openrr": {
@@ -52,5 +52,17 @@
     "url": "https://github.com/optiscaler/OptiPatcher/releases/download/rolling/OptiPatcher.asi",
     "pinnedSha256": "05b28adcc0b7609084de265fd45f72297cbd93a85fac95eb5aa3a3738f076295",
     "allowRollingRefresh": true
+  },
+  "rtxRemixMc": {
+    "version": "0.1.1-amd.2",
+    "archiveName": "rtx-remix-minecraft-0.1.1-amd-patch.zip",
+    "archiveUrl": "https://github.com/TheAutomatic/rtx-remix-minecraft-amd-patch/releases/download/v0.1.1-amd.2/rtx-remix-minecraft-0.1.1-amd-patch.zip",
+    "archiveSha256": "a2f851c3bbdc3b6ee4db0afbbcd8acbb9ce8dfcd0cf4d5f43ea0c9fa07b4bf31",
+    "files": {
+      "remixbridge.dll": "6ac157f774dafd9ab84931550ae71bafcc73c6e54d3290c4521957d7c7b229d2",
+      "LICENSE": "75f5f2ae732cdc31adf8ad90a42ed4ed47476b3f27fcdf90de13e79d6788309d",
+      "NOTICE": "efb16c0f7b4e7c286ac43828aded4289e065f7f2fd3f936aa72e3d10d65bc5eb",
+      "THIRD_PARTY_LICENSES/NVIDIA-rtx-remix-minecraft-Apache-2.0.txt": "fcd7f4edc6be93f37717add43dcb2617812d74536c6717b57028234b19a6d1db"
+    }
   }
 }

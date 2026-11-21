@@ -76,6 +76,23 @@ foreach ($required in @(
     'dlssnr-amd/aco/rdna3/d3d12_outer.nra',
     'ini/dlssnr-amd-optiscaler.ini',
     'ini/dlssnr-amd-optiscaler-renodx.ini',
+    'ini/dlssnr-amd-standalone.ini',
+    'ini/dlssnr-amd-addon.ini',
+    'standalone/dxgi.dll',
+    'standalone/vk-override/implicit_layer/dlssnr_standalone.json',
+    'reshade/ReShade64.dll',
+    'reshade/dlssnr_amd.addon64',
+    'reshade/ReShade.ini',
+    'reshade/ReShadePreset.ini',
+    'reshade/ReShadePreset-d3d9.ini',
+    'reshade/vk-override/implicit_layer/ReShade64.json',
+    'reshade/reshade-shaders/Shaders/DLSS5_Feed.fx',
+    'dxvk/d3d9.dll',
+    'dxvk/dxgi.dll',
+    'dxvk/LICENSE.txt',
+    'dxvk/version.txt',
+    'vulkan/vulkan-1.dll',
+    'vulkan/Vulkan-Loader-LICENSE.txt',
     'model-tools/dlssnr_extract_model.exe',
     'model-tools/dlssnr-int4-weights.exe',
     'model-tools/dlssnr-int4.sha256',
@@ -130,6 +147,10 @@ foreach ($reqOpenRrFile in @(
 $optiPatcherAsiSrc = $upstreamInfo.OptiPatcherAsi
 if (-not $optiPatcherAsiSrc -or -not (Test-Path -LiteralPath $optiPatcherAsiSrc -PathType Leaf)) {
     throw 'optipatcher payload missing OptiScaler/plugins/OptiPatcher.asi.'
+}
+$rtxRemixMcPayload = $upstreamInfo.RtxRemixMcDir
+if (-not $rtxRemixMcPayload -or -not (Test-Path -LiteralPath (Join-Path $rtxRemixMcPayload 'rtx-remix-mc/remixbridge.dll') -PathType Leaf)) {
+    throw 'rtx-remix-mc payload missing rtx-remix-mc/remixbridge.dll.'
 }
 
 # 3. Prepare clean staging directory
@@ -198,6 +219,18 @@ Copy-Item -LiteralPath (Join-Path $asiPayload 'OptiScaler/plugins/dlssnr-amd.asi
 Copy-Item -LiteralPath (Join-Path $asiPayload 'nr_present_probe.exe') -Destination $mzAssets -Force
 Copy-Item -LiteralPath (Join-Path $asiPayload 'ini/dlssnr-amd-optiscaler.ini') -Destination $stage -Force
 Copy-Item -LiteralPath (Join-Path $asiPayload 'ini/dlssnr-amd-optiscaler-renodx.ini') -Destination $stage -Force
+Copy-Item -LiteralPath (Join-Path $asiPayload 'ini/dlssnr-amd-standalone.ini') -Destination $stage -Force
+Copy-Item -LiteralPath (Join-Path $asiPayload 'ini/dlssnr-amd-addon.ini') -Destination $stage -Force
+foreach ($routeDirName in @('standalone', 'reshade', 'dxvk', 'vulkan')) {
+    $routeSrc = Join-Path $asiPayload $routeDirName
+    if (Test-Path -LiteralPath $routeSrc -PathType Container) {
+        $routeDst = Join-Path $stage $routeDirName
+        New-Item -ItemType Directory -Force $routeDst | Out-Null
+        Get-ChildItem -LiteralPath $routeSrc | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination $routeDst -Recurse -Force
+        }
+    }
+}
 Get-ChildItem -LiteralPath (Join-Path $asiPayload 'experimental') -File | Copy-Item -Destination (Join-Path $stage 'experimental') -Force
 if (Test-Path -LiteralPath (Join-Path $asiPayload 'optimized') -PathType Container) {
     New-Item -ItemType Directory -Force (Join-Path $stage 'optimized') | Out-Null
@@ -265,6 +298,12 @@ Get-ChildItem -LiteralPath $openRrAssetsSrc -Recurse -File | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
 }
 Get-ChildItem -LiteralPath (Join-Path $openRrPayload 'Licenses') -File | Copy-Item -Destination (Join-Path $stage 'Licenses') -Force
+
+# 7b. Stage RTX Remix for Minecraft AMD patch (remixbridge.dll + licenses; no OptiScaler.ini)
+$rtxMcStageDir = Join-Path $stage 'rtx-remix-mc'
+New-Item -ItemType Directory -Force $rtxMcStageDir | Out-Null
+Copy-Item -LiteralPath (Join-Path $rtxRemixMcPayload 'rtx-remix-mc/remixbridge.dll') -Destination (Join-Path $rtxMcStageDir 'remixbridge.dll') -Force
+Get-ChildItem -LiteralPath (Join-Path $rtxRemixMcPayload 'Licenses') -File | Copy-Item -Destination (Join-Path $stage 'Licenses') -Force
 
 # 8. Build & stage Launcher + Installer scripts
 & (Join-Path $root 'tools/build/build-launcher.ps1') -OutDir (Join-Path $root 'exports/launcher')
@@ -369,7 +408,7 @@ try {
             finally { $stream.Dispose(); $sha.Dispose() }
             if ($actual -ne $expectedEntries[$relative]) { throw "Archive checksum mismatch: $relative" }
         }
-        foreach ($required in @('OptiScaler.dll', 'OptiScaler.ini', 'Setup.ps1', 'install.sh', 'OptiScalerNRLauncher.exe', 'launcher-worker.ps1', 'proxy-probe.ps1', 'library-scan.ps1', 'install-capabilities.ps1', 'xess-compat.ps1', 'proxy-profiles.json', 'OptiScaler/plugins/dlssnr-amd.asi', 'OptiScaler/plugins/openrr-amd.asi', 'OptiScaler/plugins/openrr-ngx-host.dll', 'openrr-amd/aco/gfx1201/openrr-d3d12-v1/manifest.msgpack', 'openrr-amd/aco/gfx1200/openrr-d3d12-v1/manifest.msgpack', 'openrr-amd/lang/zh-CN.txt', 'openrr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf', 'dlssnr-amd/nr_present_probe.exe', 'dlssnr-amd/aco/d3d12_outer.nra', 'dlssnr-amd/aco/rdna3/d3d12_outer.nra', 'dlssnr-amd/lang/zh-CN.txt', 'dlssnr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf', 'model-tools/dlssnr_extract_model.exe', 'experimental/dlssnr-small-experimental.delta', 'optimized/dlssnr-optimized.delta', 'dlssnr-amd-optiscaler.ini', 'dlssnr-amd-optiscaler-renodx.ini', 'mochizuki-owned.txt') + @($expectedEntries.Keys)) {
+        foreach ($required in @('OptiScaler.dll', 'OptiScaler.ini', 'Setup.ps1', 'install.sh', 'OptiScalerNRLauncher.exe', 'launcher-worker.ps1', 'proxy-probe.ps1', 'library-scan.ps1', 'install-capabilities.ps1', 'xess-compat.ps1', 'proxy-profiles.json', 'OptiScaler/plugins/dlssnr-amd.asi', 'OptiScaler/plugins/openrr-amd.asi', 'OptiScaler/plugins/openrr-ngx-host.dll', 'rtx-remix-mc/remixbridge.dll', 'Licenses/RTX-Remix-Minecraft-AMD-Patch_LICENSE.txt', 'Licenses/RTX-Remix-Minecraft-AMD-Patch_NOTICE.txt', 'Licenses/NVIDIA-rtx-remix-minecraft-Apache-2.0.txt', 'openrr-amd/aco/gfx1201/openrr-d3d12-v1/manifest.msgpack', 'openrr-amd/aco/gfx1200/openrr-d3d12-v1/manifest.msgpack', 'openrr-amd/lang/zh-CN.txt', 'openrr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf', 'dlssnr-amd/nr_present_probe.exe', 'dlssnr-amd/aco/d3d12_outer.nra', 'dlssnr-amd/aco/rdna3/d3d12_outer.nra', 'dlssnr-amd/lang/zh-CN.txt', 'dlssnr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf', 'model-tools/dlssnr_extract_model.exe', 'experimental/dlssnr-small-experimental.delta', 'optimized/dlssnr-optimized.delta', 'dlssnr-amd-optiscaler.ini', 'dlssnr-amd-optiscaler-renodx.ini', 'dlssnr-amd-standalone.ini', 'dlssnr-amd-addon.ini', 'standalone/dxgi.dll', 'standalone/vk-override/implicit_layer/dlssnr_standalone.json', 'reshade/ReShade64.dll', 'reshade/dlssnr_amd.addon64', 'reshade/ReShade.ini', 'reshade/ReShadePreset.ini', 'reshade/ReShadePreset-d3d9.ini', 'reshade/vk-override/implicit_layer/ReShade64.json', 'reshade/reshade-shaders/Shaders/DLSS5_Feed.fx', 'dxvk/d3d9.dll', 'dxvk/dxgi.dll', 'vulkan/vulkan-1.dll', 'mochizuki-owned.txt') + @($expectedEntries.Keys)) {
             if (-not $seen.ContainsKey($required)) { throw "Package archive missing required component: $required" }
         }
     } finally {

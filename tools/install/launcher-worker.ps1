@@ -3,7 +3,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$RequestJson,
     [Parameter(Mandatory = $true)][string]$EventsJsonl,
-    [Parameter(Mandatory = $true)][string]$ResultJson
+    [Parameter(Mandatory = $true)][string]$ResultJson,
+    [switch]$Elevated
 )
 $ErrorActionPreference = 'Stop'
 # Match redirected child output and the launcher reader, independent of the OS code page.
@@ -12,20 +13,34 @@ $OutputEncoding = [Console]::OutputEncoding
 $here = $PSScriptRoot
 . (Join-Path $here 'proxy-probe.ps1')
 
+function Append-EventText([string]$text) {
+    if (-not $text) { return }
+    for ($try = 0; $try -lt 4; $try++) {
+        try {
+            [IO.File]::AppendAllText($EventsJsonl, $text)
+            return
+        } catch [System.IO.IOException] {
+            Start-Sleep -Milliseconds 35
+        }
+    }
+    [IO.File]::AppendAllText($EventsJsonl, $text)
+}
 function Write-Event([string]$stage, [string]$message) {
     if ($null -ne $message) { $message = [string]::new($message.ToCharArray()) }
+    if ($Elevated -and $message) { Write-Host ("[{0}] {1}" -f $stage, $message) }
     $line = (@{ schema = 1; requestId = $script:rid; stage = $stage; message = $message } | ConvertTo-Json -Compress)
-    [IO.File]::AppendAllText($EventsJsonl, $line + [Environment]::NewLine)
+    Append-EventText ($line + [Environment]::NewLine)
 }
 function Write-EventBatch([string]$stage, [string[]]$messages) {
     if (-not $messages -or $messages.Count -eq 0) { return }
     $sb = New-Object System.Text.StringBuilder
     foreach ($m in $messages) {
         $msg = if ($null -ne $m) { [string]::new($m.ToCharArray()) } else { '' }
+        if ($Elevated -and $msg) { Write-Host $msg }
         $line = (@{ schema = 1; requestId = $script:rid; stage = $stage; message = $msg } | ConvertTo-Json -Compress)
         [void]$sb.AppendLine($line)
     }
-    if ($sb.Length -gt 0) { [IO.File]::AppendAllText($EventsJsonl, $sb.ToString()) }
+    if ($sb.Length -gt 0) { Append-EventText $sb.ToString() }
 }
 function Write-Result($obj) {
     $tmp = $ResultJson + '.tmp'
@@ -53,9 +68,15 @@ function New-Result([string]$status, [string]$error) {
         packageRoot = $script:packageRoot
         compatibility = $script:compatibility
         mochizukiInstall = $script:mochizukiInstall
+        installedMode = $script:installedMode
+        recommendedMode = $script:recommendedMode
+        recommendedReshadeApi = $script:recommendedReshadeApi
+        detectedApi = $script:detectedApi
+        requiresAdmin = $script:requiresAdmin
     }
 }
 function Fail-Result([string]$status, [string]$error, [int]$code) {
+    if ($Elevated -and $error) { Write-Host ("[{0}] {1}" -f $status, $error) -ForegroundColor Red }
     Write-Result (New-Result $status $error)
     exit $code
 }
@@ -90,6 +111,11 @@ $script:notes = @()
 $script:fingerprint = $null
 $script:partial = $false
 $script:mochizukiInstall = $null
+$script:installedMode = ''
+$script:recommendedMode = ''
+$script:recommendedReshadeApi = ''
+$script:detectedApi = ''
+$script:requiresAdmin = $false
 $allowedProxy = @($CandidateNames)
 $allowedAction = @('inspect','install','update','uninstall','scan','repairXess','restoreXess','keepXess')
 $allowedBackend = @('auto','mochizuki','all','none')
@@ -130,56 +156,13 @@ if ($req.action -eq 'scan') {
     Write-Event 'done' "scan complete ($($games.Count) games found)"
     exit 0
 }
-function Resolve-XboxGamePath([string]$exe) {
-    if ($exe -notmatch '(?i)\\WindowsApps\\') { return $exe }
-    $name = [IO.Path]::GetFileName($exe)
-    if (-not $name) { return $exe }
-    $hits = New-Object System.Collections.Generic.List[string]
-    foreach ($drive in [IO.DriveInfo]::GetDrives()) {
-        if (-not $drive.IsReady) { continue }
-        $root = Join-Path $drive.Name 'XboxGames'
-        if (-not (Test-Path -LiteralPath $root -PathType Container)) { continue }
-        $stack = New-Object System.Collections.Generic.Stack[object]
-        $stack.Push(@{ Path = $root; Depth = 0 })
-        while ($stack.Count -gt 0 -and $hits.Count -lt 32) {
-            $cur = $stack.Pop()
-            if ($cur.Depth -gt 8) { continue }
-            $entries = @()
-            try { $entries = [IO.Directory]::GetFileSystemEntries($cur.Path) } catch { continue }
-            foreach ($entry in $entries) {
-                $leaf = [IO.Path]::GetFileName($entry)
-                $isDir = $false
-                $reparse = $false
-                try {
-                    $attr = [IO.File]::GetAttributes($entry)
-                    $isDir = [bool]($attr -band [IO.FileAttributes]::Directory)
-                    $reparse = [bool]($attr -band [IO.FileAttributes]::ReparsePoint)
-                } catch {
-                    if ([string]::Equals($leaf, $name, [StringComparison]::OrdinalIgnoreCase)) {
-                        [void]$hits.Add($entry)
-                    }
-                    continue
-                }
-                if ($reparse) { continue }
-                if ($isDir) {
-                    $stack.Push(@{ Path = $entry; Depth = $cur.Depth + 1 })
-                    continue
-                }
-                if ([string]::Equals($leaf, $name, [StringComparison]::OrdinalIgnoreCase)) {
-                    [void]$hits.Add($entry)
-                }
-            }
-        }
-    }
-    if ($hits.Count -eq 0) { return $exe }
-    return @($hits | Sort-Object {
-        if ($_ -match '(?i)\\WinGDK\\') { 0 } elseif ($_ -match '(?i)\\Win64\\') { 1 } elseif ($_ -match '(?i)\\Binaries\\') { 2 } else { 3 }
-    }, { $_.Length })[0]
-}
-
 $exe = [string]$req.gameExe
 if (-not $exe -or -not [IO.Path]::IsPathRooted($exe)) { Fail-Result 'failed' 'gameExe must be an absolute path' 1 }
-$exe = Resolve-XboxGamePath $exe
+try { $exe = [IO.Path]::GetFullPath($exe) }
+catch { Fail-Result 'failed' 'gameExe is not a valid absolute path' 1 }
+if ($exe -match '\\WindowsApps(?:\\|$)') {
+    Fail-Result 'failed' 'Select the executable in XboxGames, not WindowsApps.' 1
+}
 try {
     $item = Get-Item -LiteralPath $exe -Force -ErrorAction Stop
     if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { Fail-Result 'failed' 'gameExe cannot be a reparse point' 1 }
@@ -277,6 +260,11 @@ $script:candidates = @($probe.candidates)
 $script:conflicts = @($probe.conflicts)
 $script:fingerprint = $probe.fingerprint
 $script:partial = [bool]$probe.partial
+if ($probe.installedMode) { $script:installedMode = [string]$probe.installedMode }
+if ($probe.recommendedMode) { $script:recommendedMode = [string]$probe.recommendedMode }
+if ($probe.recommendedReshadeApi) { $script:recommendedReshadeApi = [string]$probe.recommendedReshadeApi }
+if ($probe.detectedApi) { $script:detectedApi = [string]$probe.detectedApi }
+$script:requiresAdmin = [bool]$probe.requiresAdmin
 
 # A Mochizuki (DLSSNR-AMD) installation of its own in the game folder. Only files that can
 # actually conflict are reported and later moved: his marker files (dlssnr_core.dll,
@@ -288,6 +276,14 @@ $script:partial = [bool]$probe.partial
 # disabled nvngx backups, and the dlssnr-amd\ model files this project shares. Read-only
 # here: the launcher warns, and only an explicit "remove" decision moves files aside.
 function Get-MochizukiInstall([string]$dir) {
+    $presrMark = Join-Path $dir 'amd-presr-install.txt'
+    if (Test-Path -LiteralPath $presrMark -PathType Leaf) {
+        try {
+            if ([IO.File]::ReadAllText($presrMark, [Text.Encoding]::UTF8) -match '(?m)^project=OptScaler\(NR\)\r?$') {
+                return $null
+            }
+        } catch { }
+    }
     $files = New-Object System.Collections.Generic.List[string]
     $proxy = ''
     $record = Join-Path $dir 'dlssnr-amd-install.txt'
@@ -456,15 +452,25 @@ function ConvertTo-ForeignProxyMap($raw) {
 }
 
 $dec = $req.explicitDecisions
+$installMode = ''
+if ($req.PSObject.Properties['installMode'] -and $req.installMode) { $installMode = [string]$req.installMode }
+elseif ($dec -and $dec.PSObject.Properties['installMode'] -and $dec.installMode) { $installMode = [string]$dec.installMode }
+if (-not $installMode) { $installMode = 'optiscaler' }
+if ($installMode -notin @('optiscaler','rtx-remix-mc','standalone','reshade-feeder','reshade-feeder-dx9','reshade-feeder-vulkan')) {
+    Fail-Result 'failed' "Unknown installMode: $installMode" 1
+}
+$isRtxRemixMc = ($installMode -eq 'rtx-remix-mc')
+$isOptiMode = ($installMode -eq 'optiscaler' -or $isRtxRemixMc)
+
 if ($req.action -in @('install','update')) {
     if ($probe.blockInstall) { Fail-Result 'failed' $probe.hint 1 }
-    if (-not $script:resolved) { Fail-Result 'needsInput' 'No proxy recommendation is available. Select a DLL explicitly.' 2 }
+    if ($isOptiMode -and -not $isRtxRemixMc -and -not $script:resolved) { Fail-Result 'needsInput' 'No proxy recommendation is available. Select a DLL explicitly.' 2 }
     if (-not $script:packageRoot) {
         Fail-Result 'failed' 'Complete package required: OptiScaler.dll was not found next to the installer. Unzip the full package and run Setup.bat from that folder.' 1
     }
 }
 $mochiAvailable = @($script:backends | Where-Object { $_.id -eq 'mochizuki' -and $_.runtimeState -eq 'ready' }).Count -gt 0
-$mochiSelected = if ($hasRequestedBackends) { @($req.backends) -contains 'mochizuki' } else {
+$mochiSelected = if (-not $isOptiMode) { $true } elseif ($hasRequestedBackends) { @($req.backends) -contains 'mochizuki' } else {
     $backend -eq 'mochizuki' -or (($backend -in @('auto','all','')) -and $mochiAvailable)
 }
 if ($mochiSelected) {
@@ -487,7 +493,7 @@ if ($mochiSelected) {
         Fail-Result 'failed' 'Invalid Mochizuki active network.' 1
     }
 }
-$openRrExplicitlyRequested = $dec -and $dec.PSObject.Properties['openRr'] -and ([string]$dec.openRr -eq 'install')
+$openRrExplicitlyRequested = $isOptiMode -and $dec -and $dec.PSObject.Properties['openRr'] -and ([string]$dec.openRr -eq 'install')
 if ($openRrExplicitlyRequested) {
     $hasValidDlssd = $false
     $dlssdCandidates = @()
@@ -524,7 +530,7 @@ if ($openRrExplicitlyRequested) {
         }
     }
 }
-if ($probe.conflicts.Count -gt 0) {
+if ($isOptiMode -and -not $isRtxRemixMc -and $probe.conflicts.Count -gt 0) {
     $map = @{}
     if ($dec -and $dec.foreignProxy) { $map = ConvertTo-ForeignProxyMap $dec.foreignProxy }
     foreach ($c in $probe.conflicts) {
@@ -554,31 +560,58 @@ $payload = @{
     existingIni = 'keep'
     shortFileContinue = 'abort'
     optiPatcher = 'skip'
+    installMode = $installMode
     language = if ($req.language -eq 'zh') { 'zh' } else { 'en' }
 }
 if ($dec) {
-    foreach ($name in @('existingInstall','existingIni','mochizukiModels','mochizukiNetworks','mochizukiActiveModel','shortFileContinue','optiPatcher','openRr','openRrSpoof','foreignProxy','modelSourceDll')) {
+    foreach ($name in @('existingInstall','existingIni','mochizukiModels','mochizukiNetworks','mochizukiActiveModel','shortFileContinue','optiPatcher','openRr','openRrSpoof','foreignProxy','modelSourceDll','installMode','renoDX','lumenite','lumeniteZip')) {
         if ($dec.PSObject.Properties[$name] -and $null -ne $dec.$name) {
             if ($name -eq 'foreignProxy') { $payload[$name] = ConvertTo-ForeignProxyMap $dec.$name }
             else { $payload[$name] = $dec.$name }
         }
     }
 }
-if ($hasRequestedBackends) { $payload['backends'] = @($req.backends) }
+if (-not $isOptiMode) {
+    $payload['openRr'] = 'skip'
+    $payload['optiPatcher'] = 'skip'
+    $payload['backends'] = @('mochizuki')
+    $payload['installMode'] = $installMode
+} else {
+    if ($isRtxRemixMc) {
+        $payload['optiPatcher'] = 'skip'
+    }
+    if ($hasRequestedBackends) {
+        $payload['backends'] = @($req.backends)
+    }
+}
 ($payload | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath $dj -Encoding UTF8
-Write-Event 'install' "starting $($req.action)"
+Write-Event 'install' "starting $($req.action) ($installMode)"
 $prevEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
-if ($hasRequestedBackends) {
+$proxyForSetup = if ($isRtxRemixMc) { 'dxgi.dll' } elseif ($script:resolved) { $script:resolved } else { 'dxgi.dll' }
+$modeArgs = @('-InstallMode', $installMode)
+if ($dec -and $dec.PSObject.Properties['renoDX'] -and $dec.renoDX) {
+    $modeArgs += @('-RenoDX', [string]$dec.renoDX)
+}
+if ($dec -and $dec.PSObject.Properties['lumenite'] -and $dec.lumenite) {
+    $modeArgs += @('-Lumenite', [string]$dec.lumenite)
+}
+if ($dec -and $dec.PSObject.Properties['lumeniteZip'] -and $dec.lumeniteZip) {
+    $modeArgs += @('-LumeniteZip', [string]$dec.lumeniteZip)
+}
+if (-not $isOptiMode) {
+    & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -GameDir $script:gameDir -Proxy $proxyForSetup -NoPause -NonInteractive -Root $script:packageRoot @modeArgs -DecisionJson $dj 1>$stdoutLog 2>$stderrLog
+    $code = $LASTEXITCODE
+} elseif ($hasRequestedBackends) {
     $activeArguments = @()
     if ($req.activeBackend) { $activeArguments = @('-ActiveBackend', [string]$req.activeBackend) }
-    & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -GameDir $script:gameDir -Proxy $script:resolved -NoPause -NonInteractive -Root $script:packageRoot @activeArguments -DecisionJson $dj 1>$stdoutLog 2>$stderrLog
+    & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -GameDir $script:gameDir -Proxy $proxyForSetup -NoPause -NonInteractive -Root $script:packageRoot @modeArgs @activeArguments -DecisionJson $dj 1>$stdoutLog 2>$stderrLog
     $code = $LASTEXITCODE
 } elseif ($backend -and $backend -ne 'auto') {
-    & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -GameDir $script:gameDir -Proxy $script:resolved -NoPause -NonInteractive -Root $script:packageRoot -Backend $backend -DecisionJson $dj 1>$stdoutLog 2>$stderrLog
+    & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -GameDir $script:gameDir -Proxy $proxyForSetup -NoPause -NonInteractive -Root $script:packageRoot @modeArgs -Backend $backend -DecisionJson $dj 1>$stdoutLog 2>$stderrLog
     $code = $LASTEXITCODE
 } else {
-    & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -GameDir $script:gameDir -Proxy $script:resolved -NoPause -NonInteractive -Root $script:packageRoot -DecisionJson $dj 1>$stdoutLog 2>$stderrLog
+    & $ps51 -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $install -GameDir $script:gameDir -Proxy $proxyForSetup -NoPause -NonInteractive -Root $script:packageRoot @modeArgs -DecisionJson $dj 1>$stdoutLog 2>$stderrLog
     $code = $LASTEXITCODE
 }
 $ErrorActionPreference = $prevEap

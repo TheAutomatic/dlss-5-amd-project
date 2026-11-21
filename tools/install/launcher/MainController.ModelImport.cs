@@ -161,6 +161,7 @@ namespace OptScalerNR.Launcher
                 var gDir = Path.GetDirectoryName(g.Exe);
                 if (!string.IsNullOrEmpty(gDir)) searchDirs.Add(gDir);
             }
+            foreach (var ld in DlssnrLocalData.GetModelReuseDirectories()) searchDirs.Add(ld);
             var settingsDir = _settingsDir;
 
             System.Threading.Tasks.Task.Run(() =>
@@ -213,11 +214,15 @@ namespace OptScalerNR.Launcher
                     {
                         foreach (var dir in searchDirs)
                         {
-                            var cand = Path.Combine(dir, "dlssnr-amd", "CC_SMALL_FP8.bin");
-                            if (IsValidMochizukiPack(cand, 255))
+                            foreach (var rel in new[] { @"dlssnr-amd\CC_SMALL_FP8.bin", "CC_SMALL_FP8.bin" })
                             {
-                                try { File.Copy(cand, destSmallPack, false); copiedAny = true; break; } catch { }
+                                var cand = Path.Combine(dir, rel);
+                                if (IsValidMochizukiPack(cand, 255))
+                                {
+                                    try { File.Copy(cand, destSmallPack, false); copiedAny = true; break; } catch { }
+                                }
                             }
+                            if (copiedAny && NonEmptyFile(destSmallPack)) break;
                         }
                     }
 
@@ -225,11 +230,15 @@ namespace OptScalerNR.Launcher
                     {
                         foreach (var dir in searchDirs)
                         {
-                            var cand = Path.Combine(dir, "dlssnr-amd", "CC_SILVER_AARDWOLD.bin");
-                            if (IsValidMochizukiPack(cand, 599))
+                            foreach (var rel in new[] { @"dlssnr-amd\CC_SILVER_AARDWOLD.bin", "CC_SILVER_AARDWOLD.bin" })
                             {
-                                try { File.Copy(cand, destOrigPack, false); copiedAny = true; break; } catch { }
+                                var cand = Path.Combine(dir, rel);
+                                if (IsValidMochizukiPack(cand, 599))
+                                {
+                                    try { File.Copy(cand, destOrigPack, false); copiedAny = true; break; } catch { }
+                                }
                             }
+                            if (NonEmptyFile(destOrigPack)) break;
                         }
                     }
 
@@ -243,6 +252,14 @@ namespace OptScalerNR.Launcher
                                 if (IsDlssd310_9_1(cand))
                                 {
                                     try { File.Copy(cand, destDlssd, true); copiedAny = true; break; } catch { }
+                                }
+                            }
+                            if (!IsDlssd310_9_1(destDlssd))
+                            {
+                                var nativeCand = FindGameNativeDlssdPath(dir);
+                                if (!string.IsNullOrEmpty(nativeCand) && IsDlssd310_9_1(nativeCand))
+                                {
+                                    try { File.Copy(nativeCand, destDlssd, true); copiedAny = true; } catch { }
                                 }
                             }
                             if (IsDlssd310_9_1(destDlssd)) break;
@@ -294,7 +311,7 @@ namespace OptScalerNR.Launcher
             var wanted = "";
             if (_mochiCheck != null && _mochiCheck.IsChecked == true && BackendHintsContain(FindBackend("mochizuki"), "mochi-source", "mochi-unsupported-source"))
                 wanted += (wanted.Length == 0 ? "" : " / ") + L("nvngx_dlssnr.dll（Mochizuki 模型源，310.9.16 或 310.8.0）", "nvngx_dlssnr.dll (Mochizuki model source, 310.9.16 or 310.8.0)");
-            if (_openRrToggle != null && _openRrToggle.IsChecked == true && !HasValidOpenRrDlssd())
+            if (IsOptiScalerSelectedMode() && !IsOpenRrUnsupportedLocked() && _openRrToggle != null && _openRrToggle.IsChecked == true && !HasValidOpenRrDlssd())
                 wanted += (wanted.Length == 0 ? "" : " / ") + L("nvngx_dlssd.dll（OpenRR 光线重建模型源，310.9.1.0）", "nvngx_dlssd.dll (OpenRR model source, 310.9.1.0)");
             if (wanted.Length == 0) return false;
             message = L("缺少模型源：", "Missing model source: ") + wanted +
@@ -313,7 +330,7 @@ namespace OptScalerNR.Launcher
         void RefreshOpenRrCard()
         {
             if (_openRrStatusText == null || _openRrBadge == null) return;
-            var enabled = _openRrToggle != null && _openRrToggle.IsChecked == true;
+            var enabled = !IsOpenRrUnsupportedLocked() && _openRrToggle != null && _openRrToggle.IsChecked == true;
             var hasDlssd = HasValidOpenRrDlssd();
             bool isPlaceholderAsi = false;
             try {
@@ -348,12 +365,13 @@ namespace OptScalerNR.Launcher
                 _openRrImportButton.Visibility = (enabled && !hasDlssd) ? Visibility.Visible : Visibility.Collapsed;
                 _openRrImportButton.IsEnabled = PresentationIdle;
             }
-            bool optiActive = _optiPatcherToggle != null && _optiPatcherToggle.IsEnabled && _optiPatcherToggle.IsChecked == true;
-            bool wantAutoSpoof = optiActive && GetOpenRrSpoof(_selectedGame) == "auto";
+            bool isRtxMc = IsRtxRemixMinecraftSelected();
+            bool optiActive = !isRtxMc && _optiPatcherToggle != null && _optiPatcherToggle.IsEnabled && _optiPatcherToggle.IsChecked == true;
+            bool wantAutoSpoof = !isRtxMc && optiActive && GetOpenRrSpoof(_selectedGame) == "auto";
             _decisions.OpenRrSpoof = wantAutoSpoof ? "auto" : "full";
             if (_openRrAutoSpoofToggle != null)
             {
-                _openRrAutoSpoofToggle.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+                _openRrAutoSpoofToggle.Visibility = (enabled && !isRtxMc) ? Visibility.Visible : Visibility.Collapsed;
                 _openRrAutoSpoofToggle.IsEnabled = PresentationIdle && enabled && optiActive;
                 _openRrAutoSpoofToggle.Content = optiActive
                     ? L(
@@ -629,6 +647,8 @@ namespace OptScalerNR.Launcher
             var parts = new System.Collections.Generic.List<string>();
             var checkPaths = new System.Collections.Generic.List<string> { exe };
             foreach (var c in ProxyRecommendations.ProxyNames) checkPaths.Add(Path.Combine(dir, c));
+            foreach (var extra in new[] { "OptiScaler.dll", "remixbridge.dll", @"dlssnr-amd-backup\remixbridge.dll", "d3d9.dll", "vulkan-1.dll", "dlssnr-amd.asi", "dlssnr_amd.addon64", "ReShade64.dll", "amd-presr-install.txt", "dlssnr-amd-install.txt" })
+                checkPaths.Add(Path.Combine(dir, extra));
             foreach (var p in checkPaths)
             {
                 if (File.Exists(p))
@@ -684,18 +704,31 @@ namespace OptScalerNR.Launcher
                 if (!Directory.Exists(Path.Combine(pkgRoot, @"dlssnr-amd\aco"))) missingPkg.Add("dlssnr-amd/aco");
                 if (!File.Exists(Path.Combine(pkgRoot, @"model-tools\dlssnr_extract_model.exe"))) missingPkg.Add("model-tools/dlssnr_extract_model.exe");
             }
+            var localDirs = DlssnrLocalData.GetModelReuseDirectories();
+            Func<string[], string> findLocalReuse = delegate(string[] rels) {
+                foreach (var ld in localDirs) {
+                    var found = FindFirstNonEmpty(ld, rels);
+                    if (found != null) return found;
+                }
+                return null;
+            };
             var mochiModel = FindFirstNonEmpty(pkgRoot, @"dlssnr-amd\CC_SILVER_AARDWOLD.bin", @"dlssnr-amd\dlssnr.bin")
-                ?? FindFirstNonEmpty(gameDir, @"dlssnr-amd\CC_SILVER_AARDWOLD.bin", @"dlssnr-amd\dlssnr.bin");
+                ?? FindFirstNonEmpty(gameDir, @"dlssnr-amd\CC_SILVER_AARDWOLD.bin", @"dlssnr-amd\dlssnr.bin")
+                ?? findLocalReuse(new[] { "CC_SILVER_AARDWOLD.bin", @"dlssnr-amd\CC_SILVER_AARDWOLD.bin", "dlssnr.bin" });
             var mochiSmall = FindFirstNonEmpty(pkgRoot, @"dlssnr-amd\CC_SMALL_FP8.bin", @"dlssnr-amd\dlssnr-small.bin")
-                ?? FindFirstNonEmpty(gameDir, @"dlssnr-amd\CC_SMALL_FP8.bin", @"dlssnr-amd\dlssnr-small.bin");
+                ?? FindFirstNonEmpty(gameDir, @"dlssnr-amd\CC_SMALL_FP8.bin", @"dlssnr-amd\dlssnr-small.bin")
+                ?? findLocalReuse(new[] { "CC_SMALL_FP8.bin", @"dlssnr-amd\CC_SMALL_FP8.bin", "dlssnr-small.bin" });
             var mochiExperimental = FindFirstNonEmpty(pkgRoot, @"dlssnr-amd\CC_SMALL_FP8_EXPERIMENTAL.bin", @"dlssnr-amd\dlssnr-small-experimental.bin")
-                ?? FindFirstNonEmpty(gameDir, @"dlssnr-amd\CC_SMALL_FP8_EXPERIMENTAL.bin", @"dlssnr-amd\dlssnr-small-experimental.bin");
+                ?? FindFirstNonEmpty(gameDir, @"dlssnr-amd\CC_SMALL_FP8_EXPERIMENTAL.bin", @"dlssnr-amd\dlssnr-small-experimental.bin")
+                ?? findLocalReuse(new[] { "CC_SMALL_FP8_EXPERIMENTAL.bin", @"dlssnr-amd\CC_SMALL_FP8_EXPERIMENTAL.bin" });
             var mochiInt4 = FindFirstNonEmpty(pkgRoot, @"dlssnr-amd\CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin", @"dlssnr-amd\dlssnr-int4.bin")
-                ?? FindFirstNonEmpty(gameDir, @"dlssnr-amd\CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin", @"dlssnr-amd\dlssnr-int4.bin");
+                ?? FindFirstNonEmpty(gameDir, @"dlssnr-amd\CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin", @"dlssnr-amd\dlssnr-int4.bin")
+                ?? findLocalReuse(new[] { "CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin", @"dlssnr-amd\CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin" });
             string mochiNv = null;
             if (!string.IsNullOrEmpty(modelSourceDll) && File.Exists(modelSourceDll)) mochiNv = modelSourceDll;
             else if (!string.IsNullOrEmpty(pkgRoot) && File.Exists(Path.Combine(pkgRoot, "nvngx_dlssnr.dll"))) mochiNv = Path.Combine(pkgRoot, "nvngx_dlssnr.dll");
             else if (!string.IsNullOrEmpty(gameDir) && File.Exists(Path.Combine(gameDir, "nvngx_dlssnr.dll"))) mochiNv = Path.Combine(gameDir, "nvngx_dlssnr.dll");
+            else mochiNv = findLocalReuse(new[] { "nvngx_dlssnr.dll" });
 
             bool canRuntime = missingPkg.Count == 0;
             bool hasModel = mochiModel != null || mochiSmall != null;
@@ -753,14 +786,28 @@ namespace OptScalerNR.Launcher
                 if (HasReparseAncestor(gameDir) || HasReparseAncestor(pkgRoot)) return false;
                 // Let the full worker script handle active XeSS repair journals or foreign Mochizuki installs.
                 if (File.Exists(Path.Combine(gameDir, "OptiScaler-compat-backup", "active.json"))) return false;
-                foreach (var marker in new[] { "dlssnr_core.dll", "OptiScaler.asi", "dlssnr_amd.addon64" })
+                bool isOurOptiNr = false;
+                var markPath = Path.Combine(gameDir, "amd-presr-install.txt");
+                if (File.Exists(markPath))
+                {
+                    try
+                    {
+                        var markText = File.ReadAllText(markPath, System.Text.Encoding.UTF8);
+                        isOurOptiNr = markText.IndexOf("project=OptScaler(NR)", StringComparison.OrdinalIgnoreCase) >= 0;
+                    }
+                    catch { }
+                }
+                foreach (var marker in new[] { "dlssnr_core.dll", "OptiScaler.asi" })
                     if (File.Exists(Path.Combine(gameDir, marker))) return false;
+                if (!isOurOptiNr && File.Exists(Path.Combine(gameDir, "dlssnr_amd.addon64"))) return false;
             }
             catch { return false; }
 
             var gen = ++_fastInspectGeneration;
             var sourceDll = _decisions != null ? _decisions.ModelSourceDll : null;
             EnsureSharedModelSources(pkgRoot);
+            var peInfo = PeProbe.AnalyzeTarget(exe);
+            _lastPeInfo = peInfo;
             var recommend = !string.IsNullOrEmpty(fastProxy) ? fastProxy : PeProbe.QuickRecommend(exe);
             var immediateResult = new LauncherResult
             {
@@ -772,7 +819,12 @@ namespace OptScalerNR.Launcher
                 Recommend = recommend,
                 PackageRoot = pkgRoot,
                 Fingerprint = ComputeDirFingerprint(exe, gameDir),
-                Backends = ComputeFastBackends(pkgRoot, gameDir, sourceDll)
+                Backends = ComputeFastBackends(pkgRoot, gameDir, sourceDll),
+                InstalledMode = peInfo.InstalledMode,
+                RecommendedMode = peInfo.RecommendedMode,
+                RecommendedReshadeApi = peInfo.RecommendedReshadeApi,
+                DetectedApi = peInfo.DetectedApi,
+                RequiresAdmin = DlssnrLocalData.IsProtectedDirectory(gameDir)
             };
             if (_progress != null && (_session == null || !_session.IsRunning)) _progress.IsIndeterminate = false;
             if (_session == null || !_session.IsRunning) SetBusy(false, "");

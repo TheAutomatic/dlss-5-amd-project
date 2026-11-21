@@ -13,6 +13,9 @@ namespace OptScalerNR.Launcher
         public static readonly DependencyProperty KeyboardFocusVisibleProperty = DependencyProperty.RegisterAttached("KeyboardFocusVisible", typeof(bool), typeof(DialogTheme), new FrameworkPropertyMetadata(false));
         public static bool GetKeyboardFocusVisible(DependencyObject target) { return (bool)target.GetValue(KeyboardFocusVisibleProperty); }
         public static void SetKeyboardFocusVisible(DependencyObject target, bool value) { target.SetValue(KeyboardFocusVisibleProperty, value); }
+        public static readonly DependencyProperty SuppressEscapeCloseProperty = DependencyProperty.RegisterAttached("SuppressEscapeClose", typeof(bool), typeof(DialogTheme), new FrameworkPropertyMetadata(false));
+        public static bool GetSuppressEscapeClose(DependencyObject target) { return (bool)target.GetValue(SuppressEscapeCloseProperty); }
+        public static void SetSuppressEscapeClose(DependencyObject target, bool value) { target.SetValue(SuppressEscapeCloseProperty, value); }
         static bool keyboardNavigation;
         static DialogTheme()
         {
@@ -86,7 +89,7 @@ namespace OptScalerNR.Launcher
             window.MaxHeight = Math.Max(300, Math.Min(800, SystemParameters.WorkArea.Height - 50));
             window.MaxWidth = Math.Max(300, SystemParameters.WorkArea.Width - 40);
             window.Resources.MergedDictionaries.Add(Resources());
-            window.PreviewKeyDown += delegate(object sender, KeyEventArgs e) { if(e.Key == Key.Escape) { window.Close(); e.Handled = true; } };
+            window.PreviewKeyDown += delegate(object sender, KeyEventArgs e) { if(e.Key == Key.Escape && !GetSuppressEscapeClose(window)) { window.Close(); e.Handled = true; } };
         }
         public static void Primary(Window window, Button button)
         {

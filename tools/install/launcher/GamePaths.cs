@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Security;
+using System.Security.Principal;
+using System.Text;
 using Microsoft.Win32;
 
 namespace OptScalerNR.Launcher
@@ -11,7 +14,6 @@ namespace OptScalerNR.Launcher
     {
         const uint InvalidAttributes = 0xFFFFFFFF;
         const uint DirectoryFlag = 0x10;
-        const uint ReparseFlag = 0x400;
         const int ErrorAccessDenied = 5;
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
@@ -25,17 +27,19 @@ namespace OptScalerNR.Launcher
             return Marshal.GetLastWin32Error() == ErrorAccessDenied;
         }
 
+        public static bool IsWindowsAppsPath(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return false;
+            try { path = Path.GetFullPath(path); }
+            catch { return false; }
+            return (path + @"\").IndexOf(@"\WindowsApps\", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
         public static string Normalize(string path)
         {
-            if (string.IsNullOrEmpty(path)) return path;
-            try { path = Path.GetFullPath(path); }
-            catch { return path; }
-            if (path.IndexOf("\\WindowsApps\\", StringComparison.OrdinalIgnoreCase) < 0)
-                return path;
-            var name = Path.GetFileName(path);
-            if (string.IsNullOrEmpty(name)) return path;
-            var mapped = FindUnderXboxGames(name);
-            return mapped ?? path;
+            if (string.IsNullOrEmpty(path) || IsWindowsAppsPath(path)) return null;
+            try { return Path.GetFullPath(path); }
+            catch { return null; }
         }
 
         public static string PickExe(bool isZh = false, string initialDirectory = null)
@@ -60,65 +64,9 @@ namespace OptScalerNR.Launcher
                 else if (Directory.Exists(@"C:\XboxGames"))
                     dlg.InitialDirectory = @"C:\XboxGames";
                 if (dlg.ShowDialog() != true) return null;
-                var fn = dlg.FileName;
-                if (string.IsNullOrEmpty(fn)) return null;
-                return Normalize(fn);
+                return dlg.FileName;
             }
             catch { return null; }
-        }
-
-        static string FindUnderXboxGames(string fileName)
-        {
-            var hits = new List<string>();
-            foreach (var drive in Directory.GetLogicalDrives())
-            {
-                var root = Path.Combine(drive, "XboxGames");
-                uint attr = GetFileAttributesW(root);
-                if (attr == InvalidAttributes || (attr & DirectoryFlag) == 0) continue;
-                Walk(root, fileName, 0, hits);
-                if (hits.Count >= 32) break;
-            }
-            if (hits.Count == 0) return null;
-            hits.Sort(CompareXboxHits);
-            return hits[0];
-        }
-
-        static int CompareXboxHits(string a, string b)
-        {
-            int ra = XboxRank(a).CompareTo(XboxRank(b));
-            if (ra != 0) return ra;
-            return a.Length.CompareTo(b.Length);
-        }
-
-        static int XboxRank(string path)
-        {
-            if (path.IndexOf("\\WinGDK\\", StringComparison.OrdinalIgnoreCase) >= 0) return 0;
-            if (path.IndexOf("\\Win64\\", StringComparison.OrdinalIgnoreCase) >= 0) return 1;
-            if (path.IndexOf("\\Binaries\\", StringComparison.OrdinalIgnoreCase) >= 0) return 2;
-            return 3;
-        }
-
-        static void Walk(string dir, string fileName, int depth, List<string> hits)
-        {
-            if (depth > 8 || hits.Count >= 32) return;
-            string[] entries;
-            try { entries = Directory.GetFileSystemEntries(dir); }
-            catch { return; }
-            foreach (var entry in entries)
-            {
-                uint attr = GetFileAttributesW(entry);
-                if (attr == InvalidAttributes) continue;
-                bool isDir = (attr & DirectoryFlag) != 0;
-                bool reparse = (attr & ReparseFlag) != 0;
-                if (isDir)
-                {
-                    if (reparse) continue;
-                    Walk(entry, fileName, depth + 1, hits);
-                    continue;
-                }
-                if (string.Equals(Path.GetFileName(entry), fileName, StringComparison.OrdinalIgnoreCase))
-                    hits.Add(entry);
-            }
         }
     }
 
@@ -297,6 +245,497 @@ namespace OptScalerNR.Launcher
             public uint VA;
             public uint VSize;
             public uint Raw;
+        }
+
+        public static bool IsRtxRemixMinecraftDir(string dir)
+        {
+            if (string.IsNullOrEmpty(dir)) return false;
+            try
+            {
+                if (!Directory.Exists(dir)) return false;
+                if (!File.Exists(Path.Combine(dir, "remixbridge.dll"))) return false;
+                return File.Exists(Path.Combine(dir, "d3d9.dll")) ||
+                       File.Exists(Path.Combine(dir, "rtxio.dll")) ||
+                       File.Exists(Path.Combine(dir, "NRD.dll")) ||
+                       File.Exists(Path.Combine(dir, "NRC_Vulkan.dll"));
+            }
+            catch { return false; }
+        }
+
+        public static bool IsRtxRemixMinecraftExe(string exePath)
+        {
+            if (string.IsNullOrEmpty(exePath)) return false;
+            try
+            {
+                if (!string.Equals(Path.GetFileName(exePath), "remixbridge.dll", StringComparison.OrdinalIgnoreCase))
+                    return false;
+                return IsRtxRemixMinecraftDir(Path.GetDirectoryName(exePath));
+            }
+            catch { return false; }
+        }
+
+        public static string ResolveRtxRemixSdkDir(string pickedDir)
+        {
+            if (string.IsNullOrEmpty(pickedDir)) return null;
+            try
+            {
+                var full = Path.GetFullPath(pickedDir).TrimEnd('\\', '/');
+                if (!Directory.Exists(full)) return null;
+                if (IsRtxRemixMinecraftDir(full)) return full;
+                var candidates = new[]
+                {
+                    Path.Combine(full, "remix-sdk"),
+                    Path.Combine(Path.Combine(full, ".minecraft"), "remix-sdk"),
+                    Path.Combine(Path.Combine(full, "minecraft"), "remix-sdk")
+                };
+                foreach (var c in candidates)
+                {
+                    if (IsRtxRemixMinecraftDir(c)) return c;
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        public static string TryFindPrismInstanceDir(string sdkDir)
+        {
+            if (string.IsNullOrEmpty(sdkDir)) return null;
+            try
+            {
+                var sdkFull = Path.GetFullPath(sdkDir).TrimEnd('\\', '/');
+                if (IsRtxRemixMinecraftDir(sdkFull))
+                {
+                    var mcDir = Path.GetDirectoryName(sdkFull);
+                    if (!string.IsNullOrEmpty(mcDir))
+                    {
+                        var mcLeaf = Path.GetFileName(mcDir);
+                        var instDir = Path.GetDirectoryName(mcDir);
+                        if (!string.IsNullOrEmpty(instDir) &&
+                            (string.Equals(mcLeaf, ".minecraft", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(mcLeaf, "minecraft", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            return instDir;
+                        }
+                    }
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        public static string TryReadPrismInstanceName(string sdkDir)
+        {
+            try
+            {
+                var instDir = TryFindPrismInstanceDir(sdkDir);
+                if (string.IsNullOrEmpty(instDir)) return null;
+                var cfg = Path.Combine(instDir, "instance.cfg");
+                if (!File.Exists(cfg)) return null;
+                foreach (var line in File.ReadAllLines(cfg, Encoding.UTF8))
+                {
+                    if (line == null) continue;
+                    var trimmed = line.Trim();
+                    if (trimmed.StartsWith("name=", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var val = trimmed.Substring(5).Trim();
+                        if (!string.IsNullOrEmpty(val)) return val;
+                    }
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        public static string TryFindPrismLauncherExe(string sdkDir, out string instanceDirName)
+        {
+            instanceDirName = null;
+            try
+            {
+                var instDir = TryFindPrismInstanceDir(sdkDir);
+                if (string.IsNullOrEmpty(instDir)) return null;
+                instanceDirName = Path.GetFileName(instDir.TrimEnd('\\', '/'));
+                var instancesDir = Path.GetDirectoryName(instDir);
+                var launcherDir = string.IsNullOrEmpty(instancesDir) ? null : Path.GetDirectoryName(instancesDir);
+                if (!string.IsNullOrEmpty(launcherDir))
+                {
+                    var exeCand = Path.Combine(launcherDir, "prismlauncher.exe");
+                    if (File.Exists(exeCand)) return exeCand;
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        public static PeTargetInfo AnalyzeTarget(string exePath)
+        {
+            var info = new PeTargetInfo
+            {
+                RecommendedMode = "optiscaler",
+                RecommendedReshadeApi = "reshade-feeder",
+                DetectedApi = "Unknown"
+            };
+            if (string.IsNullOrEmpty(exePath)) return info;
+            try
+            {
+                var targetExe = exePath;
+                var dir = Directory.Exists(exePath) ? exePath : Path.GetDirectoryName(exePath);
+                if (IsRtxRemixMinecraftDir(dir))
+                {
+                    if (Directory.Exists(exePath))
+                        targetExe = Path.Combine(dir, "remixbridge.dll");
+                    if (!string.IsNullOrEmpty(targetExe) && File.Exists(targetExe))
+                        info.Is32Bit = CheckIs32BitPe(targetExe);
+                    info.HasUpscaler = true;
+                    info.DetectedApi = "Vulkan (RTX Remix)";
+                    info.RecommendedMode = "rtx-remix-mc";
+                    info.InstalledMode = DetectInstalledMode(dir);
+                    return info;
+                }
+                if (Directory.Exists(exePath))
+                {
+                    targetExe = FindPrimaryExeInDir(exePath);
+                }
+                if (!string.IsNullOrEmpty(targetExe) && File.Exists(targetExe))
+                {
+                    info.Is32Bit = CheckIs32BitPe(targetExe);
+                    var leaf = Path.GetFileName(targetExe) ?? "";
+                    var leafLower = leaf.ToLowerInvariant();
+                    var fullLower = targetExe.ToLowerInvariant();
+                    if (leafLower == "obs64.exe" || leafLower == "mpv.exe" || leafLower == "potplayermini64.exe" ||
+                        leafLower == "potplayer64.exe" || leafLower == "magpie.exe" || leafLower == "mpc-hc64.exe" ||
+                        leafLower == "mpc-be64.exe" || leafLower == "vlc.exe" || leafLower == "losslessscaling.exe" ||
+                        fullLower.IndexOf("\\obs-studio\\", StringComparison.Ordinal) >= 0 ||
+                        fullLower.IndexOf("\\potplayer\\", StringComparison.Ordinal) >= 0 ||
+                        fullLower.IndexOf("\\magpie\\", StringComparison.Ordinal) >= 0 ||
+                        fullLower.IndexOf("\\mpv\\", StringComparison.Ordinal) >= 0 ||
+                        fullLower.IndexOf("\\mpc-hc\\", StringComparison.Ordinal) >= 0 ||
+                        fullLower.IndexOf("\\mpc-be\\", StringComparison.Ordinal) >= 0 ||
+                        fullLower.IndexOf("\\vlc\\", StringComparison.Ordinal) >= 0)
+                    {
+                        info.IsKnownStandaloneApp = true;
+                    }
+
+                    HashSet<string> imports = ReadImportsCached(targetExe);
+                    bool hasD3d9 = false, hasD3d11 = false, hasD3d12 = false, hasDxgi = false, hasVulkan = false;
+                    if (imports != null)
+                    {
+                        foreach (var rawImp in imports)
+                        {
+                            var imp = Path.GetFileName(rawImp ?? "").ToLowerInvariant();
+                            if (imp == "d3d9.dll") hasD3d9 = true;
+                            else if (imp == "d3d11.dll") hasD3d11 = true;
+                            else if (imp == "d3d12.dll") hasD3d12 = true;
+                            else if (imp == "dxgi.dll") hasDxgi = true;
+                            else if (imp == "vulkan-1.dll") hasVulkan = true;
+                            if (IsUpscalerDllName(imp)) info.HasUpscaler = true;
+                        }
+                    }
+
+                    if (!info.HasUpscaler && !string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                    {
+                        try
+                        {
+                            foreach (var dllPath in Directory.GetFiles(dir, "*.dll"))
+                            {
+                                if (IsUpscalerDllName(Path.GetFileName(dllPath)))
+                                {
+                                    info.HasUpscaler = true;
+                                    break;
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+
+                    if (hasVulkan && !(hasD3d11 || hasD3d12 || hasDxgi))
+                    {
+                        info.DetectedApi = "Vulkan";
+                        info.RecommendedReshadeApi = "reshade-feeder-vulkan";
+                    }
+                    else if (hasD3d9 && !(hasD3d11 || hasD3d12 || hasDxgi || hasVulkan))
+                    {
+                        info.DetectedApi = "DX9";
+                        info.RecommendedReshadeApi = "reshade-feeder-dx9";
+                    }
+                    else if (hasD3d11 || hasD3d12 || hasDxgi)
+                    {
+                        info.DetectedApi = "DX11/12";
+                        info.RecommendedReshadeApi = "reshade-feeder";
+                    }
+                    else if (hasVulkan)
+                    {
+                        info.DetectedApi = "Vulkan";
+                        info.RecommendedReshadeApi = "reshade-feeder-vulkan";
+                    }
+
+                    if (info.IsKnownStandaloneApp)
+                        info.RecommendedMode = "standalone";
+                    else if (hasD3d9 && !(hasD3d11 || hasD3d12 || hasDxgi || hasVulkan || info.HasUpscaler))
+                        info.RecommendedMode = "reshade";
+                    else
+                        info.RecommendedMode = "optiscaler";
+                }
+
+                if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                    info.InstalledMode = DetectInstalledMode(dir);
+            }
+            catch { }
+            return info;
+        }
+
+        public static string DetectInstalledMode(string dir)
+        {
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return null;
+            try
+            {
+                var mark = Path.Combine(dir, "amd-presr-install.txt");
+                if (File.Exists(mark))
+                {
+                    foreach (var raw in File.ReadAllLines(mark, Encoding.UTF8))
+                    {
+                        var line = (raw ?? "").TrimStart('\uFEFF').Trim();
+                        if (line.StartsWith("installMode=", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var val = line.Substring("installMode=".Length).Trim().ToLowerInvariant();
+                            if (val == "optiscaler" || val == "rtx-remix-mc" || val == "standalone" ||
+                                val == "reshade-feeder" || val == "reshade-feeder-dx9" || val == "reshade-feeder-vulkan")
+                                return val;
+                        }
+                    }
+                }
+                if (IsRtxRemixMinecraftDir(dir) && IsOptiScalerDll(Path.Combine(dir, "OptiScaler.dll")))
+                    return "rtx-remix-mc";
+                if (File.Exists(Path.Combine(dir, "dlssnr_amd.addon64")))
+                {
+                    if (File.Exists(Path.Combine(dir, "d3d9.dll"))) return "reshade-feeder-dx9";
+                    if (File.Exists(Path.Combine(dir, "vulkan-1.dll")) || File.Exists(Path.Combine(dir, "ReShade64.dll")))
+                        return "reshade-feeder-vulkan";
+                    return "reshade-feeder";
+                }
+                if (File.Exists(Path.Combine(dir, "dlssnr-amd.asi")) &&
+                    File.Exists(Path.Combine(dir, @"vk-override\implicit_layer\dlssnr_standalone.json")) &&
+                    !File.Exists(Path.Combine(dir, "ReShade64.dll")))
+                    return "standalone";
+                foreach (var c in CandidateDlls)
+                {
+                    if (IsOptiScalerDll(Path.Combine(dir, c))) return "optiscaler";
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        static HashSet<string> ReadImportsCached(string exePath)
+        {
+            var exeInfo = new FileInfo(exePath);
+            var exeFull = exeInfo.FullName;
+            var exeLen = exeInfo.Length;
+            var exeTicks = exeInfo.LastWriteTimeUtc.Ticks;
+            HashSet<string> imports = null;
+            lock (ExeImportCache)
+            {
+                Tuple<long, long, HashSet<string>> cached;
+                if (ExeImportCache.TryGetValue(exeFull, out cached) && cached.Item1 == exeLen && cached.Item2 == exeTicks)
+                    imports = cached.Item3;
+            }
+            if (imports == null)
+            {
+                imports = ReadImports(exeFull);
+                lock (ExeImportCache)
+                {
+                    if (ExeImportCache.Count > 64) ExeImportCache.Clear();
+                    ExeImportCache[exeFull] = Tuple.Create(exeLen, exeTicks, imports);
+                }
+            }
+            return imports;
+        }
+
+        static bool CheckIs32BitPe(string exePath)
+        {
+            try
+            {
+                using (var fs = new FileStream(exePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var br = new BinaryReader(fs))
+                {
+                    if (fs.Length < 0x100 || br.ReadUInt16() != 0x5A4D) return false;
+                    fs.Seek(0x3C, SeekOrigin.Begin);
+                    var peOffset = br.ReadUInt32();
+                    if (peOffset + 28 > fs.Length) return false;
+                    fs.Seek(peOffset, SeekOrigin.Begin);
+                    if (br.ReadUInt32() != 0x00004550) return false;
+                    var machine = br.ReadUInt16();
+                    return machine == 0x014C;
+                }
+            }
+            catch { return false; }
+        }
+
+        static string FindPrimaryExeInDir(string dir)
+        {
+            try
+            {
+                foreach (var f in Directory.GetFiles(dir, "*.exe"))
+                {
+                    var name = Path.GetFileName(f).ToLowerInvariant();
+                    if (name.StartsWith("unins", StringComparison.Ordinal) ||
+                        name == "nr_present_probe.exe" ||
+                        name.IndexOf("crash", StringComparison.Ordinal) >= 0)
+                        continue;
+                    return f;
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        static bool IsUpscalerDllName(string lowerLeaf)
+        {
+            if (string.IsNullOrEmpty(lowerLeaf)) return false;
+            return lowerLeaf.StartsWith("nvngx_dlss", StringComparison.Ordinal) ||
+                   lowerLeaf.StartsWith("sl.interposer", StringComparison.Ordinal) ||
+                   lowerLeaf.StartsWith("libxess", StringComparison.Ordinal) ||
+                   lowerLeaf.StartsWith("amd_fidelityfx_", StringComparison.Ordinal) ||
+                   lowerLeaf.StartsWith("ffx_fsr", StringComparison.Ordinal) ||
+                   lowerLeaf.StartsWith("ffx_backend_", StringComparison.Ordinal);
+        }
+    }
+
+    public sealed class PeTargetInfo
+    {
+        public bool Is32Bit;
+        public bool HasUpscaler;
+        public string DetectedApi;
+        public bool IsKnownStandaloneApp;
+        public string RecommendedMode;
+        public string RecommendedReshadeApi;
+        public string InstalledMode;
+    }
+
+    public static class DlssnrLocalData
+    {
+        public static bool IsCurrentProcessElevated()
+        {
+            try
+            {
+                using (var id = WindowsIdentity.GetCurrent())
+                {
+                    return id != null && new WindowsPrincipal(id).IsInRole(WindowsBuiltInRole.Administrator);
+                }
+            }
+            catch { return false; }
+        }
+
+        public static bool IsProtectedDirectory(string dir)
+        {
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return false;
+            var probe = Path.Combine(dir, ".nr-access-probe-" + Guid.NewGuid().ToString("N") + ".tmp");
+            try
+            {
+                File.WriteAllText(probe, "ok");
+                try { File.Delete(probe); } catch { }
+                return false;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
+            }
+            catch (SecurityException)
+            {
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        // Mirrors nr_path_win.hpp: the process names the tag, the preferred
+        // write directory supplies its hash. Both operate on UTF-8 bytes.
+        public static string ComputeAppStorageTag(string exePath, string preferredDir)
+        {
+            var stemRaw = Path.GetFileNameWithoutExtension(exePath) ?? "";
+            var norm = preferredDir.Replace('/', '\\');
+            while (norm.Length > 1 && norm[norm.Length - 1] == '\\' && !(norm.Length == 3 && norm[1] == ':'))
+                norm = norm.Substring(0, norm.Length - 1);
+
+            uint h = 2166136261u;
+            var bytes = Encoding.UTF8.GetBytes(norm);
+            for (int i = 0; i < bytes.Length; i++)
+            {
+                byte b = bytes[i];
+                if (b >= (byte)'A' && b <= (byte)'Z') b = (byte)(b + 32);
+                h ^= b;
+                h *= 16777619u;
+            }
+            var sb = new StringBuilder();
+            foreach (byte value in Encoding.UTF8.GetBytes(stemRaw))
+            {
+                if (sb.Length == 32) break;
+                char c = (char)value;
+                bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_';
+                sb.Append(ok ? c : '_');
+            }
+            var stem = sb.Length > 0 ? sb.ToString() : "app";
+            return stem + "_" + h.ToString("x8");
+        }
+
+        public static string ResolveAppDir(string gameDir, string exePath)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(gameDir) || string.IsNullOrEmpty(exePath)) return null;
+                var localApp = Environment.GetEnvironmentVariable("LOCALAPPDATA");
+                if (string.IsNullOrEmpty(localApp)) localApp = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                if (string.IsNullOrEmpty(localApp)) return null;
+                return Path.Combine(localApp, @"DLSSNR-AMD\apps", ComputeAppStorageTag(exePath, Path.GetFullPath(gameDir)));
+            }
+            catch { return null; }
+        }
+
+        public static string ResolveActiveDlssnrIni(string gameDir, string exePath)
+        {
+            var appDir = ResolveAppDir(gameDir, exePath);
+            var appIni = !string.IsNullOrEmpty(appDir) ? Path.Combine(appDir, "dlssnr-amd.ini") : null;
+            var gameIni = !string.IsNullOrEmpty(gameDir) ? Path.Combine(gameDir, "dlssnr-amd.ini") : null;
+            if (!string.IsNullOrEmpty(gameDir) && IsProtectedDirectory(gameDir))
+            {
+                if (!string.IsNullOrEmpty(appIni) && File.Exists(appIni)) return appIni;
+                return gameIni ?? appIni;
+            }
+            if (!string.IsNullOrEmpty(gameIni) && File.Exists(gameIni)) return gameIni;
+            if (!string.IsNullOrEmpty(appIni) && File.Exists(appIni)) return appIni;
+            return gameIni;
+        }
+
+        public static string[] GetModelReuseDirectories()
+        {
+            var list = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            Action<string> add = delegate(string p)
+            {
+                if (string.IsNullOrEmpty(p) || !Directory.Exists(p)) return;
+                if (seen.Add(p)) list.Add(p);
+            };
+            try
+            {
+                var localApp = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                if (string.IsNullOrEmpty(localApp)) return list.ToArray();
+                var baseDir = Path.Combine(localApp, "DLSSNR-AMD");
+                add(Path.Combine(baseDir, "models"));
+                add(Path.Combine(baseDir, "dlssnr-amd"));
+                add(baseDir);
+                var appsDir = Path.Combine(baseDir, "apps");
+                if (Directory.Exists(appsDir))
+                {
+                    foreach (var sub in Directory.GetDirectories(appsDir))
+                    {
+                        add(sub);
+                        add(Path.Combine(sub, "dlssnr-amd"));
+                    }
+                }
+            }
+            catch { }
+            return list.ToArray();
         }
     }
 }

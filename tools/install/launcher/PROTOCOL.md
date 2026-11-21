@@ -21,6 +21,9 @@ Exit codes match `status`: 0 success, 1 failed, 2 needsInput, 3 cancelled.
 }
 ```
 
+`gameExe` is the actual target shown to the user. For Xbox games use the EXE in
+XboxGames; WindowsApps selections are rejected, never remapped.
+
 `explicitDecisions` keys used by install/update:
 
 - `existingInstall`: `uninstall` | `overwrite`

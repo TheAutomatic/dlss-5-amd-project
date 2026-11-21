@@ -15,6 +15,7 @@ param(
     [string]$OpenRrArchive = $env:NR_OPENRR_ARCHIVE,
     [string]$OpenRrDir = $env:NR_OPENRR_DIR,
     [string]$OptiPatcherFile = $env:NR_OPTIPATCHER_FILE,
+    [string]$RtxRemixMcArchive = $env:NR_RTX_REMIX_MC_ARCHIVE,
     [switch]$RefreshOptiPatcher
 )
 $ErrorActionPreference = 'Stop'
@@ -197,12 +198,14 @@ function Get-DlssnrDestRel([string]$Rel, [switch]$AllowNormalizedFallback, [stri
     if ($norm -eq 'optiscaler/asi/nr_present_probe.exe') { return 'nr_present_probe.exe' }
     if ($norm -eq 'optiscaler/asi/DearImGui-LICENSE.txt') { return 'Licenses/DearImGui-LICENSE.txt' }
     if ($norm -eq 'optiscaler/asi/Inter-LICENSE.txt') { return 'Licenses/Inter-LICENSE.txt' }
-    if ($norm -in @('ini/dlssnr-amd-optiscaler.ini', 'ini/dlssnr-amd-optiscaler-renodx.ini')) { return $norm }
+    if ($norm -in @('ini/dlssnr-amd-optiscaler.ini', 'ini/dlssnr-amd-optiscaler-renodx.ini', 'ini/dlssnr-amd-standalone.ini', 'ini/dlssnr-amd-addon.ini')) { return $norm }
+    if ($norm -eq 'standalone/dxgi.dll' -or $norm.StartsWith('standalone/vk-override/')) { return $norm }
+    if ($norm.StartsWith('reshade/') -or $norm.StartsWith('dxvk/') -or $norm.StartsWith('vulkan/')) { return $norm }
     if ($AllowNormalizedFallback) {
         if ($norm -in @('OptiScaler/plugins/dlssnr-amd.asi', 'nr_present_probe.exe', 'Licenses/DearImGui-LICENSE.txt', 'Licenses/Inter-LICENSE.txt')) {
             return $norm
         }
-        if ($norm -in @('dlssnr-amd-optiscaler.ini', 'dlssnr-amd-optiscaler-renodx.ini')) {
+        if ($norm -in @('dlssnr-amd-optiscaler.ini', 'dlssnr-amd-optiscaler-renodx.ini', 'dlssnr-amd-standalone.ini', 'dlssnr-amd-addon.ini')) {
             return 'ini/' + $norm
         }
         if ($norm -eq 'standalone/dlssnr-amd.asi' -and $SourceRoot -and -not (Test-Path -LiteralPath (Join-RelPath $SourceRoot 'optiscaler/asi/dlssnr-amd.asi') -PathType Leaf)) {
@@ -362,15 +365,37 @@ function Stage-DlssnrPayload([string]$DestDir, [bool]$CustomMode) {
         foreach ($lic in $resolvedStaticLicenses) {
             Copy-Item -LiteralPath $lic.Path -Destination (Join-Path $licDestDir $lic.Name) -Force
         }
+        foreach ($routeLic in @(
+            @('reshade/ReShade-LICENSE.md', 'ReShade-LICENSE.md'),
+            @('dxvk/LICENSE.txt', 'DXVK-LICENSE.txt'),
+            @('vulkan/Vulkan-Loader-LICENSE.txt', 'Vulkan-Loader-LICENSE.txt'),
+            @('reshade/reshade-shaders/Shaders/vort-LICENSE.txt', 'vort-LICENSE.txt'),
+            @('reshade/reshade-shaders/Shaders/DLSS5_Feed-LICENSE.txt', 'DLSS5_Feed-LICENSE.txt')
+        )) {
+            $rlSrc = Join-RelPath $stageTmp $routeLic[0]
+            if (Test-Path -LiteralPath $rlSrc -PathType Leaf) {
+                Copy-Item -LiteralPath $rlSrc -Destination (Join-Path $licDestDir $routeLic[1]) -Force
+            }
+        }
 
         Assert-Pe64Amd64 -Path (Join-RelPath $stageTmp 'OptiScaler/plugins/dlssnr-amd.asi')
         Assert-Pe64Amd64 -Path (Join-RelPath $stageTmp 'nr_present_probe.exe')
         Assert-Pe64Amd64 -Path (Join-RelPath $stageTmp 'model-tools/dlssnr_extract_model.exe')
         Assert-Pe64Amd64 -Path (Join-RelPath $stageTmp 'model-tools/dlssnr-int4-weights.exe')
+        foreach ($routePe in @(
+            'standalone/dxgi.dll',
+            'reshade/ReShade64.dll',
+            'reshade/dlssnr_amd.addon64',
+            'dxvk/d3d9.dll',
+            'dxvk/dxgi.dll',
+            'vulkan/vulkan-1.dll'
+        )) {
+            Assert-Pe64Amd64 -Path (Join-RelPath $stageTmp $routePe)
+        }
 
         if (-not $CustomMode) {
             $wantDlssnrStamp = @{
-                schema            = 1
+                schema            = 2
                 archiveSha256     = $pins.dlssnr.archiveSha256.ToLowerInvariant()
                 langArchiveSha256 = $pins.dlssnr.langArchiveSha256.ToLowerInvariant()
                 staticLicenseSha  = $staticLicHash
@@ -390,7 +415,7 @@ if ($isCustomDlssnr) {
     Write-Host "Staged custom DLSSNR-AMD payload -> $dlssnrDir" -ForegroundColor Green
 } else {
     $wantDlssnrStamp = @{
-        schema            = 1
+        schema            = 2
         archiveSha256     = $pins.dlssnr.archiveSha256.ToLowerInvariant()
         langArchiveSha256 = $pins.dlssnr.langArchiveSha256.ToLowerInvariant()
         staticLicenseSha  = $staticLicHash
@@ -398,7 +423,9 @@ if ($isCustomDlssnr) {
     $dlssnrCachedOk = $false
     if ((Test-Path -LiteralPath $dlssnrStampPath -PathType Leaf) -and
         (Test-Path -LiteralPath (Join-RelPath $dlssnrDir 'OptiScaler/plugins/dlssnr-amd.asi') -PathType Leaf) -and
-        (Test-Path -LiteralPath (Join-RelPath $dlssnrDir 'dlssnr-amd/lang/zh-CN.txt') -PathType Leaf)) {
+        (Test-Path -LiteralPath (Join-RelPath $dlssnrDir 'dlssnr-amd/lang/zh-CN.txt') -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-RelPath $dlssnrDir 'standalone/dxgi.dll') -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-RelPath $dlssnrDir 'reshade/dlssnr_amd.addon64') -PathType Leaf)) {
         try {
             $cur = Get-Content -LiteralPath $dlssnrStampPath -Raw -Encoding UTF8 | ConvertFrom-Json
             if ($cur.schema -eq $wantDlssnrStamp.schema -and
@@ -586,8 +613,114 @@ if (-not $optiPatcherResolved) {
 }
 Copy-Item -LiteralPath $optiPatcherResolved -Destination $optiPatcherOut -Force
 
+# --- 4. Prepare RTX Remix for Minecraft AMD patch payload (skipping bundled OptiScaler.ini) ---
+$isCustomRtxRemixMc = [bool]$RtxRemixMcArchive
+$rtxRemixMcDir = Join-Path $upstreamCache $(if ($isCustomRtxRemixMc) { 'rtx-remix-mc-custom' } else { 'rtx-remix-mc' })
+$rtxRemixMcStampPath = Join-Path $rtxRemixMcDir '.stamp.json'
+
+function Stage-RtxRemixMcPayload([string]$DestDir, [bool]$CustomMode) {
+    $stageTmp = "$DestDir.tmp-$([guid]::NewGuid().ToString('N'))"
+    try {
+        New-Item -ItemType Directory -Force -Path $stageTmp | Out-Null
+        if ($CustomMode) {
+            if (-not (Test-Path -LiteralPath $RtxRemixMcArchive -PathType Leaf)) {
+                throw "Provided -RtxRemixMcArchive not found: $RtxRemixMcArchive"
+            }
+            Write-Host "Staging custom RTX Remix Minecraft patch archive: $RtxRemixMcArchive" -ForegroundColor Cyan
+            $mcZip = $RtxRemixMcArchive
+        } else {
+            $mcZip = Resolve-PinnedArchive -Name $pins.rtxRemixMc.archiveName -Url $pins.rtxRemixMc.archiveUrl -ExpectedSha $pins.rtxRemixMc.archiveSha256
+        }
+
+        $entryMap = @{
+            'remixbridge.dll' = 'rtx-remix-mc/remixbridge.dll'
+            'LICENSE' = 'Licenses/RTX-Remix-Minecraft-AMD-Patch_LICENSE.txt'
+            'NOTICE' = 'Licenses/RTX-Remix-Minecraft-AMD-Patch_NOTICE.txt'
+            'THIRD_PARTY_LICENSES/NVIDIA-rtx-remix-minecraft-Apache-2.0.txt' = 'Licenses/NVIDIA-rtx-remix-minecraft-Apache-2.0.txt'
+        }
+        $seenEntries = @{}
+        $archive = [IO.Compression.ZipFile]::OpenRead($mcZip)
+        try {
+            foreach ($entry in $archive.Entries) {
+                if ([string]::IsNullOrEmpty($entry.Name)) { continue }
+                $rel = Normalize-ZipEntryRel $entry.FullName
+                if (-not $entryMap.ContainsKey($rel)) {
+                    # Intentionally skip OptiScaler.ini (patched dynamically from official OptiScaler.ini at install time)
+                    continue
+                }
+                if ((Test-ForbiddenPayloadRel $rel)) {
+                    throw "Refusing forbidden entry in RTX Remix Minecraft archive: $rel"
+                }
+                $destPath = Join-RelPath $stageTmp $entryMap[$rel]
+                Write-ZipEntryToFile -Entry $entry -DestPath $destPath
+                if (-not $CustomMode -and $pins.rtxRemixMc.files.PSObject.Properties[$rel]) {
+                    $expectedFileSha = [string]$pins.rtxRemixMc.files.$rel
+                    $actualFileSha = Get-Sha256Hex $destPath
+                    if ($actualFileSha -ne $expectedFileSha.ToLowerInvariant()) {
+                        throw "SHA-256 mismatch for RTX Remix Minecraft entry '$rel': expected $expectedFileSha, got $actualFileSha"
+                    }
+                }
+                $seenEntries[$rel] = $true
+            }
+        } finally {
+            $archive.Dispose()
+        }
+
+        foreach ($reqEntry in $entryMap.Keys) {
+            if (-not $seenEntries.ContainsKey($reqEntry)) {
+                throw "RTX Remix Minecraft archive missing required entry: $reqEntry"
+            }
+        }
+        Assert-Pe64Amd64 -Path (Join-RelPath $stageTmp 'rtx-remix-mc/remixbridge.dll')
+
+        if (-not $CustomMode) {
+            $wantMcStamp = @{
+                schema        = 1
+                archiveSha256 = $pins.rtxRemixMc.archiveSha256.ToLowerInvariant()
+            }
+            [IO.File]::WriteAllText((Join-Path $stageTmp '.stamp.json'), (($wantMcStamp | ConvertTo-Json -Depth 4) + "`n"), [Text.UTF8Encoding]::new($false))
+        }
+        if (Test-Path -LiteralPath $DestDir) { Remove-Item -LiteralPath $DestDir -Recurse -Force }
+        Move-Item -LiteralPath $stageTmp -Destination $DestDir -Force
+    } catch {
+        if (Test-Path -LiteralPath $stageTmp) { Remove-Item -LiteralPath $stageTmp -Recurse -Force -ErrorAction SilentlyContinue }
+        throw
+    }
+}
+
+if ($isCustomRtxRemixMc) {
+    Stage-RtxRemixMcPayload -DestDir $rtxRemixMcDir -CustomMode $true
+    Write-Host "Staged custom RTX Remix Minecraft payload -> $rtxRemixMcDir" -ForegroundColor Green
+} else {
+    $wantMcStamp = @{
+        schema        = 1
+        archiveSha256 = $pins.rtxRemixMc.archiveSha256.ToLowerInvariant()
+    }
+    $mcCachedOk = $false
+    if ((Test-Path -LiteralPath $rtxRemixMcStampPath -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-RelPath $rtxRemixMcDir 'rtx-remix-mc/remixbridge.dll') -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-RelPath $rtxRemixMcDir 'Licenses/RTX-Remix-Minecraft-AMD-Patch_LICENSE.txt') -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-RelPath $rtxRemixMcDir 'Licenses/RTX-Remix-Minecraft-AMD-Patch_NOTICE.txt') -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-RelPath $rtxRemixMcDir 'Licenses/NVIDIA-rtx-remix-minecraft-Apache-2.0.txt') -PathType Leaf) -and
+        -not (Test-Path -LiteralPath (Join-RelPath $rtxRemixMcDir 'rtx-remix-mc/OptiScaler.ini') -PathType Leaf) -and
+        -not (Test-Path -LiteralPath (Join-RelPath $rtxRemixMcDir 'OptiScaler.ini') -PathType Leaf)) {
+        try {
+            $cur = Get-Content -LiteralPath $rtxRemixMcStampPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($cur.schema -eq $wantMcStamp.schema -and
+                $cur.archiveSha256 -eq $wantMcStamp.archiveSha256) {
+                $mcCachedOk = $true
+            }
+        } catch { $mcCachedOk = $false }
+    }
+    if (-not $mcCachedOk) {
+        Stage-RtxRemixMcPayload -DestDir $rtxRemixMcDir -CustomMode $false
+        Write-Host "Extracted RTX Remix Minecraft $($pins.rtxRemixMc.version) -> $rtxRemixMcDir" -ForegroundColor Green
+    }
+}
+
 return @{
     DlssnrDir      = $dlssnrDir
     OpenRrDir      = $openRrDir
     OptiPatcherAsi = $optiPatcherOut
+    RtxRemixMcDir  = $rtxRemixMcDir
 }

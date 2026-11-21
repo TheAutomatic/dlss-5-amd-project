@@ -69,7 +69,7 @@ namespace OptScalerNR.Launcher
         }
         bool IsOptiPatcherSupported(GameInfo game,ProxyProfile profile)
         {
-            if(game==null||!game.HasExecutable)return false;
+            if(game==null||!game.HasExecutable||game.IsRtxRemixMinecraft)return false;
             if(profile!=null&&profile.OptiPatcher)return true;
             var exes=GetOptiPatcherSupportedExes();
             if(exes==null||exes.Count==0)return true;
@@ -84,6 +84,7 @@ namespace OptScalerNR.Launcher
         }
         void RememberOptiPatcherChoice()
         {
+            if(!IsOptiScalerSelectedMode()||IsRtxRemixMinecraftSelected()){_decisions.OptiPatcher="skip";return;}
             bool active=_optiPatcherToggle!=null&&_optiPatcherToggle.IsEnabled&&_optiPatcherToggle.IsChecked==true;
             _decisions.OptiPatcher=active?"install":"skip";
             if(_selectingOptiPatcher||_loadingSettings||_applyingLanguage||_selectedGame==null||string.IsNullOrEmpty(_selectedGame.Id))return;
@@ -93,6 +94,7 @@ namespace OptScalerNR.Launcher
         }
         void RememberOpenRrChoice()
         {
+            if(!IsOptiScalerSelectedMode()||IsOpenRrUnsupportedLocked()){_decisions.OpenRr="skip";return;}
             _decisions.OpenRr=_openRrToggle!=null&&_openRrToggle.IsChecked==true?"install":"skip";
             if(_selectingOpenRr||_loadingSettings||_applyingLanguage||_selectedGame==null||string.IsNullOrEmpty(_selectedGame.Id))return;
             _openRrByGame[_selectedGame.Id]=_openRrToggle.IsChecked==true;
@@ -133,6 +135,17 @@ namespace OptScalerNR.Launcher
                 _profileStatus.ToolTip=string.Format(L("推荐规则来源：{0} · 共 {1} 款游戏 · 复核于 {2}","Recommendation source: {0} · {1} games · reviewed {2}"),origin,_recommendations.Count,_recommendations.Reviewed??"");
             }
             var profile=_selectedGame==null?null:_recommendations.Match(_selectedGame);
+            if(!IsOptiScalerSelectedMode()){
+                _selectingOptiPatcher=true;_selectingOpenRr=true;_selectingOpenRrSpoof=true;
+                try{
+                    if(_optiPatcherToggle!=null)_optiPatcherToggle.IsChecked=false;
+                    if(_openRrToggle!=null)_openRrToggle.IsChecked=false;
+                    if(_openRrAutoSpoofToggle!=null)_openRrAutoSpoofToggle.IsChecked=false;
+                }finally{_selectingOptiPatcher=false;_selectingOpenRr=false;_selectingOpenRrSpoof=false;}
+                _decisions.OptiPatcher="skip";_decisions.OpenRr="skip";_decisions.OpenRrSpoof="full";
+                RefreshOpenRrCard();
+                return;
+            }
             bool optiSupported=IsOptiPatcherSupported(_selectedGame,profile);
             bool optiPatcher=false;
             if(optiSupported&&(_selectedGame==null||!_optiPatcherByGame.TryGetValue(_selectedGame.Id,out optiPatcher)))
@@ -147,10 +160,16 @@ namespace OptScalerNR.Launcher
             }finally{_selectingOptiPatcher=false;}
             ApplyOptiPatcherTooltip(optiSupported);
             _decisions.OptiPatcher=optiPatcher?"install":"skip";
+            bool openRrLocked=IsOpenRrUnsupportedLocked();
             bool openRr=false,savedOpenRr;
-            if(_selectedGame!=null&&_openRrByGame.TryGetValue(_selectedGame.Id,out savedOpenRr))openRr=savedOpenRr;
+            if(!openRrLocked&&_selectedGame!=null&&_openRrByGame.TryGetValue(_selectedGame.Id,out savedOpenRr))openRr=savedOpenRr;
             _selectingOpenRr=true;
-            try{if(_openRrToggle!=null)_openRrToggle.IsChecked=openRr;}
+            try{
+                if(_openRrToggle!=null){
+                    _openRrToggle.IsEnabled=!openRrLocked;
+                    _openRrToggle.IsChecked=openRr;
+                }
+            }
             finally{_selectingOpenRr=false;}
             _decisions.OpenRr=openRr?"install":"skip";
             bool openRrAutoSpoof=optiPatcher&&GetOpenRrSpoof(_selectedGame)=="auto";
@@ -159,6 +178,7 @@ namespace OptScalerNR.Launcher
             finally{_selectingOpenRrSpoof=false;}
             _decisions.OpenRrSpoof=openRrAutoSpoof?"auto":"full";
             RefreshOpenRrCard();
+            if(IsRtxRemixMinecraftSelected())return;
             if(_selectedGame==null){AppendMochizukiNote();return;}
             string manual;
             var hasManual=_proxyChoices.TryGetValue(_selectedGame.Id,out manual)&&ProxyRecommendations.Supports(manual);

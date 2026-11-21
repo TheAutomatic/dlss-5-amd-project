@@ -25,12 +25,44 @@ function Get-OptScalerFileSha256([string]$Path) {
     }
 }
 
+function Get-DlssnrLocalDataModelDirs {
+    $dirs = New-Object System.Collections.Generic.List[string]
+    try {
+        $localApp = [Environment]::GetFolderPath('LocalApplicationData')
+        if ($localApp) {
+            $base = Join-Path $localApp 'DLSSNR-AMD'
+            if (Test-Path -LiteralPath $base -PathType Container) {
+                foreach ($sub in @((Join-Path $base 'models'), (Join-Path $base 'dlssnr-amd'), $base)) {
+                    if ((Test-Path -LiteralPath $sub -PathType Container) -and -not $dirs.Contains($sub)) {
+                        [void]$dirs.Add($sub)
+                    }
+                }
+                $appsDir = Join-Path $base 'apps'
+                if (Test-Path -LiteralPath $appsDir -PathType Container) {
+                    foreach ($child in @(Get-ChildItem -LiteralPath $appsDir -Directory -ErrorAction SilentlyContinue | Select-Object -First 24)) {
+                        if (-not ($child.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                            [void]$dirs.Add($child.FullName)
+                            $subDlss = Join-Path $child.FullName 'dlssnr-amd'
+                            if (Test-Path -LiteralPath $subDlss -PathType Container) { [void]$dirs.Add($subDlss) }
+                        }
+                    }
+                }
+            }
+        }
+    } catch { }
+    return @($dirs)
+}
+
 function Get-OptScalerBackendCapabilities([string]$pkgRoot, [string]$gameDir, [string]$ModelSourceDll = '') {
     $backends = @()
     $sourceDlls = @()
     if ($ModelSourceDll) { $sourceDlls += $ModelSourceDll }
     foreach ($root in @($pkgRoot, $gameDir)) {
         if ($root) { $sourceDlls += Join-Path $root 'nvngx_dlssnr.dll' }
+    }
+    $localDataDirs = @(Get-DlssnrLocalDataModelDirs)
+    foreach ($ld in $localDataDirs) {
+        $sourceDlls += Join-Path $ld 'nvngx_dlssnr.dll'
     }
 
     # --- mochizuki: the official ASI plugin (dlssnr-amd.asi) ---
@@ -91,6 +123,32 @@ function Get-OptScalerBackendCapabilities([string]$pkgRoot, [string]$gameDir, [s
         if (-not $mochiNv) {
             $cand = Join-Path $gameDir 'nvngx_dlssnr.dll'
             if (Test-Path -LiteralPath $cand -PathType Leaf) { $mochiNv = $cand }
+        }
+    }
+    foreach ($ld in $localDataDirs) {
+        if (-not $mochiModel) {
+            foreach ($rel in @('CC_SILVER_AARDWOLD.bin', 'dlssnr-amd\CC_SILVER_AARDWOLD.bin', 'dlssnr.bin', 'dlssnr-amd\dlssnr.bin')) {
+                $cand = Join-Path $ld $rel
+                if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiModel = $cand; break }
+            }
+        }
+        if (-not $mochiSmall) {
+            foreach ($rel in @('CC_SMALL_FP8.bin', 'dlssnr-amd\CC_SMALL_FP8.bin', 'dlssnr-small.bin', 'dlssnr-amd\dlssnr-small.bin')) {
+                $cand = Join-Path $ld $rel
+                if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiSmall = $cand; break }
+            }
+        }
+        if (-not $mochiExperimental) {
+            foreach ($rel in @('CC_SMALL_FP8_EXPERIMENTAL.bin', 'dlssnr-amd\CC_SMALL_FP8_EXPERIMENTAL.bin', 'dlssnr-small-experimental.bin')) {
+                $cand = Join-Path $ld $rel
+                if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiExperimental = $cand; break }
+            }
+        }
+        if (-not $mochiInt4) {
+            foreach ($rel in @('CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin', 'dlssnr-amd\CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin', 'dlssnr-int4.bin')) {
+                $cand = Join-Path $ld $rel
+                if ((Test-Path -LiteralPath $cand -PathType Leaf) -and (Get-Item -LiteralPath $cand).Length -gt 0) { $mochiInt4 = $cand; break }
+            }
         }
     }
     if (-not $mochiNv) {
