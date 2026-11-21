@@ -547,7 +547,7 @@
           <StackPanel Margin="24,20,20,28">
 
             <!-- ===== Hero ===== -->
-            <Border x:Name="HeroCard" CornerRadius="8" MinHeight="186" Background="{DynamicResource ThemeCardBg}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="1" ClipToBounds="True">
+            <Border x:Name="HeroCard" CornerRadius="8" Height="186" Background="{DynamicResource ThemeCardBg}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="1" ClipToBounds="True">
               <Grid>
                 <Border Background="{DynamicResource ThemeHeroTint}" IsHitTestVisible="False">
                   <Border.OpacityMask><LinearGradientBrush StartPoint="0,0" EndPoint="1,0"><GradientStop Color="#00000000" Offset="0.15"/><GradientStop Color="#FF000000" Offset="1"/></LinearGradientBrush></Border.OpacityMask>
@@ -556,7 +556,7 @@
                   <Ellipse.Fill><RadialGradientBrush><GradientStop Color="#26E3122B" Offset="0"/><GradientStop Color="#00E3122B" Offset="1"/></RadialGradientBrush></Ellipse.Fill>
                 </Ellipse>
                 <TextBlock x:Name="HeroMonogram" Text="N" FontSize="200" FontWeight="Black" Foreground="{DynamicResource ThemeInk}" Opacity="0.045" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,-60,40,-60" IsHitTestVisible="False"/>
-                <Image x:Name="HeroBgImage" Stretch="UniformToFill" CacheMode="BitmapCache" IsHitTestVisible="False">
+                <Image x:Name="HeroBgImage" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center" CacheMode="BitmapCache" IsHitTestVisible="False">
                   <Image.OpacityMask><LinearGradientBrush StartPoint="0,0" EndPoint="1,0"><GradientStop Color="#00000000" Offset="0.2"/><GradientStop Color="#B3000000" Offset="0.62"/><GradientStop Color="#FF000000" Offset="1"/></LinearGradientBrush></Image.OpacityMask>
                 </Image>
                 <!-- Theme-coloured scrim keeps title text readable over artwork in both light and dark. -->
