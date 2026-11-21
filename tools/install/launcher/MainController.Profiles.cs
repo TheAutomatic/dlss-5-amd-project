@@ -19,7 +19,7 @@ namespace OptScalerNR.Launcher
         ComboBox _iniProfileCombo;
         TextBox _iniSearchBox;
         TextBlock _iniProfileStatus;
-        Button _iniSaveButton, _iniQuickSaveButton, _iniImportButton, _iniRenameButton, _iniDeleteButton, _iniApplyButton, _iniFolderButton;
+        Button _iniSaveButton, _iniQuickSaveButton, _iniImportButton, _iniExportButton, _iniRenameButton, _iniDeleteButton, _iniApplyButton, _iniFolderButton;
         Button _iniAsiExportButton, _iniAsiImportButton;
         string[] _iniProfileNames = new string[0];
         string _iniSelectedProfile = "";
@@ -43,6 +43,7 @@ namespace OptScalerNR.Launcher
             _iniSaveButton = _window.FindName("IniSaveButton") as Button;
             _iniQuickSaveButton = _window.FindName("IniQuickSaveButton") as Button;
             _iniImportButton = _window.FindName("IniImportButton") as Button;
+            _iniExportButton = _window.FindName("IniExportButton") as Button;
             _iniRenameButton = _window.FindName("IniRenameButton") as Button;
             _iniDeleteButton = _window.FindName("IniDeleteButton") as Button;
             _iniApplyButton = _window.FindName("IniApplyButton") as Button;
@@ -69,6 +70,7 @@ namespace OptScalerNR.Launcher
                 SaveIniProfileCore(game, game.Name + L(" 保存配置", " profile"));
             };
             if (_iniImportButton != null) _iniImportButton.Click += delegate { PromptImportIniProfile(); };
+            if (_iniExportButton != null) _iniExportButton.Click += delegate { PromptExportIniProfile(); };
             if (_iniRenameButton != null) _iniRenameButton.Click += delegate { PromptRenameIniProfile(); };
             if (_iniDeleteButton != null) _iniDeleteButton.Click += delegate { PromptDeleteIniProfile(); };
             if (_iniApplyButton != null) _iniApplyButton.Click += delegate { ApplyIniProfile(); };
@@ -89,6 +91,7 @@ namespace OptScalerNR.Launcher
             ((TextBlock)_window.FindName("InstallOptionsHeading")).ToolTip = L("下次安装或更新时生效", "Applied on the next install or update");
             SetLabel("IniHeading", "画面风格与配置", "Look & config");
             SetLabel("OptiScalerConfigHeading", "OptiScaler 配置", "OptiScaler config");
+            SetLabel("AsiProfilesHeading", "dlssnr-amd.ini 配置", "dlssnr-amd.ini config");
             SetLabel("AsiProfileApplyButton", "应用", "Apply");
             SetLabel("AsiProfileSaveButton", "保存", "Save");
             SetLabel("IniAsiImportButton", "导入…", "Import…");
@@ -103,6 +106,7 @@ namespace OptScalerNR.Launcher
             if (_iniSaveButton != null) _iniSaveButton.Content = L("保存", "Save");
             if (_iniQuickSaveButton != null) _iniQuickSaveButton.Content = L("快速保存", "Quick save");
             if (_iniImportButton != null) _iniImportButton.Content = L("导入…", "Import…");
+            if (_iniExportButton != null) _iniExportButton.Content = L("导出…", "Export…");
             if (_iniRenameButton != null) _iniRenameButton.Content = L("重命名…", "Rename…");
             if (_iniDeleteButton != null) _iniDeleteButton.Content = L("删除", "Delete");
             if (_iniApplyButton != null) _iniApplyButton.Content = L("应用", "Apply");
@@ -167,6 +171,7 @@ namespace OptScalerNR.Launcher
             if (_iniSaveButton != null) _iniSaveButton.IsEnabled = hasIni;
             if (_iniQuickSaveButton != null) _iniQuickSaveButton.IsEnabled = hasIni;
             if (_iniImportButton != null) _iniImportButton.IsEnabled = hasGame;
+            if (_iniExportButton != null) _iniExportButton.IsEnabled = hasGame && HasIniExportSource(game, _iniSelectedProfile);
             var asiIni = activeAsiIni;
             if (_iniAsiExportButton != null) {
                 _iniAsiExportButton.ToolTip = L("完整导出 dlssnr-amd.ini（ASI NR 配置），与 OptiScaler.ini 无关", "Export complete dlssnr-amd.ini (ASI NR configuration), independent of OptiScaler.ini");
@@ -446,6 +451,36 @@ namespace OptScalerNR.Launcher
             var name = PromptIniName(L("导入共享配置", "Import shared profile"), Path.GetFileNameWithoutExtension(source));
             if (name != null) ImportIniProfileCore(game, source, name);
         }
+        bool HasIniExportSource(IniGameIdentity game, string name)
+        {
+            return game != null && _iniProfiles != null && File.Exists(string.IsNullOrEmpty(name)
+                ? Path.Combine(game.Directory, "OptiScaler.ini")
+                : Path.Combine(_iniProfiles.RootDirectory, name + ".ini"));
+        }
+        SaveFileDialog CreateIniExportPicker()
+        {
+            return new SaveFileDialog { Title = L("导出 OptiScaler.ini 配置", "Export OptiScaler.ini profile"), FileName = "OptiScaler.ini",
+                Filter = "INI (*.ini)|*.ini", OverwritePrompt = true, RestoreDirectory = true };
+        }
+        void PromptExportIniProfile()
+        {
+            var game = CaptureIniGame();
+            var name = _iniSelectedProfile;
+            if (!CanUseIniGame(game) || !HasIniExportSource(game, name)) return;
+            var picker = CreateIniExportPicker();
+            if (picker.ShowDialog(_window) == true) ExportIniProfileCore(game, name, picker.FileName);
+        }
+        bool ExportIniProfileCore(IniGameIdentity game, string name, string destination)
+        {
+            if (!CanUseIniGame(game)) return false;
+            if (!HasIniExportSource(game, name)) { SetIniStatus(string.IsNullOrEmpty(name) ? "noini" : "missing", ""); return false; }
+            try {
+                if (string.IsNullOrEmpty(name)) File.WriteAllBytes(destination, File.ReadAllBytes(Path.Combine(game.Directory, "OptiScaler.ini")));
+                else _iniProfiles.Export(name, destination);
+                SetIniStatus("exported", Path.GetFileName(destination));
+                return true;
+            } catch (Exception ex) { IniFailure(ex); return false; }
+        }
         void PromptRenameIniProfile()
         {
             var game = CaptureIniGame();
@@ -574,6 +609,7 @@ namespace OptScalerNR.Launcher
                 case "noini": text = L("游戏没有 OptiScaler.ini，请先安装。", "No game OptiScaler.ini. Install first."); break;
                 case "noasi": text = L("游戏没有 dlssnr-amd.ini，请先安装 ASI 组件。", "No game dlssnr-amd.ini. Install the ASI component first."); break;
                 case "asi-exported": text = L("已完整导出 dlssnr-amd.ini：", "Exported complete dlssnr-amd.ini: ") + _iniStatusDetail; break;
+                case "exported": text = L("已导出 OptiScaler.ini：", "Exported OptiScaler.ini: ") + _iniStatusDetail; break;
                 case "asi-imported": text = L("已完整导入 dlssnr-amd.ini，重启 NR 后生效。原文件备份：", "Imported complete dlssnr-amd.ini; restart NR. Original backup: ") + _iniStatusDetail; break;
                 case "invalid": text = L("不是有效的 OptiScaler.ini。", "Not a valid OptiScaler.ini."); break;
                 case "invalidasi": text = L("不是有效的 dlssnr-amd.ini。", "Not a valid dlssnr-amd.ini."); break;
@@ -598,6 +634,7 @@ namespace OptScalerNR.Launcher
                     : _iniProfileNames.Length == 0 && (_asiProfileCombo == null || _asiProfileCombo.Items.Count <= 1) ? L("暂无共享配置", "No shared profiles") : ""; break;
             }
             _iniProfileStatus.Text = text;
+            _iniProfileStatus.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
         }
     }
 }

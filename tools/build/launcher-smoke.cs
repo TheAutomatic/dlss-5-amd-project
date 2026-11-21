@@ -222,6 +222,7 @@ static class LauncherSmoke
             ((CheckBox)Find("MochiCheck")).IsChecked = true;
             _controller.GetType().GetMethod("RefreshInspectionText", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(_controller, null);
             Preview("restored-light-zh");
+            CheckProfileRows("zh", false);
             double previousY = -1;
             foreach (var name in new[] { "AdvancedProxySection", "AdvancedInstallSection", "AdvancedProfilesSection", "AdvancedLogSection" }) {
                 var card = (FrameworkElement)Find(name);
@@ -254,6 +255,7 @@ static class LauncherSmoke
             Check((string)Member(_controller, "CurrentSelectedProxy") == selectedProxy, "card expansion preserves proxy selection");
             Check(((StackPanel)Find("ProxyDetails")).Visibility == Visibility.Visible, "proxy selector always expanded");
             Preview("restored-expanded-light-zh");
+            CheckProfileRows("zh", true);
             Check(!((Button)Find("ProxyChangeButton")).IsVisible, "proxy collapse action removed");
             Preview("advanced-proxy-light-zh");
             ((Button)Find("ProfileMoreButton")).BringIntoView(); Pump(300);
@@ -300,6 +302,7 @@ static class LauncherSmoke
                 styleButton.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
                 Check(styleButton.ActualWidth >= styleButton.DesiredSize.Width - 1, "shared look label fits: " + lang);
                 Preview("restored-expanded-narrow-light-" + lang);
+                CheckProfileRows(lang, true);
             }
             Invoke("SetLanguage", "zh"); _window.Width = 1240; Pump(200);
             ((Button)Find("ProfilesExpandButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
@@ -494,10 +497,30 @@ static class LauncherSmoke
         var directory = Path.GetDirectoryName((string)Member(game, "Exe"));
         var asi = Path.Combine(directory, "dlssnr-amd.ini");
         var opti = Path.Combine(directory, "OptiScaler.ini");
+        Check(!((Button)Find("IniExportButton")).IsEnabled, "OptiScaler export disabled without any source");
         Check(!(bool)Call("SaveAsiProfile", "Missing"), "missing dlssnr INI blocks profile save");
         Check(((TextBlock)Find("IniProfileStatus")).Text.Contains("dlssnr-amd.ini"), "missing ASI profile reports noasi");
         File.WriteAllText(opti, "[OptiScaler]\r\nName=legacy\r\n[Plugins]\r\nLoadAsiPlugins=true\r\n");
         Check((bool)Call("SaveIniProfile", "Existing OptiScaler profile"), "existing OptiScaler profile store remains usable");
+        var optiBytes = File.ReadAllBytes(opti);
+        var optiExport = Path.Combine(settingsDirectory, "exported-opti.ini");
+        var optiIdentity = Call("CaptureIniGame");
+        var optiPicker = (Microsoft.Win32.SaveFileDialog)Call("CreateIniExportPicker");
+        Check(optiPicker.FileName == "OptiScaler.ini" && optiPicker.Filter == "INI (*.ini)|*.ini" && optiPicker.OverwritePrompt && optiPicker.RestoreDirectory, "OptiScaler export picker configuration");
+        File.WriteAllText(opti, "[OptiScaler]\r\nName=current\r\n");
+        Check((bool)Call("ExportIniProfileCore", optiIdentity, "Existing OptiScaler profile", optiExport) && File.ReadAllText(optiExport) == System.Text.Encoding.UTF8.GetString(optiBytes), "OptiScaler export uses selected profile bytes, not game INI");
+        Check((bool)Call("ExportIniProfileCore", optiIdentity, "", optiExport) && File.ReadAllText(optiExport) == File.ReadAllText(opti), "current-game OptiScaler export preserves bytes");
+        File.Delete(opti);
+        Call("RefreshProfileActions");
+        Check(((Button)Find("IniExportButton")).IsEnabled, "saved OptiScaler profile exports even without a game INI");
+        Check(!(bool)Call("ExportIniProfileCore", optiIdentity, "", optiExport), "missing current OptiScaler INI blocks export");
+        ((ComboBox)Find("IniProfileCombo")).SelectedIndex = 0;
+        Check(!((Button)Find("IniExportButton")).IsEnabled, "current-game export disabled after its INI disappears");
+        Check(!(bool)Call("ExportIniProfileCore", optiIdentity, "Gone", optiExport), "missing named OptiScaler profile blocks export");
+        File.WriteAllBytes(opti, optiBytes);
+        Check(!(bool)Call("ExportIniProfileCore", optiIdentity, "", directory), "unwritable export destination reports failure without crashing");
+        Call("RefreshProfileActions");
+        Check(((Button)Find("IniExportButton")).IsEnabled, "current-game export re-enabled when INI is restored");
         var original = "[NR]\r\nEnabled=true\r\n[Custom]\r\nValue=preserved\r\n";
         File.WriteAllText(asi, original);
         Check((bool)Call("SaveAsiProfile", "Shared look"), "dlssnr profile saved");
@@ -527,6 +550,35 @@ static class LauncherSmoke
         var optiCombo = (ComboBox)Find("IniProfileCombo");
         optiCombo.SelectedIndex = 0;
         Check(((TextBlock)Find("ProfilesSummary")).Text.Contains("OptiScaler.ini"), "OptiScaler collapsed header identifies current INI");
+    }
+
+    static void CheckProfileRows(string language, bool expanded)
+    {
+        var root = (UIElement)_window.Content;
+        var label = (TextBlock)Find("AsiProfilesHeading");
+        var optiLabel = (TextBlock)Find("OptiScalerConfigHeading");
+        var combo = (ComboBox)Find("AsiProfileCombo");
+        var a = label.TranslatePoint(new Point(), root);
+        var b = combo.TranslatePoint(new Point(), root);
+        Check(label.Text == (language == "zh" ? "dlssnr-amd.ini 配置" : "dlssnr-amd.ini config"), "inline profile label: " + language);
+        Check(Math.Abs(a.Y + label.ActualHeight / 2 - b.Y - combo.ActualHeight / 2) < 1, "NR label shares dropdown row: " + language);
+        Check(label.FontSize == optiLabel.FontSize && label.Foreground.ToString() == optiLabel.Foreground.ToString(), "profile label typography matches");
+        Check(Math.Abs(a.X - optiLabel.TranslatePoint(new Point(), root).X) < 1, "profile labels align");
+        Check(((TextBlock)Find("ProfilesSummary")).Visibility == (expanded ? Visibility.Collapsed : Visibility.Visible), "collapsed summary does not overlap expanded dropdown");
+        if (expanded) {
+            foreach (var pair in new[] { new[] { "AsiProfileCombo", "IniProfileCombo" }, new[] { "AsiProfileApplyButton", "IniApplyButton" }, new[] { "AsiProfileSaveButton", "IniSaveButton" }, new[] { "AsiProfileMoreButton", "ProfileMoreButton" } }) {
+                var first = (FrameworkElement)Find(pair[0]); var second = (FrameworkElement)Find(pair[1]);
+                Check(Math.Abs(first.TranslatePoint(new Point(), root).X - second.TranslatePoint(new Point(), root).X) < 1, "paired profile columns align: " + language + pair[0]);
+            }
+            Check(Math.Abs(optiLabel.TranslatePoint(new Point(), root).Y + optiLabel.ActualHeight / 2 - ((ComboBox)Find("IniProfileCombo")).TranslatePoint(new Point(), root).Y - 16) < 1, "OptiScaler controls share label row");
+        }
+        Call("SetIniStatus", "", ""); Pump(50);
+        Check(((TextBlock)Find("IniProfileStatus")).Visibility == Visibility.Collapsed, "empty profile status uses no space");
+        Check(optiLabel.TranslatePoint(new Point(), root).Y - combo.TranslatePoint(new Point(0, combo.ActualHeight), root).Y <= 28, "no empty band between profile rows");
+        Call("SetIniStatus", "io", "");
+        Check(((TextBlock)Find("IniProfileStatus")).Visibility == Visibility.Visible, "profile errors remain visible");
+        Call("SetIniStatus", "", "");
+        Check((string)((Button)Find("IniExportButton")).Content == (language == "zh" ? "导出…" : "Export…"), "OptiScaler export label: " + language);
     }
 
     // Top of the details pane plus two scrolled pages so the lower sections are reviewable too.

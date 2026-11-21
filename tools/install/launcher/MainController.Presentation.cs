@@ -247,6 +247,7 @@ namespace OptScalerNR.Launcher
         void RefreshSectionCards()
         {
             ((StackPanel)_window.FindName("ProfilesCardBody")).Visibility = _profilesExpanded ? Visibility.Visible : Visibility.Collapsed;
+            ((TextBlock)_window.FindName("ProfilesSummary")).Visibility = _profilesExpanded ? Visibility.Collapsed : Visibility.Visible;
             ((StackPanel)_window.FindName("InstallLogCardBody")).Visibility = _installLogExpanded ? Visibility.Visible : Visibility.Collapsed;
             ((System.Windows.Shapes.Path)_window.FindName("ProfilesChevron")).RenderTransform = new RotateTransform(_profilesExpanded ? 90 : 0);
             ((System.Windows.Shapes.Path)_window.FindName("InstallLogChevron")).RenderTransform = new RotateTransform(_installLogExpanded ? 90 : 0);
