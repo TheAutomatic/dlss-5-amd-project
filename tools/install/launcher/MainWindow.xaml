@@ -965,7 +965,11 @@
       </Grid.ColumnDefinitions>
       <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
         <Ellipse x:Name="StatusLed" Width="7" Height="7" VerticalAlignment="Center" Fill="{DynamicResource ThemeSuccess}" Margin="0,0,8,0"/>
-        <TextBlock x:Name="StatusText" VerticalAlignment="Center" Foreground="{DynamicResource ThemeMuted}" FontSize="11.5" MaxWidth="420" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+        <TextBlock x:Name="StatusText" VerticalAlignment="Center" Foreground="{DynamicResource ThemeMuted}" FontSize="11.5" MaxWidth="420" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}">
+          <TextBlock.Style>
+            <Style TargetType="TextBlock"><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger></Style.Triggers></Style>
+          </TextBlock.Style>
+        </TextBlock>
       </StackPanel>
       <DockPanel Grid.Column="1" VerticalAlignment="Center" Margin="12,0,12,0">
         <Border Width="1" Height="12" Background="{DynamicResource ThemeHairline}" Margin="0,0,12,0" VerticalAlignment="Center"/>

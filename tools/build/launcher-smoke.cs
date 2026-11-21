@@ -262,6 +262,8 @@ static class LauncherSmoke
             }
 
             var inspection = Member(_controller, "_lastInspectResult");
+            var savedPackageRoot = Member(inspection, "PackageRoot");
+            SetMember(inspection, "PackageRoot", Path.GetDirectoryName(args[0]));
             var backend = ((Array)Member(inspection, "Backends")).GetValue(0);
             var savedMissing = Member(backend, "MissingPackageFiles");
             var savedHints = Member(backend, "Hints");
@@ -269,6 +271,7 @@ static class LauncherSmoke
             SetMember(backend, "Hints", new string[0]);
             Call("RefreshModelImportBar");
             Check(((StackPanel)Find("MissingPackageItems")).Children.Count == 1, "duplicate missing components deduplicated");
+            Check(((TextBlock)((DockPanel)((StackPanel)Find("MissingPackageItems")).Children[0]).Children[1]).Text.Contains("runtime.dll"), "component checklist identifies missing file");
             SetMember(backend, "MissingPackageFiles", new string[0]);
             Call("RefreshModelImportBar");
             Check(((Border)Find("BeforeInstallChecklist")).Visibility == Visibility.Collapsed, "no prerequisites means no checklist");
@@ -277,6 +280,7 @@ static class LauncherSmoke
             Check(((TextBlock)Find("ModelImportText")).Text.Contains("unsupported"), "unsupported model source has actionable checklist item");
             SetMember(backend, "MissingPackageFiles", savedMissing);
             SetMember(backend, "Hints", savedHints);
+            SetMember(inspection, "PackageRoot", savedPackageRoot);
             SetMember(_controller, "_nativeDlssdCacheDir", cacheDir);
             SetMember(_controller, "_nativeDlssdCacheVal", cacheValue);
             Call("ApplyModeVisibility");

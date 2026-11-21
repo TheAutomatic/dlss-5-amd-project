@@ -38,6 +38,10 @@ namespace OptScalerNR.Launcher
         {
             _detectedAdapterName = name;
             _gpuFamily = ClassifyGpu(name);
+            _hardwareDetails = string.IsNullOrWhiteSpace(name) ? null : name;
+            _hardwareWindowsDriver = null;
+            _hardwareComplete = true;
+            RefreshHardwareText();
             RefreshGpuHints();
         }
         void RefreshGpuHints()
