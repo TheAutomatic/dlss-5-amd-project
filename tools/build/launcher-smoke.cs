@@ -471,7 +471,8 @@ static class LauncherSmoke
                 Pump(100);
                 if (Member(_controller, "_session") == null && !(bool)Member(_controller, "_presentationBusy")) {
                     Call("RefreshInspectionText");
-                    return;
+                    Pump(100);
+                    if (Member(_controller, "_session") == null && !(bool)Member(_controller, "_presentationBusy")) return;
                 }
             }
             Pump(50);
