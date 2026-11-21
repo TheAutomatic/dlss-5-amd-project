@@ -94,21 +94,23 @@ static class LauncherSmoke
             Check(_window.FindName("ShowAdvancedOptions") == null, "Settings advanced toggle removed");
             foreach (var name in new[] { "AdvancedProxySection", "AdvancedInstallSection", "AdvancedProfilesSection", "AdvancedLogSection" })
                 Check(((FrameworkElement)Find(name)).IsVisible, "section visible by default: " + name);
-            Check(((StackPanel)Find("ProfilesCardBody")).Visibility == Visibility.Collapsed, "OptiScaler config default collapsed");
+            Check(((StackPanel)Find("ProfilesCardBody")).IsVisible, "OptiScaler config always expanded");
             Check(((Border)Find("StyleShareBar")).IsVisible && ((ComboBox)Find("AsiProfileCombo")).IsVisible, "look sharing and dlssnr profiles always visible");
             Check(((StackPanel)Find("InstallLogCardBody")).Visibility == Visibility.Collapsed, "log default collapsed");
-            Check(!string.IsNullOrEmpty(((TextBlock)Find("ProfilesSummary")).Text), "collapsed profile state shown");
+            foreach (var removed in new[] { "ProfilesExpandButton", "ProfilesSummary", "ProfilesChevron" })
+                Check(_window.FindName(removed) == null, "OptiScaler collapse control removed: " + removed);
             Check(!string.IsNullOrEmpty(((TextBlock)Find("LogPreviewHeading")).Text), "collapsed log state shown");
             var settingsPath = Path.Combine(args[1], "settings.json");
             var settings = File.ReadAllText(settingsPath);
             foreach (var oldValue in new[] { "false", "true" }) {
-                File.WriteAllText(settingsPath, settings.TrimEnd().TrimEnd('}') + ",\"ShowAdvancedOptions\":" + oldValue + "}");
+                File.WriteAllText(settingsPath, settings.TrimEnd().TrimEnd('}') + ",\"ShowAdvancedOptions\":" + oldValue + ",\"OptiScalerConfigExpanded\":" + oldValue + "}");
                 Call("LoadSettings");
-                Check(((StackPanel)Find("ProfilesCardBody")).Visibility == Visibility.Collapsed && ((StackPanel)Find("AdvancedProxySection")).IsVisible,
-                    "legacy advanced key ignored: " + oldValue);
+                Check(((StackPanel)Find("ProfilesCardBody")).IsVisible && ((StackPanel)Find("AdvancedProxySection")).IsVisible,
+                    "legacy advanced and profile collapse keys ignored: " + oldValue);
             }
             Call("SaveSettings");
             Check(!File.ReadAllText(settingsPath).Contains("ShowAdvancedOptions"), "legacy advanced key no longer saved");
+            Check(!File.ReadAllText(settingsPath).Contains("OptiScalerConfigExpanded"), "obsolete profile collapse key no longer saved");
             Check(list.Items.Count >= 2, "fake library loaded (" + list.Items.Count + " items)");
             SelectGame(list, false);
             CheckProfileStores(args[1]);
@@ -233,7 +235,7 @@ static class LauncherSmoke
             ((CheckBox)Find("MochiCheck")).IsChecked = true;
             _controller.GetType().GetMethod("RefreshInspectionText", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(_controller, null);
             Preview("restored-light-zh");
-            CheckProfileRows("zh", false);
+            CheckProfileRows("zh");
             double previousY = -1;
             foreach (var name in new[] { "AdvancedProxySection", "AdvancedInstallSection", "AdvancedProfilesSection", "AdvancedLogSection" }) {
                 var card = (FrameworkElement)Find(name);
@@ -254,11 +256,10 @@ static class LauncherSmoke
             Check((string)Member(_controller, "CurrentSelectedProxy") == "version.dll", "saved manual proxy takes precedence");
             ((Button)Find("UseRecommendationButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             Check((string)Member(_controller, "CurrentSelectedProxy") == selectedProxy, "Use suggestion restores Wiki recommendation");
-            ((Button)Find("ProfilesExpandButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
-            Check(((StackPanel)Find("InstallLogCardBody")).Visibility == Visibility.Collapsed, "profile expansion leaves log collapsed");
+            Check(((StackPanel)Find("InstallLogCardBody")).Visibility == Visibility.Collapsed, "always-expanded profiles leave log collapsed");
             ((Button)Find("InstallLogExpandButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             Pump(300);
-            Check(File.ReadAllText(settingsPath).Contains("\"OptiScalerConfigExpanded\":true") && File.ReadAllText(settingsPath).Contains("\"InstallLogExpanded\":true"), "card expansion persisted independently");
+            Check(!File.ReadAllText(settingsPath).Contains("OptiScalerConfigExpanded") && File.ReadAllText(settingsPath).Contains("\"InstallLogExpanded\":true"), "only log expansion persisted");
             Call("LoadSettings");
             Check(((StackPanel)Find("ProfilesCardBody")).IsVisible && ((StackPanel)Find("InstallLogCardBody")).IsVisible, "card expansion restored from settings");
             foreach (var name in new[] { "AdvancedProxySection", "AdvancedInstallSection", "AdvancedProfilesSection", "AdvancedLogSection" })
@@ -266,7 +267,7 @@ static class LauncherSmoke
             Check((string)Member(_controller, "CurrentSelectedProxy") == selectedProxy, "card expansion preserves proxy selection");
             Check(((StackPanel)Find("ProxyDetails")).Visibility == Visibility.Visible, "proxy selector always expanded");
             Preview("restored-expanded-light-zh");
-            CheckProfileRows("zh", true);
+            CheckProfileRows("zh");
             Check(!((Button)Find("ProxyChangeButton")).IsVisible, "proxy collapse action removed");
             Preview("advanced-proxy-light-zh");
             ((Button)Find("ProfileMoreButton")).BringIntoView(); Pump(300);
@@ -313,12 +314,13 @@ static class LauncherSmoke
                 styleButton.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
                 Check(styleButton.ActualWidth >= styleButton.DesiredSize.Width - 1, "shared look label fits: " + lang);
                 Preview("restored-expanded-narrow-light-" + lang);
-                CheckProfileRows(lang, true);
+                CheckProfileRows(lang);
             }
             Invoke("SetLanguage", "zh"); _window.Width = 1240; Pump(200);
-            ((Button)Find("ProfilesExpandButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             ((Button)Find("InstallLogExpandButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
-            Check(File.ReadAllText(settingsPath).Contains("\"OptiScalerConfigExpanded\":false") && File.ReadAllText(settingsPath).Contains("\"InstallLogExpanded\":false"), "card collapse persisted");
+            Check(!File.ReadAllText(settingsPath).Contains("OptiScalerConfigExpanded") && File.ReadAllText(settingsPath).Contains("\"InstallLogExpanded\":false"), "only log collapse persisted");
+            Call("LoadSettings");
+            Check(((StackPanel)Find("ProfilesCardBody")).IsVisible && ((StackPanel)Find("InstallLogCardBody")).Visibility == Visibility.Collapsed, "log collapse restored without hiding profiles");
             Invoke("SelectProxy", "");
             Check(((Button)Find("ProxyRequiredButton")).IsVisible, "missing proxy action remains visible");
             ((Button)Find("ProxyRequiredButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
@@ -370,11 +372,9 @@ static class LauncherSmoke
                     AssertLayout("gpu-light-" + lang + "-" + gpu[1]);
                     Shot("gpu-light-" + lang + "-" + gpu[1]);
                 }
-                ((Button)Find("ProfilesExpandButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
                 ((Button)Find("InstallLogExpandButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
                 ((StackPanel)Find("ProxyDetails")).Visibility = Visibility.Visible;
                 Preview("density-advanced-light-" + lang);
-                ((Button)Find("ProfilesExpandButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
                 ((Button)Find("InstallLogExpandButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             }
 
@@ -475,8 +475,8 @@ static class LauncherSmoke
 
     static void CheckCommunityLinks()
     {
-        var names = new[] { "GithubButton", "OpenRrAsiButton", "RtxRemixMcPatchButton", "MochizukiAuthorButton", "BilibiliButton" };
-        var urls = new[] { "https://github.com/TheAutomatic/dlss-5-amd-project", "https://github.com/TheAutomatic/OpenRR-ASI", "https://github.com/TheAutomatic/rtx-remix-minecraft-amd-patch", "https://gitlab.com/mochizuki0323/DLSSNR-AMD", "https://space.bilibili.com/291088" };
+        var names = new[] { "GithubButton", "MochizukiAuthorButton", "OpenRrAsiButton", "RtxRemixMcPatchButton", "BilibiliButton" };
+        var urls = new[] { "https://github.com/TheAutomatic/dlss-5-amd-project", "https://gitlab.com/mochizuki0323/DLSSNR-AMD", "https://github.com/TheAutomatic/OpenRR-ASI", "https://github.com/TheAutomatic/rtx-remix-minecraft-amd-patch", "https://space.bilibili.com/291088" };
         var panel = (WrapPanel)VisualTreeHelper.GetParent((Button)Find(names[0]));
         Check(panel.Children.Count == names.Length && _window.FindName("OpenRrAuthorButton") == null, "community links replace the old OpenRR button");
         for (int i = 0; i < names.Length; i++) {
@@ -573,7 +573,7 @@ static class LauncherSmoke
         var read = controllerType.GetMethod("ReadSettingsWithMigration", BindingFlags.Static | BindingFlags.NonPublic);
         var migrated = read.Invoke(null, new object[] { local, legacy });
         Check((string)Member(migrated, "Theme") == "classic" && (string)Member(migrated, "Language") == "en", "legacy UI preferences migrate to LocalAppData file");
-        Check((bool)Member(migrated, "OptiScalerConfigExpanded") && (bool)Member(migrated, "InstallLogExpanded"), "collapse states migrate");
+        Check((bool)Member(migrated, "InstallLogExpanded") && !File.ReadAllText(local).Contains("OptiScalerConfigExpanded"), "log collapse migrates without obsolete profiles key");
         Check(Member(migrated, "RecentGameId") == null && !File.ReadAllText(local).Contains("ShowAdvancedOptions"), "migration excludes game state and obsolete key");
         File.WriteAllText(local, "{\"Theme\":\"midnight\",\"Language\":\"zh\"}");
         File.Delete(legacy);
@@ -647,10 +647,10 @@ static class LauncherSmoke
         Check((string)Member(_controller, "_asiSelectedProfile") == "Shared look", "main dropdown selects dlssnr profile");
         var optiCombo = (ComboBox)Find("IniProfileCombo");
         optiCombo.SelectedIndex = 0;
-        Check(((TextBlock)Find("ProfilesSummary")).Text.Contains("OptiScaler.ini"), "OptiScaler collapsed header identifies current INI");
+        Check(((string)((ComboBoxItem)optiCombo.SelectedItem).Content).Contains("OptiScaler.ini"), "OptiScaler dropdown identifies current INI");
     }
 
-    static void CheckProfileRows(string language, bool expanded)
+    static void CheckProfileRows(string language)
     {
         var root = (UIElement)_window.Content;
         var label = (TextBlock)Find("AsiProfilesHeading");
@@ -665,14 +665,12 @@ static class LauncherSmoke
         Check(Math.Abs(a.Y + label.ActualHeight / 2 - b.Y - combo.ActualHeight / 2) < 1, "NR label shares dropdown row: " + language);
         Check(label.FontSize == optiLabel.FontSize && label.Foreground.ToString() == optiLabel.Foreground.ToString(), "profile label typography matches");
         Check(Math.Abs(a.X - optiLabel.TranslatePoint(new Point(), root).X) < 1, "profile labels align");
-        Check(((TextBlock)Find("ProfilesSummary")).Visibility == (expanded ? Visibility.Collapsed : Visibility.Visible), "collapsed summary does not overlap expanded dropdown");
-        if (expanded) {
-            foreach (var pair in new[] { new[] { "AsiProfileCombo", "IniProfileCombo" }, new[] { "AsiProfileApplyButton", "IniApplyButton" }, new[] { "AsiProfileSaveButton", "IniSaveButton" }, new[] { "AsiProfileMoreButton", "ProfileMoreButton" } }) {
-                var first = (FrameworkElement)Find(pair[0]); var second = (FrameworkElement)Find(pair[1]);
-                Check(Math.Abs(first.TranslatePoint(new Point(), root).X - second.TranslatePoint(new Point(), root).X) < 1, "paired profile columns align: " + language + pair[0]);
-            }
-            Check(Math.Abs(optiLabel.TranslatePoint(new Point(), root).Y + optiLabel.ActualHeight / 2 - ((ComboBox)Find("IniProfileCombo")).TranslatePoint(new Point(), root).Y - 16) < 1, "OptiScaler controls share label row");
+        Check(((StackPanel)Find("ProfilesCardBody")).IsVisible, "OptiScaler row stays expanded: " + language);
+        foreach (var pair in new[] { new[] { "AsiProfileCombo", "IniProfileCombo" }, new[] { "AsiProfileApplyButton", "IniApplyButton" }, new[] { "AsiProfileSaveButton", "IniSaveButton" }, new[] { "AsiProfileMoreButton", "ProfileMoreButton" } }) {
+            var first = (FrameworkElement)Find(pair[0]); var second = (FrameworkElement)Find(pair[1]);
+            Check(Math.Abs(first.TranslatePoint(new Point(), root).X - second.TranslatePoint(new Point(), root).X) < 1, "paired profile columns align: " + language + pair[0]);
         }
+        Check(Math.Abs(optiLabel.TranslatePoint(new Point(), root).Y + optiLabel.ActualHeight / 2 - ((ComboBox)Find("IniProfileCombo")).TranslatePoint(new Point(), root).Y - 16) < 1, "OptiScaler controls share label row");
         Call("SetIniStatus", "", ""); Pump(50);
         Check(((TextBlock)Find("IniProfileStatus")).Visibility == Visibility.Collapsed, "empty profile status uses no space");
         Check(optiLabel.TranslatePoint(new Point(), root).Y - combo.TranslatePoint(new Point(0, combo.ActualHeight), root).Y <= 28, "no empty band between profile rows");

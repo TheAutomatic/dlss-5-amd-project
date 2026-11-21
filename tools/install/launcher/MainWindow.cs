@@ -972,7 +972,6 @@ namespace OptScalerNR.Launcher
             _saveInitialLanguage = !hasSavedLanguage;
             _language = hasSavedLanguage ? rec.Language.ToLowerInvariant() : ResolveLanguage(null, CultureInfo.CurrentUICulture);
             _theme = LauncherTheme.Normalize(rec == null ? null : rec.Theme);
-            _profilesExpanded = rec != null && rec.OptiScalerConfigExpanded;
             _installLogExpanded = rec != null && rec.InstallLogExpanded;
             RefreshSectionCards();
             if (rec != null)
@@ -1030,7 +1029,6 @@ namespace OptScalerNR.Launcher
                 {
                     Language = _language,
                     Theme = _theme,
-                    OptiScalerConfigExpanded = _profilesExpanded,
                     InstallLogExpanded = _installLogExpanded,
                     ScanOnStartup = _isScanOnStartup,
                     PackageRoot = _diagnosticPackageRoot,
@@ -1057,7 +1055,7 @@ namespace OptScalerNR.Launcher
                     GuiSettings fallback = File.Exists(_legacySettingsPath) ? JsonUtil.Read<GuiSettings>(File.ReadAllText(_legacySettingsPath)) : null;
                     fallback = fallback ?? new GuiSettings();
                     fallback.Language = _language; fallback.Theme = _theme;
-                    fallback.OptiScalerConfigExpanded = _profilesExpanded; fallback.InstallLogExpanded = _installLogExpanded;
+                    fallback.InstallLogExpanded = _installLogExpanded;
                     fallback.ScanOnStartup = _isScanOnStartup;
                     Directory.CreateDirectory(Path.GetDirectoryName(_legacySettingsPath));
                     JsonUtil.WriteFile(_legacySettingsPath, fallback);
@@ -1074,7 +1072,7 @@ namespace OptScalerNR.Launcher
                 if (old == null) return null;
                 var preferences = new GuiSettings {
                     Language = old.Language, Theme = old.Theme, ScanOnStartup = old.ScanOnStartup,
-                    OptiScalerConfigExpanded = old.OptiScalerConfigExpanded, InstallLogExpanded = old.InstallLogExpanded
+                    InstallLogExpanded = old.InstallLogExpanded
                 };
                 try {
                     Directory.CreateDirectory(Path.GetDirectoryName(localPath));
@@ -1144,7 +1142,6 @@ namespace OptScalerNR.Launcher
             [System.Runtime.Serialization.DataMember] public Dictionary<string, string> HiddenGames;
             [System.Runtime.Serialization.DataMember] public string Language;
             [System.Runtime.Serialization.DataMember] public string Theme;
-            [System.Runtime.Serialization.DataMember] public bool OptiScalerConfigExpanded;
             [System.Runtime.Serialization.DataMember] public bool InstallLogExpanded;
             [System.Runtime.Serialization.DataMember] public bool ScanOnStartup = true;
             [System.Runtime.Serialization.DataMember] public string PackageRoot;

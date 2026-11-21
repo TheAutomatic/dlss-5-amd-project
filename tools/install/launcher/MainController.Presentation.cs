@@ -71,7 +71,7 @@ namespace OptScalerNR.Launcher
             label.TextTrimming = TextTrimming.CharacterEllipsis;
             ((FrameworkElement)label.Parent).ToolTip = L(detailsZh, detailsEn);
         }
-        bool _profilesExpanded, _installLogExpanded;
+        bool _installLogExpanded;
         bool _closed, _presentationBusy, _hardwareStarted, _hardwareComplete;
         string _presentationAction = "", _hardwareDetails, _hardwareWindowsDriver;
         int _packageComparisonGeneration;
@@ -100,11 +100,6 @@ namespace OptScalerNR.Launcher
         void InitPresentation()
         {
             _logView.TextChanged += delegate { RefreshSectionCards(); };
-            ((Button)_window.FindName("ProfilesExpandButton")).Click += delegate {
-                _profilesExpanded = !_profilesExpanded;
-                RefreshSectionCards();
-                SaveSettings();
-            };
             ((Button)_window.FindName("InstallLogExpandButton")).Click += delegate {
                 _installLogExpanded = !_installLogExpanded;
                 RefreshSectionCards();
@@ -246,17 +241,9 @@ namespace OptScalerNR.Launcher
         }
         void RefreshSectionCards()
         {
-            ((StackPanel)_window.FindName("ProfilesCardBody")).Visibility = _profilesExpanded ? Visibility.Visible : Visibility.Collapsed;
-            ((TextBlock)_window.FindName("ProfilesSummary")).Visibility = _profilesExpanded ? Visibility.Collapsed : Visibility.Visible;
             ((StackPanel)_window.FindName("InstallLogCardBody")).Visibility = _installLogExpanded ? Visibility.Visible : Visibility.Collapsed;
-            ((System.Windows.Shapes.Path)_window.FindName("ProfilesChevron")).RenderTransform = new RotateTransform(_profilesExpanded ? 90 : 0);
             ((System.Windows.Shapes.Path)_window.FindName("InstallLogChevron")).RenderTransform = new RotateTransform(_installLogExpanded ? 90 : 0);
-            ((Button)_window.FindName("ProfilesExpandButton")).ToolTip = _profilesExpanded ? L("收起 OptiScaler 配置", "Collapse OptiScaler config") : L("展开 OptiScaler 配置", "Expand OptiScaler config");
             ((Button)_window.FindName("InstallLogExpandButton")).ToolTip = _installLogExpanded ? L("收起安装日志", "Collapse install log") : L("展开安装日志", "Expand install log");
-            if (!_profilesExpanded) ((Popup)_window.FindName("ProfileMorePopup")).IsOpen = false;
-            SetLabel("ProfilesSummary", string.IsNullOrEmpty(_iniSelectedProfile) ? "当前游戏 OptiScaler.ini" : _iniSelectedProfile,
-                string.IsNullOrEmpty(_iniSelectedProfile) ? "Current game OptiScaler.ini" : _iniSelectedProfile);
-            ((TextBlock)_window.FindName("ProfilesSummary")).ToolTip = ((TextBlock)_window.FindName("ProfilesSummary")).Text;
             var text = _logView == null ? "" : _logView.Text;
             var lines = text.Length == 0 ? 0 : text.TrimEnd('\r', '\n').Split('\n').Length;
             SetLabel("LogPreviewHeading", lines == 0 ? "暂无日志" : lines + " 行", lines == 0 ? "No log entries" : lines + " lines");

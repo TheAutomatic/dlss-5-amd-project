@@ -39,6 +39,9 @@ cur_tpl = template_names(xaml.read_text(encoding='utf-8-sig'))
 base_tpl = template_names(base_text.lstrip('\ufeff'))
 
 errors = []
+for n in ('ProfilesExpandButton', 'ProfilesSummary', 'ProfilesChevron'):
+    if n in cur:
+        errors.append('OBSOLETE OptiScaler collapse control: %s' % n)
 baseline_renames = {'OpenRrAuthorButton': 'OpenRrAsiButton'}
 for n, tags in base.items():
     if n in base_tpl:
