@@ -276,6 +276,33 @@ function Remove-OwnedTreeSafe([string]$dir) {
     [IO.Directory]::Delete($longPath, $true)
 }
 
+function Reset-ModelResourceTree([string]$dir, [string[]]$keep) {
+    # Same-volume renames preserve the only copy, including on a partial restore.
+    $stage = Join-Path (Split-Path -Parent $dir) ('.dlssnr-models-stage-' + [guid]::NewGuid().ToString('N'))
+    $stagingStarted = $false
+    try {
+        if ($keep.Count) {
+            [void][IO.Directory]::CreateDirectory($stage)
+            $stagingStarted = $true
+            foreach ($name in $keep) {
+                [IO.File]::Move((Join-Path $dir $name), (Join-Path $stage $name))
+            }
+        }
+        Remove-OwnedTreeSafe $dir
+        [void][IO.Directory]::CreateDirectory($dir)
+        foreach ($name in $keep) {
+            [IO.File]::Move((Join-Path $stage $name), (Join-Path $dir $name))
+            Write-Host "Preserved model: dlssnr-amd/$name" -ForegroundColor Cyan
+        }
+        if ($keep.Count) { [IO.Directory]::Delete($stage) } # Empty only.
+    } catch {
+        if ($stagingStarted) {
+            throw "Model refresh failed: $($_.Exception.Message) Check $dir and recover staged models from $stage."
+        }
+        throw
+    }
+}
+
 # PE-image SHA256 (headers + section raw bytes). 0.5.0+ may append a default ini
 # after the PE; game-folder copies drop it, so whole-file hash forks. Pre-0.5.0
 # has no overlay and the PE hash equals the whole-file hash.
@@ -2434,11 +2461,11 @@ if ($installMochizuki) {
         if ($tok -match '^[0-9A-F]{64}$') { return $tok }
         return $null
     }
-    function Test-MatchesSha256File([string]$BinPath, [string]$ShaFile) {
+    function Test-MatchesSha256File([string]$BinPath, [string]$ShaFile, [switch]$ThrowOnError) {
         $expected = Get-ExpectedSha256FromFile $ShaFile
         if (-not $expected) { return $true }
         if (-not (Test-Path -LiteralPath $BinPath -PathType Leaf)) { return $false }
-        try { return ((Get-Sha256 $BinPath).ToUpperInvariant() -eq $expected) } catch { return $false }
+        try { return ((Get-Sha256 $BinPath).ToUpperInvariant() -eq $expected) } catch { if ($ThrowOnError) { throw }; return $false }
     }
     $expShaFile = Find-FirstFile @(
         (Join-Path $Root 'experimental/CC_SMALL_FP8_EXPERIMENTAL.bin.sha256'),
@@ -2473,77 +2500,38 @@ if ($installMochizuki) {
         }
     }
 
-    # Pre-clean dlssnr-amd\: validate and stage current-layout model weights (size first, then SHA-256),
-    # wipe dlssnr-amd\ cleanly so no stale shaders/caches survive, then recreate and restore weights.
+    # Refresh shaders and caches without losing base weights or verified derived weights.
     $dlssnrDir = Join-Path $game 'dlssnr-amd'
-    $dlssnrFullPrefix = [IO.Path]::GetFullPath($dlssnrDir).TrimEnd('\', '/') + '\'
-    $stagedValidModels = New-Object System.Collections.Generic.HashSet[string] ([StringComparer]::OrdinalIgnoreCase)
-    $dlssnrModelStage = Join-Path $game ('.dlssnr-models-stage-' + [guid]::NewGuid().ToString('N'))
-    try {
-        if (Test-Path -LiteralPath $dlssnrDir -PathType Container) {
-            $null = Assert-LmxxfUnlinkedPath $dlssnrDir
-            $toStage = New-Object System.Collections.Generic.List[string]
-            foreach ($modelFile in @('CC_SILVER_AARDWOLD.bin', 'CC_SMALL_FP8.bin', 'CC_SMALL_FP8_EXPERIMENTAL.bin', 'CC_SILVER_AARDWOLD_OPTIMIZED.bin', 'CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin')) {
-                $cand = Join-Path $dlssnrDir $modelFile
-                if (-not (Test-Path -LiteralPath $cand -PathType Leaf)) { continue }
-                $valid = $false
-                try {
-                    $fi = Get-Item -LiteralPath $cand -ErrorAction Stop
-                    if ($fi.Length -le 0) { continue }
-                    if ($modelFile -eq 'CC_SILVER_AARDWOLD.bin') {
-                        $valid = (Test-MochizukiModelFile $cand 599) -and (
-                            (-not $mochizukiModel) -or
-                            ([IO.Path]::GetFullPath($cand) -ieq [IO.Path]::GetFullPath($mochizukiModel)) -or
-                            (Test-FilesEqualFast $cand $mochizukiModel)
-                        )
-                    } elseif ($modelFile -eq 'CC_SMALL_FP8.bin') {
-                        $valid = (Test-MochizukiModelFile $cand 255) -and (
-                            (-not $mochizukiSmallModel) -or
-                            ([IO.Path]::GetFullPath($cand) -ieq [IO.Path]::GetFullPath($mochizukiSmallModel)) -or
-                            (Test-FilesEqualFast $cand $mochizukiSmallModel)
-                        )
-                    } elseif ($modelFile -eq 'CC_SMALL_FP8_EXPERIMENTAL.bin') {
+    $preservedModelNames = New-Object System.Collections.Generic.List[string]
+    if (Test-Path -LiteralPath $dlssnrDir -PathType Container) {
+        $null = Assert-LmxxfUnlinkedPath $dlssnrDir
+        foreach ($modelFile in $modelNames) {
+            $cand = Join-Path $dlssnrDir $modelFile
+            if (-not (Test-Path -LiteralPath $cand -PathType Leaf)) { continue }
+            $null = Assert-LmxxfUnlinkedPath $cand
+            if ((Get-Item -LiteralPath $cand -ErrorAction Stop).Length -eq 0) { continue }
+            # Base weights are presence-driven. Keep both the existing destination
+            # and any legacy-named source until the normal copy/backup step.
+            $preserveModel = $modelFile -in @('CC_SILVER_AARDWOLD.bin', 'CC_SMALL_FP8.bin') -or
+                ($mochizukiModel -and $cand -ieq [IO.Path]::GetFullPath($mochizukiModel)) -or
+                ($mochizukiSmallModel -and $cand -ieq [IO.Path]::GetFullPath($mochizukiSmallModel))
+            if (-not $preserveModel) {
+                switch ($modelFile) {
+                    'CC_SMALL_FP8_EXPERIMENTAL.bin' {
                         $magic = New-Object byte[] 8
                         $stream = [IO.File]::OpenRead($cand)
                         try { $read = $stream.Read($magic, 0, 8) } finally { $stream.Dispose() }
-                        $valid = ($read -eq 8) -and ([Text.Encoding]::ASCII.GetString($magic) -eq 'NRMODEL1') -and (Test-MatchesSha256File $cand $expShaFile)
-                    } elseif ($modelFile -eq 'CC_SILVER_AARDWOLD_OPTIMIZED.bin') {
-                        $valid = Test-MatchesSha256File $cand $optShaFile
-                    } elseif ($modelFile -eq 'CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin') {
-                        $valid = Test-MatchesSha256File $cand $int4ShaFile
+                        $preserveModel = ($read -eq 8) -and ([Text.Encoding]::ASCII.GetString($magic) -eq 'NRMODEL1') -and
+                            (Test-MatchesSha256File $cand $expShaFile -ThrowOnError)
                     }
-                } catch { $valid = $false }
-                if ($valid) { $toStage.Add($cand) }
-            }
-            if ($toStage.Count -gt 0) {
-                [void][IO.Directory]::CreateDirectory($dlssnrModelStage)
-                foreach ($srcModel in $toStage) {
-                    $leaf = Split-Path -Leaf $srcModel
-                    Move-Item -LiteralPath $srcModel -Destination (Join-Path $dlssnrModelStage $leaf) -Force -ErrorAction Stop
-                    [void]$stagedValidModels.Add($leaf)
+                    'CC_SILVER_AARDWOLD_OPTIMIZED.bin' { $preserveModel = Test-MatchesSha256File $cand $optShaFile -ThrowOnError }
+                    'CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin' { $preserveModel = Test-MatchesSha256File $cand $int4ShaFile -ThrowOnError }
                 }
             }
-            if ($mochizukiModel -and [IO.Path]::GetFullPath($mochizukiModel).StartsWith($dlssnrFullPrefix, [StringComparison]::OrdinalIgnoreCase) -and -not $stagedValidModels.Contains('CC_SILVER_AARDWOLD.bin')) {
-                $mochizukiModel = $null
-            }
-            if ($mochizukiSmallModel -and [IO.Path]::GetFullPath($mochizukiSmallModel).StartsWith($dlssnrFullPrefix, [StringComparison]::OrdinalIgnoreCase) -and -not $stagedValidModels.Contains('CC_SMALL_FP8.bin')) {
-                $mochizukiSmallModel = $null
-            }
-            Remove-OwnedTreeSafe $dlssnrDir
-        }
-        [void][IO.Directory]::CreateDirectory($dlssnrDir)
-        foreach ($leaf in $stagedValidModels) {
-            $stagedFile = Join-Path $dlssnrModelStage $leaf
-            if (Test-Path -LiteralPath $stagedFile -PathType Leaf) {
-                Move-Item -LiteralPath $stagedFile -Destination (Join-Path $dlssnrDir $leaf) -Force -ErrorAction Stop
-                Write-Host ("Preserved verified model: dlssnr-amd/{0}" -f $leaf) -ForegroundColor Cyan
-            }
-        }
-    } finally {
-        if (Test-Path -LiteralPath $dlssnrModelStage) {
-            Remove-Item -LiteralPath $dlssnrModelStage -Recurse -Force -ErrorAction SilentlyContinue
+            if ($preserveModel) { [void]$preservedModelNames.Add($modelFile) }
         }
     }
+    Reset-ModelResourceTree $dlssnrDir @($preservedModelNames)
 
     # Deploy route payload and shared dlssnr-amd resource folder.
     if ($isOptiMode) {
@@ -2660,12 +2648,8 @@ if ($installMochizuki) {
         $mochizukiModelsToInstall += @{ Src = $mochizukiSmallModel; Rel = 'dlssnr-amd/CC_SMALL_FP8.bin' }
     }
     foreach ($m in $mochizukiModelsToInstall) {
-        $leafName = Split-Path -Leaf $m.Rel
-        if ($stagedValidModels.Contains($leafName)) {
-            Write-Host ("Skip (verified model already in place): {0}" -f $m.Rel)
-            continue
-        }
         $destPath = Join-Path $game $m.Rel
+        if ([IO.Path]::GetFullPath($m.Src) -ieq [IO.Path]::GetFullPath($destPath)) { continue }
         $destExisted = Test-Path -LiteralPath $destPath -PathType Leaf
         if ($destExisted) {
             if (Test-FilesEqualFast $destPath $m.Src) {

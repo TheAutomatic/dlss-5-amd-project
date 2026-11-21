@@ -42,6 +42,7 @@ function Get-OptScalerPrimaryExes([string]$dir, [int]$depth = 4) {
     $found = New-Object System.Collections.Generic.List[object]
     if (-not $dir -or -not (Test-Path -LiteralPath $dir -PathType Container)) { return @() }
     $rootFull = try { [IO.Path]::GetFullPath($dir).TrimEnd('\','/') } catch { $dir }
+    if ($rootFull -match '\\WindowsApps(?:\\|$)') { return @() }
     $queue = New-Object System.Collections.Generic.Queue[object]
     $queue.Enqueue(@{ Path = $dir; Depth = 0 })
     $seen = 0
@@ -68,7 +69,7 @@ function Get-OptScalerPrimaryExes([string]$dir, [int]$depth = 4) {
             } catch { continue }
             if ($reparse) { continue }
             if ($isDir) {
-                if ($leaf -notmatch '(?i)^(OptiScaler|person-model|dlssnr-amd|_CommonRedist|__Installer|redist|DirectX|Launcher|REDprelauncher|CrashReporter|Bonus|Extras|Soundtrack|OST|Artbook|Wallpapers?|Manual|Docs|Support|ModTools|SDK|Paks|ShaderCache)$') {
+                if ($leaf -notmatch '(?i)^(WindowsApps|OptiScaler|person-model|dlssnr-amd|_CommonRedist|__Installer|redist|DirectX|Launcher|REDprelauncher|CrashReporter|Bonus|Extras|Soundtrack|OST|Artbook|Wallpapers?|Manual|Docs|Support|ModTools|SDK|Paks|ShaderCache)$') {
                     [void]$subDirs.Add($entry)
                 }
                 continue
@@ -334,6 +335,7 @@ function Test-OptScalerIsOptiDll([string]$path) {
 function Add-OptScalerGame($list, $seen, [string]$name, [string]$exe, [string]$source, [string]$id, [string]$cover = '', [string]$hero = '', [string]$TargetKind = '', [string]$Root = '') {
     if (-not $exe) { return }
     try { $exe = [IO.Path]::GetFullPath($exe) } catch { return }
+    if ($exe -match '\\WindowsApps(?:\\|$)') { return }
     $key = $exe.ToLowerInvariant()
     if ($seen.ContainsKey($key)) { return }
     $seen[$key] = $true
@@ -544,7 +546,7 @@ function Get-OptScalerGameLibrary {
                 $art = Get-OptScalerLocalArtwork -Source Xbox -Roots $artRoots -Budget $artworkBudget
                 $cover = $art.cover
                 $hero = $art.hero
-                Add-OptScalerGame $games $seen $_.Name $cands[0].path 'XBOX' ("xbox:" + $_.Name.ToLowerInvariant()) $cover $hero
+                Add-OptScalerGame $games $seen $_.Name $cands[0].path 'XBOX' ("xbox:" + $_.FullName.ToLowerInvariant()) $cover $hero
             }
         }
     }

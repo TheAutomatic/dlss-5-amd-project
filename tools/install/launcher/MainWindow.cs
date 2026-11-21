@@ -1064,7 +1064,12 @@ namespace OptScalerNR.Launcher
                     bool migrated = false;
                     foreach (var g in rec.Games)
                     {
-                        if (g != null && (!string.IsNullOrEmpty(g.Exe) || !string.IsNullOrEmpty(g.Root)) && !IsHiddenGame(g) &&
+                        if (g != null && (GamePaths.IsWindowsAppsPath(g.Exe) || GamePaths.IsWindowsAppsPath(g.Root)))
+                        {
+                            migrated = true;
+                            continue;
+                        }
+                        if (g != null && (!string.IsNullOrEmpty(g.Exe) || !string.IsNullOrEmpty(g.Root)) &&
                             (g.ExeOverride == true || g.Source == "Manual" || g.HasExecutable))
                         {
                             if (string.IsNullOrEmpty(g.Id)) { g.Id = "manual:" + Guid.NewGuid().ToString("N"); migrated = true; }
@@ -1232,6 +1237,7 @@ namespace OptScalerNR.Launcher
 
         void AddGameFromPath(string exePath)
         {
+            if (RejectWindowsApps(exePath)) return;
             var norm = GamePaths.Normalize(exePath);
             if (string.IsNullOrEmpty(norm) || !GamePaths.CanUse(norm)) return;
             var restored = new List<string>();
@@ -1293,18 +1299,7 @@ namespace OptScalerNR.Launcher
             if (_selectedGame == null) return;
             var picked = GamePaths.PickExe(_language == "zh", _selectedGame.HasExecutable ? Path.GetDirectoryName(_selectedGame.Exe) : _selectedGame.RootDirectory);
             if (string.IsNullOrEmpty(picked)) return;
-            var norm = GamePaths.Normalize(picked);
-            if (string.IsNullOrEmpty(norm) || !GamePaths.CanUse(norm)) return;
-
-            BindExecutable(_selectedGame, norm);
-        }
-
-        bool IsHiddenGame(GameInfo game)
-        {
-            if (!string.IsNullOrEmpty(game.Id) && _hiddenGames.ContainsKey(game.Id)) return true;
-            foreach (var path in _hiddenGames.Values)
-                if (SamePath(path, EntryLocation(game))) return true;
-            return false;
+            BindExecutable(_selectedGame, picked);
         }
 
         void InitGameContextMenu()
@@ -1731,7 +1726,7 @@ namespace OptScalerNR.Launcher
         static bool SameLibraryGame(GameInfo a, GameInfo b)
         {
             return (!string.IsNullOrEmpty(a.Id) && !string.IsNullOrEmpty(b.Id) &&
-                    string.Equals(a.Id, b.Id, StringComparison.OrdinalIgnoreCase)) ||
+                    string.Equals(LibraryId(a.Id, a.RootDirectory), LibraryId(b.Id, b.RootDirectory), StringComparison.OrdinalIgnoreCase)) ||
                    SamePath(a.Exe, b.Exe) ||
                    ((string.IsNullOrEmpty(a.Exe) || string.IsNullOrEmpty(b.Exe)) && SamePath(a.RootDirectory, b.RootDirectory));
         }
@@ -1760,11 +1755,26 @@ namespace OptScalerNR.Launcher
             var previousExe = previousSelection != null ? previousSelection.Exe : null;
             var previousName = previousSelection != null ? previousSelection.Name : null;
             var merged = new List<GameInfo>();
+            var slots = new LibraryIndex();
+            var hidden = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var hiddenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pair in _hiddenGames)
+            {
+                hiddenIds.Add(LibraryId(pair.Key, pair.Value));
+                var key = PathKey(pair.Value);
+                if (key != null) hidden.Add(key);
+            }
+            Predicate<GameInfo> skip = g => g == null || (string.IsNullOrEmpty(g.Exe) && string.IsNullOrEmpty(g.Root)) ||
+                hiddenIds.Contains(LibraryId(g.Id, g.RootDirectory)) || hidden.Contains(PathKey(EntryLocation(g)));
             foreach (var cached in _allGames)
             {
-                if (cached == null || (string.IsNullOrEmpty(cached.Exe) && string.IsNullOrEmpty(cached.Root)) || IsHiddenGame(cached)) continue;
-                var index = merged.FindIndex(g => SameLibraryGame(g, cached));
-                if (index < 0) merged.Add(cached);
+                if (skip(cached)) continue;
+                var index = slots.Find(cached);
+                if (index < 0)
+                {
+                    slots.Set(cached, merged.Count, true);
+                    merged.Add(cached);
+                }
                 else
                 {
                     var existing = merged[index];
@@ -1777,26 +1787,31 @@ namespace OptScalerNR.Launcher
                     {
                         if (string.IsNullOrEmpty(cached.CustomName)) cached.CustomName = existing.CustomName;
                         if (string.IsNullOrEmpty(cached.CustomCover)) cached.CustomCover = existing.CustomCover;
+                        slots.Set(existing, index, false);
                         merged[index] = cached;
+                        slots.Set(cached, index, true);
                     }
                 }
             }
             foreach (var incoming in scanned)
             {
-                if (incoming == null || (string.IsNullOrEmpty(incoming.Exe) && string.IsNullOrEmpty(incoming.Root)) || IsHiddenGame(incoming)) continue;
-                var existing = merged.Find(g => SameLibraryGame(g, incoming));
-                if (existing == null)
+                if (skip(incoming) || GamePaths.IsWindowsAppsPath(incoming.Exe) || GamePaths.IsWindowsAppsPath(incoming.Root)) continue;
+                var index = slots.Find(incoming);
+                if (index < 0)
                 {
+                    slots.Set(incoming, merged.Count, true);
                     incoming.ExeOverride = false;
                     merged.Add(incoming);
                     continue;
                 }
+                var existing = merged[index];
+                slots.Set(existing, index, false);
                 if (!KeepCachedExe(existing) || (!existing.HasExecutable && incoming.HasExecutable))
                 {
                     existing.Exe = incoming.Exe;
                     existing.ExeOverride = false;
                 }
-                if (existing.Source != "Manual" && string.Equals(existing.Id, incoming.Id, StringComparison.OrdinalIgnoreCase))
+                if (existing.Source != "Manual" && string.Equals(LibraryId(existing.Id, existing.RootDirectory), LibraryId(incoming.Id, incoming.RootDirectory), StringComparison.OrdinalIgnoreCase))
                 {
                     existing.Name = incoming.Name;
                     existing.Source = incoming.Source;
@@ -1805,13 +1820,17 @@ namespace OptScalerNR.Launcher
                 if (!string.IsNullOrEmpty(incoming.Root)) existing.Root = incoming.Root;
                 if (!string.IsNullOrEmpty(incoming.Cover)) existing.Cover = incoming.Cover;
                 if (!string.IsNullOrEmpty(incoming.Hero)) existing.Hero = incoming.Hero;
+                slots.Set(existing, index, true);
             }
             foreach (var game in merged)
                 game.Installed = game.HasExecutable && IsDirectoryInstalled(Path.GetDirectoryName(game.Exe));
             _allGames.Clear();
             _allGames.AddRange(merged);
             if (previousSelection != null)
-                _selectedGame = merged.Find(g => SameLibraryGame(g, previousSelection)) ?? previousSelection;
+            {
+                var index = slots.Find(previousSelection);
+                _selectedGame = index < 0 ? previousSelection : merged[index];
+            }
             return previousSelection != null &&
                 (!ReferenceEquals(previousSelection, _selectedGame) ||
                  !string.Equals(previousExe, _selectedGame.Exe, StringComparison.OrdinalIgnoreCase) ||

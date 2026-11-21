@@ -695,6 +695,7 @@ foreach ($root in $roots) {
                 }
             }
             foreach ($file in $readOnlyFiles) { $file.IsReadOnly = $false }
+            # Full uninstall intentionally clears all of OptiScaler, including user-added plugins.
             [IO.Directory]::Delete($longPath, $true)
             $deleted.Add("$path  (plugin resources)")
         } catch {

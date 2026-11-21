@@ -14,7 +14,6 @@ namespace OptScalerNR.Launcher
     {
         const uint InvalidAttributes = 0xFFFFFFFF;
         const uint DirectoryFlag = 0x10;
-        const uint ReparseFlag = 0x400;
         const int ErrorAccessDenied = 5;
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
@@ -28,17 +27,19 @@ namespace OptScalerNR.Launcher
             return Marshal.GetLastWin32Error() == ErrorAccessDenied;
         }
 
+        public static bool IsWindowsAppsPath(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return false;
+            try { path = Path.GetFullPath(path); }
+            catch { return false; }
+            return (path + @"\").IndexOf(@"\WindowsApps\", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
         public static string Normalize(string path)
         {
-            if (string.IsNullOrEmpty(path)) return path;
-            try { path = Path.GetFullPath(path); }
-            catch { return path; }
-            if (path.IndexOf("\\WindowsApps\\", StringComparison.OrdinalIgnoreCase) < 0)
-                return path;
-            var name = Path.GetFileName(path);
-            if (string.IsNullOrEmpty(name)) return path;
-            var mapped = FindUnderXboxGames(name);
-            return mapped ?? path;
+            if (string.IsNullOrEmpty(path) || IsWindowsAppsPath(path)) return null;
+            try { return Path.GetFullPath(path); }
+            catch { return null; }
         }
 
         public static string PickExe(bool isZh = false, string initialDirectory = null)
@@ -63,65 +64,9 @@ namespace OptScalerNR.Launcher
                 else if (Directory.Exists(@"C:\XboxGames"))
                     dlg.InitialDirectory = @"C:\XboxGames";
                 if (dlg.ShowDialog() != true) return null;
-                var fn = dlg.FileName;
-                if (string.IsNullOrEmpty(fn)) return null;
-                return Normalize(fn);
+                return dlg.FileName;
             }
             catch { return null; }
-        }
-
-        static string FindUnderXboxGames(string fileName)
-        {
-            var hits = new List<string>();
-            foreach (var drive in Directory.GetLogicalDrives())
-            {
-                var root = Path.Combine(drive, "XboxGames");
-                uint attr = GetFileAttributesW(root);
-                if (attr == InvalidAttributes || (attr & DirectoryFlag) == 0) continue;
-                Walk(root, fileName, 0, hits);
-                if (hits.Count >= 32) break;
-            }
-            if (hits.Count == 0) return null;
-            hits.Sort(CompareXboxHits);
-            return hits[0];
-        }
-
-        static int CompareXboxHits(string a, string b)
-        {
-            int ra = XboxRank(a).CompareTo(XboxRank(b));
-            if (ra != 0) return ra;
-            return a.Length.CompareTo(b.Length);
-        }
-
-        static int XboxRank(string path)
-        {
-            if (path.IndexOf("\\WinGDK\\", StringComparison.OrdinalIgnoreCase) >= 0) return 0;
-            if (path.IndexOf("\\Win64\\", StringComparison.OrdinalIgnoreCase) >= 0) return 1;
-            if (path.IndexOf("\\Binaries\\", StringComparison.OrdinalIgnoreCase) >= 0) return 2;
-            return 3;
-        }
-
-        static void Walk(string dir, string fileName, int depth, List<string> hits)
-        {
-            if (depth > 8 || hits.Count >= 32) return;
-            string[] entries;
-            try { entries = Directory.GetFileSystemEntries(dir); }
-            catch { return; }
-            foreach (var entry in entries)
-            {
-                uint attr = GetFileAttributesW(entry);
-                if (attr == InvalidAttributes) continue;
-                bool isDir = (attr & DirectoryFlag) != 0;
-                bool reparse = (attr & ReparseFlag) != 0;
-                if (isDir)
-                {
-                    if (reparse) continue;
-                    Walk(entry, fileName, depth + 1, hits);
-                    continue;
-                }
-                if (string.Equals(Path.GetFileName(entry), fileName, StringComparison.OrdinalIgnoreCase))
-                    hits.Add(entry);
-            }
         }
     }
 
@@ -704,25 +649,14 @@ namespace OptScalerNR.Launcher
             }
         }
 
-        public static string ComputeAppStorageTag(string exePath)
+        // Mirrors nr_path_win.hpp: the process names the tag, the preferred
+        // write directory supplies its hash. Both operate on UTF-8 bytes.
+        public static string ComputeAppStorageTag(string exePath, string preferredDir)
         {
-            if (string.IsNullOrEmpty(exePath)) return "app_00000000";
-            string dir = "";
-            string stemRaw = "app";
-            try
-            {
-                dir = Directory.Exists(exePath) ? Path.GetFullPath(exePath) : (Path.GetDirectoryName(Path.GetFullPath(exePath)) ?? "");
-                if (!Directory.Exists(exePath))
-                    stemRaw = Path.GetFileNameWithoutExtension(exePath) ?? "app";
-                else
-                    stemRaw = Path.GetFileName(dir.TrimEnd('\\', '/')) ?? "app";
-            }
-            catch { }
-            var norm = (dir ?? "").Replace('/', '\\');
-            while (norm.Length > 3 && norm.EndsWith("\\", StringComparison.Ordinal))
+            var stemRaw = Path.GetFileNameWithoutExtension(exePath) ?? "";
+            var norm = preferredDir.Replace('/', '\\');
+            while (norm.Length > 1 && norm[norm.Length - 1] == '\\' && !(norm.Length == 3 && norm[1] == ':'))
                 norm = norm.Substring(0, norm.Length - 1);
-            if (norm.Length > 1 && norm.EndsWith("\\", StringComparison.Ordinal) && !(norm.Length == 3 && norm[1] == ':'))
-                norm = norm.TrimEnd('\\');
 
             uint h = 2166136261u;
             var bytes = Encoding.UTF8.GetBytes(norm);
@@ -734,9 +668,10 @@ namespace OptScalerNR.Launcher
                 h *= 16777619u;
             }
             var sb = new StringBuilder();
-            for (int i = 0; i < stemRaw.Length && sb.Length < 32; i++)
+            foreach (byte value in Encoding.UTF8.GetBytes(stemRaw))
             {
-                char c = stemRaw[i];
+                if (sb.Length == 32) break;
+                char c = (char)value;
                 bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_';
                 sb.Append(ok ? c : '_');
             }
@@ -748,11 +683,11 @@ namespace OptScalerNR.Launcher
         {
             try
             {
-                var localApp = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                if (string.IsNullOrEmpty(gameDir) || string.IsNullOrEmpty(exePath)) return null;
+                var localApp = Environment.GetEnvironmentVariable("LOCALAPPDATA");
+                if (string.IsNullOrEmpty(localApp)) localApp = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
                 if (string.IsNullOrEmpty(localApp)) return null;
-                var target = !string.IsNullOrEmpty(exePath) ? exePath : gameDir;
-                if (string.IsNullOrEmpty(target)) return null;
-                return Path.Combine(Path.Combine(localApp, @"DLSSNR-AMD\apps"), ComputeAppStorageTag(target));
+                return Path.Combine(localApp, @"DLSSNR-AMD\apps", ComputeAppStorageTag(exePath, Path.GetFullPath(gameDir)));
             }
             catch { return null; }
         }

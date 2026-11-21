@@ -7,6 +7,10 @@ on:
   pull_request:
     paths:
       - 'tools/install/launcher/**'
+      - 'tools/install/launcher-worker.ps1'
+      - 'tools/install/library-scan.ps1'
+      - 'tools/install/install.ps1'
+      - 'tools/build/launcher-regression.ps1'
       - 'tools/build/build-launcher.ps1'
       - 'tools/build/launcher-smoke.*'
       - 'tools/build/check-launcher-xaml.py'
@@ -47,6 +51,10 @@ jobs:
       - name: XAML / FindName contract
         shell: pwsh
         run: python tools/build/check-launcher-xaml.py origin/v2.0
+
+      - name: Launcher and installer regressions
+        shell: pwsh
+        run: powershell -NoProfile -STA -ExecutionPolicy Bypass -File tools/build/launcher-regression.ps1
 
       - name: STA smoke test + previews
         shell: pwsh

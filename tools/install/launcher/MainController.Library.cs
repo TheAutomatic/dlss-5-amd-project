@@ -21,10 +21,79 @@ namespace OptScalerNR.Launcher
         MenuItem _changeExeMenuItem, _scanExeMenuItem, _editGameMenuItem, _removeSelectedGameMenuItem, _launchSteamMenuItem;
         CancellationTokenSource _folderScan;
         static string EntryLocation(GameInfo game) { return game == null ? null : !string.IsNullOrEmpty(game.Exe) ? game.Exe : game.RootDirectory; }
-        static bool SamePath(string a,string b)
+        static string PathKey(string path)
         {
-            if(string.IsNullOrWhiteSpace(a)||string.IsNullOrWhiteSpace(b))return false;
-            try {return string.Equals(Path.GetFullPath(a).TrimEnd('\\','/'),Path.GetFullPath(b).TrimEnd('\\','/'),StringComparison.OrdinalIgnoreCase);}catch{return false;}
+            if (string.IsNullOrWhiteSpace(path)) return null;
+            try { return Path.GetFullPath(path).TrimEnd('\\', '/'); }
+            catch { return null; }
+        }
+        static bool SamePath(string a, string b)
+        {
+            var key = PathKey(a);
+            return key != null && string.Equals(key, PathKey(b), StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Older Xbox rows and hidden entries used only the package folder name.
+        // Compare them by their own XboxGames path, without changing saved IDs.
+        static string LibraryId(string id, string location)
+        {
+            if (string.IsNullOrEmpty(id) || !id.StartsWith("xbox:", StringComparison.OrdinalIgnoreCase) ||
+                id.IndexOf('\\') >= 0 || id.IndexOf('/') >= 0) return id;
+            var path = PathKey(location);
+            if (path == null) return id;
+            var folder = Path.GetPathRoot(path) + @"XboxGames\" + id.Substring(5);
+            return string.Equals(path, folder, StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith(folder + @"\", StringComparison.OrdinalIgnoreCase) ? "xbox:" + folder : id;
+        }
+
+        // Several keys can match different rows. List.Find used the earliest matching
+        // row, including a root-only entry matched against a later executable.
+        sealed class LibraryIndex
+        {
+            sealed class Slots : Dictionary<string, SortedSet<int>>
+            {
+                public Slots() : base(StringComparer.OrdinalIgnoreCase) { }
+
+                public int First(string key)
+                {
+                    SortedSet<int> slots;
+                    return key != null && TryGetValue(key, out slots) ? slots.Min : int.MaxValue;
+                }
+
+                public void Set(string key, int slot, bool add)
+                {
+                    if (key == null) return;
+                    SortedSet<int> slots;
+                    if (add)
+                    {
+                        if (!TryGetValue(key, out slots)) this[key] = slots = new SortedSet<int>();
+                        slots.Add(slot);
+                    }
+                    else if (TryGetValue(key, out slots))
+                    {
+                        slots.Remove(slot);
+                        if (slots.Count == 0) Remove(key);
+                    }
+                }
+            }
+
+            readonly Slots ids = new Slots(), exes = new Slots(), roots = new Slots(), rootsWithoutExe = new Slots();
+
+            public int Find(GameInfo game)
+            {
+                var rootIndex = string.IsNullOrEmpty(game.Exe) ? roots : rootsWithoutExe;
+                int first = Math.Min(ids.First(LibraryId(game.Id, game.RootDirectory)), Math.Min(exes.First(PathKey(game.Exe)), rootIndex.First(PathKey(game.RootDirectory))));
+                return first == int.MaxValue ? -1 : first;
+            }
+
+            public void Set(GameInfo game, int slot, bool add)
+            {
+                if (!string.IsNullOrEmpty(game.Id)) ids.Set(LibraryId(game.Id, game.RootDirectory), slot, add);
+                exes.Set(PathKey(game.Exe), slot, add);
+                var root = PathKey(game.RootDirectory);
+                roots.Set(root, slot, add);
+                if (string.IsNullOrEmpty(game.Exe)) rootsWithoutExe.Set(root, slot, add);
+            }
         }
         void InitLibraryActions()
         {
@@ -114,9 +183,15 @@ namespace OptScalerNR.Launcher
                 if(!string.IsNullOrEmpty(root))AddFolderFromPath(root);
             } catch(Exception ex){DialogTheme.Show(_window,ex.Message,_window.Title);}
         }
+        bool RejectWindowsApps(string path)
+        {
+            if (!GamePaths.IsWindowsAppsPath(path)) return false;
+            DialogTheme.Show(_window, L("请从 XboxGames 游戏目录中选择，不要选择 WindowsApps。", "Select the game in XboxGames, not WindowsApps."), _window.Title);
+            return true;
+        }
         void AddFolderFromPath(string path)
         {
-            if(_writeBusy || !Directory.Exists(path))return;
+            if(_writeBusy || RejectWindowsApps(path) || !Directory.Exists(path))return;
             var root=Path.GetFullPath(path).TrimEnd('\\','/');
             if(root.EndsWith(":"))root+="\\";
             if((File.GetAttributes(root)&FileAttributes.ReparsePoint)!=0){DialogTheme.Show(_window,L("请选择实际文件夹，不使用目录链接。","Select the actual folder rather than a directory link."),_window.Title);return;}
@@ -145,6 +220,7 @@ namespace OptScalerNR.Launcher
                       "Select RTX Remix Minecraft instance folder (or .minecraft / remix-sdk folder)"),
                     startDir);
                 if (string.IsNullOrEmpty(picked)) return;
+                if (RejectWindowsApps(picked)) return;
                 var sdkDir = PeProbe.ResolveRtxRemixSdkDir(picked);
                 if (string.IsNullOrEmpty(sdkDir))
                 {
@@ -220,6 +296,7 @@ namespace OptScalerNR.Launcher
         }
         void BindExecutable(GameInfo game,string path)
         {
+            if (RejectWindowsApps(path)) return;
             var normal=GamePaths.Normalize(path);
             if(game==null||string.IsNullOrEmpty(normal)||!GamePaths.CanUse(normal))return;
             if(string.IsNullOrEmpty(game.Root))game.Root=Path.GetDirectoryName(normal);

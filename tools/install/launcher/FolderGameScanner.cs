@@ -175,6 +175,7 @@ namespace OptScalerNR.Launcher
         {
             var absolute=System.IO.Path.GetFullPath(directory);
             var root=string.Equals(absolute,System.IO.Path.GetPathRoot(absolute),StringComparison.OrdinalIgnoreCase)?absolute:absolute.TrimEnd('\\','/');
+            if (GamePaths.IsWindowsAppsPath(root)) throw new IOException("Select the game in XboxGames, not WindowsApps.");
             var state=new State(); var timer=Stopwatch.StartNew();
             var linked=CancellationTokenSource.CreateLinkedTokenSource(cancellation); var token=linked.Token;
             var work=Task.Run(()=> {
@@ -202,7 +203,7 @@ namespace OptScalerNR.Launcher
                             // Xbox installs put their actual executables under Content. Keep
                             // the root Content folder and identified Xbox packages searchable.
                             if(name=="content" && item.Depth>0 && !File.Exists(System.IO.Path.Combine(dir,"MicrosoftGame.Config")))continue;
-                            if(new[] {"paks","shadercache",".git","node_modules","optiscaler","person-model","dlssnr-amd","redist","_commonredist","__installer"}.Contains(name))continue;
+                            if(new[] {"windowsapps","paks","shadercache",".git","node_modules","optiscaler","person-model","dlssnr-amd","redist","_commonredist","__installer"}.Contains(name))continue;
                             if(q0.Count+q1.Count+q2.Count+seen.Count>=10000) {lock(state.Gate)state.Limited=true;break;}
                             if(!Linked(dir)) {
                                 int p=Priority(dir);
