@@ -712,7 +712,7 @@ namespace OptScalerNR.Launcher
                 SetLabel("MochiCheck", "mochizuki 0.0.9 M3", "mochizuki 0.0.9 M3");
                 RefreshGpuHints();
                 SetLabel("DiagnosticsHeading", "安装选项与兼容修复", "Install options & compatibility");
-                SetLabel("LogHeading", "运行诊断日志", "Diagnostic log");
+                SetLabel("LogHeading", "安装日志", "Install log");
                 SetLabel("LogPreviewHeading", "显示最近日志", "Show recent log");
                 SetLabel("SettingsHeading", "设置", "Settings");
                 SetLabel("LanguageHeading", "语言", "Language");
@@ -1922,6 +1922,7 @@ namespace OptScalerNR.Launcher
         {
             if (_selectedGame == null) return;
             if (!_selectedGame.HasExecutable) { ScanExecutables(); return; }
+            if (WarnPendingActions()) return;
             var action = _selectedGame.Installed ? "update" : "install";
             ExecuteAction(action);
         }

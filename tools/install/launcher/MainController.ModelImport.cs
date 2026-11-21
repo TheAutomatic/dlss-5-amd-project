@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media.Animation;
 using Microsoft.Win32;
 
 namespace OptScalerNR.Launcher
@@ -399,6 +400,43 @@ namespace OptScalerNR.Launcher
             RefreshInstallChecklist();
         }
 
+        bool _pendingActionsWarned;
+        string _pendingWarningContext;
+
+        void ApplyPendingActionsWarning(bool pulse)
+        {
+            var card = (Border)_window.FindName("PendingActionsCard");
+            card.SetResourceReference(Border.BackgroundProperty, _pendingActionsWarned ? "ThemeDangerBg" : "ThemeCardBg");
+            card.SetResourceReference(Border.BorderBrushProperty, _pendingActionsWarned ? "ThemeDanger" : "ThemeHairline");
+            if (_pendingActionsWarned) card.BorderThickness = new Thickness(1);
+            else card.SetResourceReference(Border.BorderThicknessProperty, "ThemeCardBorderThickness");
+            var ink = LauncherTheme.Brush(_pendingActionsWarned ? "ThemeDanger" : "ThemeInk");
+            foreach (DockPanel row in ((StackPanel)_window.FindName("MissingPackageItems")).Children)
+                foreach (var child in row.Children) {
+                    var title = child as TextBlock;
+                    if (title != null) title.Foreground = ink;
+                }
+            _modelImportText.Foreground = ink;
+            ((TextBlock)_window.FindName("OpenRrModelImportText")).Foreground = ink;
+            if (!_pendingActionsWarned) card.BeginAnimation(UIElement.OpacityProperty, null);
+            else if (pulse) card.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(1, 0.4, TimeSpan.FromSeconds(0.25)) {
+                AutoReverse = true, RepeatBehavior = new RepeatBehavior(3), FillBehavior = FillBehavior.Stop
+            });
+        }
+
+        bool WarnPendingActions()
+        {
+            RefreshModelImportBar();
+            var pending = (Border)_window.FindName("BeforeInstallChecklist");
+            if (pending.Visibility != Visibility.Visible) return false;
+            _pendingActionsWarned = true;
+            _pendingWarningContext = ModeKey() + "|" + GetSelectedInstallMode();
+            ApplyPendingActionsWarning(true);
+            pending.UpdateLayout();
+            pending.BringIntoView();
+            return true;
+        }
+
         void RefreshInstallChecklist()
         {
             var items = (StackPanel)_window.FindName("MissingPackageItems");
@@ -428,7 +466,10 @@ namespace OptScalerNR.Launcher
             ((Border)_window.FindName("OpenRrUnsupportedBar")).Visibility = locked ? Visibility.Visible : Visibility.Collapsed;
             SetLabel("BeforeInstallHeading", "还差这几步", "Before you install");
             bool blocking = missing.Count > 0 || _modelImportBar.Visibility == Visibility.Visible || openRrMissing;
+            if (_pendingWarningContext != ModeKey() + "|" + GetSelectedInstallMode() || (!blocking && result != null))
+                _pendingActionsWarned = false;
             ((Border)_window.FindName("BeforeInstallChecklist")).Visibility = blocking ? Visibility.Visible : Visibility.Collapsed;
+            ApplyPendingActionsWarning(false);
         }
 
         void PickOpenRrDlssdFile()

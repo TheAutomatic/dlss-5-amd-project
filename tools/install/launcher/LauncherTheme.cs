@@ -27,7 +27,7 @@ namespace OptScalerNR.Launcher
             "#F3F3F3", "#FFFFFF", "#F6F6F6", "#1B1B1B", "#5F5F5F", "#E1E1E1", "#E3122B", "#EFEFEF", "#0F7B0F", "#E3F4E1", "#9D5D00", "#FFF4CE", "#FFFFFF",
             "#F3F3F3", "#F9F9F9", "#F3F3F3", "#FFFFFF", "#FBFBFB", "#E5E5E5", "#696969",
             "#CC1027", "#B00E22", "#FDEFF1", "#F3BCC4", "#C50F24",
-            "#A82418", "#FFF0DA", "#FFFFFF", "#FBFBFB", "#F4F4F4", "#EDEDED",
+            "#A82418", "#FDE7E9", "#FFFFFF", "#FBFBFB", "#F4F4F4", "#EDEDED",
             "#59000000", "#FCEEF0", "#EAEAEA", "#FFFFFF",
             "#101522", "#F0F6FC", "#B8C3D4", "#293344", "#FFFFFF", "#C42B1C", "#A82418" };
         static readonly string[] Dark = {
@@ -41,7 +41,7 @@ namespace OptScalerNR.Launcher
             "#FFFFFF", "#FFFFFF", "#F7F8FB", "#0D1220", "#66708A", "#E7E9F0", "#E3122B", "#ECEFF5", "#128445", "#EAF7EF", "#94500A", "#FDF6E7", "#FFFFFF",
             "#FFFFFF", "#FFFFFF", "#FFFFFF", "#F7F8FB", "#ECEFF5", "#F7F8FB", "#66708A",
             "#CC1027", "#B00E22", "#FDEFF1", "#F3BCC4", "#C50F24",
-            "#A82418", "#FFF0DA", "#FFFFFF", "#F7F8FB", "#ECEFF5", "#E7E9F0",
+            "#A82418", "#FDE7E9", "#FFFFFF", "#F7F8FB", "#ECEFF5", "#E7E9F0",
             "#59000000", "#FCEEF0", "#ECEFF5", "#FFFFFF",
             "#101522", "#F0F6FC", "#B8C3D4", "#293344", "#FFFFFF", "#C42B1C", "#A82418" };
         static readonly string[] Midnight = {

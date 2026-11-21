@@ -304,9 +304,15 @@ static class LauncherSmoke
             var packageRow = (DockPanel)((StackPanel)Find("MissingPackageItems")).Children[0];
             Check(!((TextBlock)packageRow.Children[1]).Text.Contains("⚠") && ((SolidColorBrush)((TextBlock)packageRow.Children[1]).Foreground).Color == ((SolidColorBrush)_window.FindResource("ThemeInk")).Color, "package title is calm normal ink");
             Check(((Button)packageRow.Children[0]).BorderThickness == new Thickness(1), "package action is a proper secondary button");
+            ((Button)Find("PrimaryButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Check((bool)Member(_controller, "_pendingActionsWarned") && Member(_controller, "_session") == null && !(bool)Member(_controller, "_writeBusy"), "missing component click warns without starting install");
+            Check(((Border)Find("PendingActionsCard")).HasAnimatedProperties, "warning pulses after blocked click");
+            Call("RefreshModelImportBar");
+            Check((bool)Member(_controller, "_pendingActionsWarned"), "warning survives inspection presentation refresh");
             SetMember(backend, "MissingPackageFiles", new string[0]);
             Call("RefreshModelImportBar");
             Check(((Border)Find("BeforeInstallChecklist")).Visibility == Visibility.Collapsed, "no prerequisites means no checklist");
+            Check(!(bool)Member(_controller, "_pendingActionsWarned") && !((Border)Find("PendingActionsCard")).HasAnimatedProperties, "resolution clears warning and animation");
             SetMember(_controller, "_nativeDlssdCacheVal", false);
             Call("RefreshModelImportBar");
             Check(((Border)Find("BeforeInstallChecklist")).Visibility == Visibility.Collapsed && ((Border)Find("OpenRrUnsupportedBar")).Visibility == Visibility.Visible, "lock-only state has a neutral plugin row but no pending block");
@@ -321,6 +327,38 @@ static class LauncherSmoke
             SetMember(_controller, "_nativeDlssdCacheVal", cacheValue);
             Call("ApplyModeVisibility");
             Call("RefreshModelImportBar");
+            Invoke("SetDetectedAdapter", "");
+            SelectGame(list, false);
+            Invoke("SetLanguage", "zh");
+            foreach (var theme in new[] { "light", "dark", "classic", "midnight", "auto" }) {
+                Invoke("SetTheme", theme);
+                ((ScrollViewer)Find("DetailsScroll")).ScrollToTop();
+                ((Button)Find("PrimaryButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                Check((bool)Member(_controller, "_pendingActionsWarned") && Member(_controller, "_session") == null, "missing package/model click blocked: " + theme);
+                Pump(1700);
+                var card = (Border)Find("PendingActionsCard");
+                Check(Math.Abs(card.Opacity - 1) < 0.001, "pulse finishes at steady opacity: " + theme);
+                Check(((SolidColorBrush)card.Background).Color == ((SolidColorBrush)_window.FindResource("ThemeDangerBg")).Color && ((SolidColorBrush)card.BorderBrush).Color == ((SolidColorBrush)_window.FindResource("ThemeDanger")).Color, "warning uses danger colors: " + theme);
+                Check(((SolidColorBrush)((TextBlock)Find("ModelImportText")).Foreground).Color == ((SolidColorBrush)_window.FindResource("ThemeDanger")).Color, "model item uses danger ink: " + theme);
+                Check(((SolidColorBrush)((TextBlock)Find("OpenRrUnsupportedText")).Foreground).Color == ((SolidColorBrush)_window.FindResource("ThemeMuted")).Color, "game-trait lock stays neutral when warned: " + theme);
+                var bounds = card.TransformToAncestor((ScrollViewer)Find("DetailsScroll")).TransformBounds(new Rect(card.RenderSize));
+                Check(bounds.Bottom <= ((ScrollViewer)Find("DetailsScroll")).ActualHeight + 1, "pending warning scrolled into view: " + theme);
+                Check((string)((Button)Find("QuickLogButton")).Content == "安装日志" && ((TextBlock)Find("LogHeading")).Text == "安装日志", "install log labels in Chinese");
+                Shot("warned-" + theme + "-zh-optiscaler");
+                if (theme == "light") {
+                    Invoke("SetLanguage", "en");
+                    Check((string)((Button)Find("QuickLogButton")).Content == "Install log" && ((TextBlock)Find("LogHeading")).Text == "Install log", "install log labels in English");
+                    Shot("warned-light-en-optiscaler");
+                    Invoke("SetLanguage", "zh");
+                }
+                ((RadioButton)Find("ModeStandaloneRadio")).IsChecked = true;
+                Check(!(bool)Member(_controller, "_pendingActionsWarned"), "mode change clears warning: " + theme);
+                Check(((SolidColorBrush)card.Background).Color == ((SolidColorBrush)_window.FindResource("ThemeCardBg")).Color, "mode change restores calm card: " + theme);
+                ((RadioButton)Find("ModeOptiScalerRadio")).IsChecked = true;
+            }
+            ((Button)Find("PrimaryButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            SelectGame(list, true);
+            Check(!(bool)Member(_controller, "_pendingActionsWarned"), "game change clears warning");
         }
         catch (Exception ex)
         {

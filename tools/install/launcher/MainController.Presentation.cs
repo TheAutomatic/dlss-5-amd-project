@@ -205,7 +205,7 @@ namespace OptScalerNR.Launcher
             _settingsTab.ToolTip = L("设置", "Settings");
             SetLabel("SettingsCloseButton", "完成", "Done");
             ((Button)_window.FindName("RefreshBackendsButton")).ToolTip = L("重新检查后端与模型来源（不下载、不提取）", "Recheck backends and model sources (no download or extraction)");
-            SetLabel("QuickLogButton", "诊断日志", "Diagnostic log");
+            SetLabel("QuickLogButton", "安装日志", "Install log");
             SetLabel("PackLogButton", "打包日志", "Pack logs");
             ((Button)_window.FindName("PackLogButton")).ToolTip =
                 L("收集所选游戏的 OptiScaler/mochizuki 日志与配置、系统信息（GPU/驱动/内存）和近两天的驱动与崩溃事件，打包成压缩包放到桌面。",
