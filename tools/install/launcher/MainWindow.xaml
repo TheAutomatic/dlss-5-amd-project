@@ -671,7 +671,7 @@
                           <Button x:Name="MochiHotkeysButton" Style="{DynamicResource CardAction}" Margin="0,0,8,0"/>
                           <Button x:Name="MochiShareCodeButton" Style="{DynamicResource CardAction}"/>
                         </StackPanel>
-                        <CheckBox x:Name="MochiCheck" Style="{DynamicResource ToggleSwitch}" Content="mochizuki 0.0.9 (M3)" FontWeight="SemiBold" FontSize="13.5" VerticalAlignment="Center" IsChecked="True" IsEnabled="True"/>
+                        <CheckBox x:Name="MochiCheck" Style="{DynamicResource ToggleSwitch}" Content="mochizuki 0.0.9 (M4)" FontWeight="SemiBold" FontSize="13.5" VerticalAlignment="Center" IsChecked="True" IsEnabled="True"/>
                       </DockPanel>
                       <TextBlock x:Name="MochiDescription" Grid.Row="1" Style="{StaticResource Caption}" Margin="52,6,0,0"/>
                       <TextBlock x:Name="MochiMcWarningText" Grid.Row="2" FontSize="12" Foreground="{DynamicResource ThemeMuted}" Margin="52,6,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
