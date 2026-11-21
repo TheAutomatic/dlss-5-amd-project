@@ -43,7 +43,7 @@ La versión `2.0` deja atrás las compilaciones modificadas de `OptiScaler.dll` 
 
 ### Instalación con el lanzador gráfico en Windows (Recomendado)
 
-1. **Descargar y descomprimir**: Descargue el archivo `.zip` desde [Releases](https://github.com/TheAutomatic/dlss-5-amd-project/releases) y descomprímalo por completo.
+1. **Descargar y descomprimir**: Descargue `OptiScaler-NR-Win-<version>.zip` desde [Releases](https://github.com/TheAutomatic/dlss-5-amd-project/releases) y descomprímalo por completo.
 2. **Abrir el lanzador**: Haga doble clic en **`OptiScalerNRLauncher.exe`** para abrir **`OptiScaler NR` Launcher**.
 3. **Seleccionar juego y proxy de inyección**:
    - Elija el juego en la lista izquierda (o pulse **`+`** arriba a la derecha para elegir el `.exe` real del juego; en Unreal Engine suele ser `<Game>\Binaries\Win64\*-Shipping.exe`);

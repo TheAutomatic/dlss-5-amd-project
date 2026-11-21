@@ -45,7 +45,7 @@ if (-not $Version) {
     }
     if (-not $Version) { $Version = '2.0.0' }
 }
-if (-not $Name) { $Name = "OptiScaler-NR-$Version" }
+if (-not $Name) { $Name = "OptiScaler-NR-Win-$Version" }
 
 $stage = Join-Path $root (Join-Path $OutDir $Name)
 $zip   = Join-Path $root (Join-Path $OutDir ($Name + '.zip'))

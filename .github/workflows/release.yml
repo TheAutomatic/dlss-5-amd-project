@@ -105,7 +105,7 @@ jobs:
             -SigningThumbprint "$env:PACKAGE_SIGNING_THUMBPRINT" `
             -OutDir dist
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (!(Test-Path "dist\OptiScaler-NR-$ver.zip")) {
+          if (!(Test-Path "dist\OptiScaler-NR-Win-$ver.zip")) {
             throw "Package zip missing for $ver"
           }
 
@@ -124,7 +124,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $ver = '${{ steps.ver.outputs.version }}'
-          $zipPath = "dist\OptiScaler-NR-$ver.zip"
+          $zipPath = "dist\OptiScaler-NR-Win-$ver.zip"
           $forbidden = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr(?:-int4|-small)?\.bin|CC_(?:SMALL_FP8|SMALL_FP8_EXPERIMENTAL|SILVER_AARDWOLD|SILVER_AARDWOLD_OPTIMIZED|SILVER_AARDWOLD_OPTIMIZED_INT4)\.bin|pipeline\.cache|version\.dll|dlssnr_on_amd_setup\.exe)$'
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $archive = [IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $zipPath))
@@ -149,7 +149,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: OptiScaler-NR-test-${{ github.run_id }}
-          path: dist/OptiScaler-NR-${{ steps.ver.outputs.version }}.zip
+          path: dist/OptiScaler-NR-Win-${{ steps.ver.outputs.version }}.zip
           if-no-files-found: error
           retention-days: 14
 
@@ -216,7 +216,7 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
           RELEASE_VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          python -B .github/scripts/publish_release_asset.py --tag "$env:RELEASE_TAG" --asset "dist/OptiScaler-NR-$env:RELEASE_VERSION.zip"
+          python -B .github/scripts/publish_release_asset.py --tag "$env:RELEASE_TAG" --asset "dist/OptiScaler-NR-Win-$env:RELEASE_VERSION.zip"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   # Linux packages: Mochizuki's upstream DLSSNR-AMD Linux release (x86_64 + i686, SHA-256 pinned under
@@ -328,7 +328,5 @@ jobs:
         run: |
           set -euo pipefail
           for arch in x86_64 i686; do
-            for f in "dist/OptiScaler-NR-Linux-$arch-$RELEASE_VERSION.tar.gz" "dist/OptiScaler-NR-Linux-$arch-$RELEASE_VERSION.tar.gz.sha256"; do
-              python -B .github/scripts/publish_release_asset.py --tag "$RELEASE_TAG" --asset "$f"
-            done
+            python -B .github/scripts/publish_release_asset.py --tag "$RELEASE_TAG" --asset "dist/OptiScaler-NR-Linux-$arch-$RELEASE_VERSION.tar.gz"
           done

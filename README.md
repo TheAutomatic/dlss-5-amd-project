@@ -10,7 +10,7 @@
 
 **特别感谢**：各位用户的测试与反馈意见。
 
-本项目提供图形化启动器（**`OptiScalerNRLauncher.exe`**），支持自动扫描 Steam / Epic / GOG / Xbox 游戏库、结合 PE 导入表与 OptiScaler Wiki 智能推荐注入代理、一键离线提取/合成模型权重，按需勾选并部署 **官方原版 OptiScaler** 与两大 AMD 神经网络插件——**DLSS 神经渲染 (`dlssnr-amd.asi`)** 和 **DLSS 光线重建 (`openrr-amd.asi`)**，同时内置 INI 配置预设与 `MZ5` 画风分享码管理，让 **AMD 显卡** 在各类 DX11 / DX12 / Vulkan 游戏中原生运行 DLSS 神经渲染与 DLSS 光线重建（Ray Reconstruction）。
+本项目提供图形化启动器（**`OptiScalerNRLauncher.exe`**），支持自动扫描 Steam / Epic / GOG / XBOX 游戏库、结合 PE 导入表与 OptiScaler Wiki 智能推荐注入代理、一键离线提取/合成模型权重，按需勾选并部署 **官方原版 OptiScaler** 与两大 AMD 神经网络插件——**DLSS 神经渲染 (`dlssnr-amd.asi`)** 和 **DLSS 光线重建 (`openrr-amd.asi`)**，同时内置 INI 配置预设与 `MZ5` 画风分享码管理，让 **AMD 显卡** 在各类 DX11 / DX12 / Vulkan 游戏中原生运行 DLSS 神经渲染与 DLSS 光线重建（Ray Reconstruction）。
 
 **项目主页：[github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
@@ -45,7 +45,7 @@
 
 ### Windows 图形化启动器安装（推荐）
 
-1. **下载解压**：从 [Release 页](https://github.com/TheAutomatic/dlss-5-amd-project/releases) 下载最新压缩包并完整解压。
+1. **下载解压**：从 [Release 页](https://github.com/TheAutomatic/dlss-5-amd-project/releases) 下载 `OptiScaler-NR-Win-<版本>.zip` 并完整解压。
 2. **启动安装器**：双击运行解压目录下的 **`OptiScalerNRLauncher.exe`**，自动打开 **`OptiScaler NR` 图形化启动器**。
 3. **选择游戏与注入代理**：
    - 在左侧游戏库中选择目标游戏（也可点击右上角 **`+`** 手动选择游戏的实际渲染 `.exe`，注意虚幻引擎游戏通常位于 `<Game>\Binaries\Win64\*-Shipping.exe`）；

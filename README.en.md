@@ -10,7 +10,7 @@
 
 **Special thanks** to everyone who tested builds and reported feedback.
 
-This repository provides a graphical launcher (**`OptiScalerNRLauncher.exe`**) that automatically scans Steam / Epic / GOG / Xbox game libraries, combines PE import analysis with OptiScaler Wiki profiles to recommend the optimal injection proxy DLL, extracts and synthesizes model weights offline in one click, and deploys **official OptiScaler** alongside two standalone AMD neural rendering plugins—**DLSS Neural Rendering (`dlssnr-amd.asi`)** and **DLSS Ray Reconstruction (`openrr-amd.asi`)**—complete with shared INI profiles and `MZ5` style share codes.
+This repository provides a graphical launcher (**`OptiScalerNRLauncher.exe`**) that automatically scans Steam / Epic / GOG / XBOX game libraries, combines PE import analysis with OptiScaler Wiki profiles to recommend the optimal injection proxy DLL, extracts and synthesizes model weights offline in one click, and deploys **official OptiScaler** alongside two standalone AMD neural rendering plugins—**DLSS Neural Rendering (`dlssnr-amd.asi`)** and **DLSS Ray Reconstruction (`openrr-amd.asi`)**—complete with shared INI profiles and `MZ5` style share codes.
 
 **Project Home: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
@@ -45,7 +45,7 @@ Version `2.0` retires custom-patched `OptiScaler.dll` builds in favor of a decou
 
 ### Windows GUI Launcher Installation (Recommended)
 
-1. **Download & Extract**: Download the latest `.zip` archive from the [Releases page](https://github.com/TheAutomatic/dlss-5-amd-project/releases) and extract all files.
+1. **Download & Extract**: Download `OptiScaler-NR-Win-<version>.zip` from the [Releases page](https://github.com/TheAutomatic/dlss-5-amd-project/releases) and extract all files.
 2. **Open Launcher**: Double-click **`OptiScalerNRLauncher.exe`** in the extracted folder to open **`OptiScaler NR` Launcher**.
 3. **Select Game & Injection Proxy**:
    - Pick a game from the left-hand library list (or click **`+`** at the top right to manually select the game's actual rendering `.exe`; for Unreal Engine games, pick `<Game>\Binaries\Win64\*-Shipping.exe`);
