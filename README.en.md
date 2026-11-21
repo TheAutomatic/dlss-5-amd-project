@@ -10,7 +10,7 @@
 
 **Special thanks** to everyone who tested builds and reported feedback.
 
-This repository provides a graphical launcher (**`OptiScalerNRLauncher.exe`**) that automatically scans Steam / Epic / GOG / Xbox game libraries, combines PE import analysis with OptiScaler Wiki profiles to recommend the optimal injection proxy DLL, extracts and synthesizes model weights offline in one click, and deploys **official OptiScaler** alongside two standalone AMD neural rendering plugins—**DLSS Neural Rendering (`dlssnr-amd.asi`)** and **DLSS Ray Reconstruction (`openrr-amd.asi`)**—complete with shared INI profiles and `MZ5` style share codes.
+This repository provides a graphical launcher (**`OptiScalerNRLauncher.exe`**) that automatically scans Steam / Epic / GOG / XBOX game libraries, combines PE import analysis with OptiScaler Wiki profiles to recommend the optimal injection proxy DLL, extracts and synthesizes model weights offline in one click, and deploys **official OptiScaler** alongside two standalone AMD neural rendering plugins—**DLSS Neural Rendering (`dlssnr-amd.asi`)** and **DLSS Ray Reconstruction (`openrr-amd.asi`)**—complete with shared INI profiles and `MZ5` style share codes.
 
 **Project Home: [github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 

@@ -544,7 +544,7 @@ function Get-OptScalerGameLibrary {
                 $art = Get-OptScalerLocalArtwork -Source Xbox -Roots $artRoots -Budget $artworkBudget
                 $cover = $art.cover
                 $hero = $art.hero
-                Add-OptScalerGame $games $seen $_.Name $cands[0].path 'Xbox' ("xbox:" + $_.Name.ToLowerInvariant()) $cover $hero
+                Add-OptScalerGame $games $seen $_.Name $cands[0].path 'XBOX' ("xbox:" + $_.Name.ToLowerInvariant()) $cover $hero
             }
         }
     }

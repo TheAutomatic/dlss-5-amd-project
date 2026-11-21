@@ -1074,6 +1074,7 @@ namespace OptScalerNR.Launcher
                         {
                             if (string.IsNullOrEmpty(g.Id)) { g.Id = "manual:" + Guid.NewGuid().ToString("N"); migrated = true; }
                             if (string.IsNullOrEmpty(g.Root) && !string.IsNullOrEmpty(g.Exe)) { g.Root = Path.GetDirectoryName(g.Exe); migrated = true; }
+                            if (g.Source == "Xbox") { g.Source = "XBOX"; migrated = true; }
 
                             _allGames.Add(g);
                         }

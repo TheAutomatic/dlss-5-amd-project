@@ -677,7 +677,7 @@
       "names":[
         "Aphelion"
       ],
-      "notesEn":"OptiScaler Wiki: Working · Inputs: DLSS, FSR3.1 · Proxy: winmm.dll. Install as `winmm.dll` for Xbox version",
+      "notesEn":"OptiScaler Wiki: Working · Inputs: DLSS, FSR3.1 · Proxy: winmm.dll. Install as `winmm.dll` for XBOX version",
       "notesZh":"OptiScaler Wiki：可用 · 输入：DLSS、FSR3.1 · 建议代理：winmm.dll。Install as `winmm.dll` XBOX 版",
       "optiPatcher":false,
       "pathSegments":[
@@ -2105,8 +2105,8 @@
       "names":[
         "Corsair Cove"
       ],
-      "notesEn":"OptiScaler Wiki: Working · Inputs: DLSS, FSR3.1/4 · Proxy: winmm.dll. Use `winmm.dll` for Xbox Gamepass version",
-      "notesZh":"OptiScaler Wiki：可用 · 输入：DLSS、FSR3.1/4 · 建议代理：winmm.dll。Use `winmm.dll` for Xbox GamePass 版",
+      "notesEn":"OptiScaler Wiki: Working · Inputs: DLSS, FSR3.1/4 · Proxy: winmm.dll. Use `winmm.dll` for XBOX Gamepass version",
+      "notesZh":"OptiScaler Wiki：可用 · 输入：DLSS、FSR3.1/4 · 建议代理：winmm.dll。Use `winmm.dll` for XBOX GamePass 版",
       "optiPatcher":false,
       "pathSegments":[
         "Corsair Cove"
@@ -5490,8 +5490,8 @@
       "names":[
         "Kiln"
       ],
-      "notesEn":"OptiScaler Wiki: Working · Inputs: DLSS, FSR3.1 · Proxy: winmm.dll. For Xbox, use `winmm.dll`. Reflex is unlocked without spoofing, so set Dxgi=false to disable spoofing. Use the in-game Temporal Upscaling slider to change your upscaler preset",
-      "notesZh":"OptiScaler Wiki：可用 · 输入：DLSS、FSR3.1 · 建议代理：winmm.dll。For Xbox, use `winmm.dll`. Reflex is unlocked without 显卡伪装, so set Dxgi=false to 关闭显卡伪装. Use the 游戏内 Temporal Upscaling slider to change your 升采样器 preset",
+      "notesEn":"OptiScaler Wiki: Working · Inputs: DLSS, FSR3.1 · Proxy: winmm.dll. For XBOX, use `winmm.dll`. Reflex is unlocked without spoofing, so set Dxgi=false to disable spoofing. Use the in-game Temporal Upscaling slider to change your upscaler preset",
+      "notesZh":"OptiScaler Wiki：可用 · 输入：DLSS、FSR3.1 · 建议代理：winmm.dll。For XBOX, use `winmm.dll`. Reflex is unlocked without 显卡伪装, so set Dxgi=false to 关闭显卡伪装. Use the 游戏内 Temporal Upscaling slider to change your 升采样器 preset",
       "optiPatcher":false,
       "pathSegments":[
         "Kiln"
