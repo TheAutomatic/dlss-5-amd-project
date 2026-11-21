@@ -57,6 +57,14 @@ static class LauncherSmoke
                 }
             }
             var type = asm.GetType("OptScalerNR.Launcher.MainController", true);
+            var classify = type.GetMethod("ClassifyGpu", BindingFlags.Static | BindingFlags.NonPublic);
+            foreach (var sample in new[] {
+                new[] { "AMD Radeon RX 9070 XT", "Rdna4" }, new[] { "AMD Radeon RX 7900 XTX", "Rdna3" },
+                new[] { "AMD Radeon RX 6800", "Rdna2" }, new[] { "AMD Radeon 780M Graphics", "OtherAmd" },
+                new[] { "AMD Radeon RX 580", "OtherAmd" }, new[] { "NVIDIA GeForce RTX 4090", "NonAmd" },
+                new[] { "Intel Arc B580", "NonAmd" }, new[] { "Microsoft Basic Display Adapter", "Unknown" },
+                new[] { "", "Unknown" }, new[] { (string)null, "Unknown" } })
+                Check(classify.Invoke(null, new object[] { sample[0] }).ToString() == sample[1], "GPU family: " + sample[0]);
             var create = type.GetMethod("Create", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public, null,
                 new[] { typeof(string[]), typeof(string) }, null);
             _window = (Window)create.Invoke(null, new object[] { new string[0], Path.GetFullPath(args[1]) });
@@ -215,6 +223,64 @@ static class LauncherSmoke
             Check(advanced.IsChecked == true && ((StackPanel)Find("ProxyDetails")).IsVisible, "missing proxy action reveals selector");
             Invoke("SelectProxy", selectedProxy);
             advanced.IsChecked = false;
+            Check(!((Button)Find("LangZh")).IsVisible && !((Button)Find("LangEn")).IsVisible, "language buttons removed from title bar");
+            Check(((ComboBox)Find("LangCombo")).Items.Count == 2, "language selector retained in Settings");
+            Check(((TextBlock)Find("MochiHint")).Visibility == Visibility.Collapsed, "duplicate backend hints hidden");
+            Check(((Border)Find("BeforeInstallChecklist")).IsVisible, "prerequisite checklist visible");
+            Check(((System.Windows.Documents.Hyperlink)Find("WikiDetailsLink")).NavigateUri.Scheme == "https", "Wiki details use a navigable URL");
+            Call("SetStatus", "库已刷新", "Library refreshed");
+            Invoke("SetLanguage", "en");
+            Check(((TextBlock)Find("StatusText")).Text == "Library refreshed", "specific status localizes");
+            Call("SetStatus", "success", "success");
+            Call("RefreshStatusLanguage");
+            Check(((TextBlock)Find("StatusText")).Text == "", "generic success hidden");
+
+            var selectedGame = Member(_controller, "_selectedGame");
+            var cacheDir = Member(_controller, "_nativeDlssdCacheDir");
+            var cacheValue = Member(_controller, "_nativeDlssdCacheVal");
+            SetMember(_controller, "_nativeDlssdCacheDir", Path.GetDirectoryName((string)Member(selectedGame, "Exe")));
+            SetMember(_controller, "_nativeDlssdCacheVal", true);
+            Call("ApplyModeVisibility");
+            foreach (var lang in new[] { "zh", "en" }) {
+                Invoke("SetLanguage", lang);
+                foreach (var gpu in new[] { new[] { "AMD Radeon RX 9070 XT", "9070xt" }, new[] { "AMD Radeon RX 6800", "6800" }, new[] { "", "unknown" }, new[] { "AMD Radeon RX 7900 XTX", "7900xtx" } }) {
+                    Invoke("SetDetectedAdapter", gpu[0]);
+                    var mochiHint = (TextBlock)Find("MochiDescription");
+                    var openRrHint = (TextBlock)Find("OpenRrDescription");
+                    Check((mochiHint.Visibility == Visibility.Collapsed) == (gpu[1] == "9070xt" || gpu[1] == "7900xtx"), "Mochizuki applicability: " + gpu[1]);
+                    Check((openRrHint.Visibility == Visibility.Collapsed) == (gpu[1] == "9070xt"), "OpenRR applicability: " + gpu[1]);
+                    var expectedColor = (SolidColorBrush)_window.FindResource(gpu[1] == "6800" ? "ThemeWarning" : "ThemeMuted");
+                    if (openRrHint.Visibility == Visibility.Visible) Check(((SolidColorBrush)openRrHint.Foreground).Color == expectedColor.Color, "GPU hint severity: " + gpu[1]);
+                    ((ScrollViewer)Find("DetailsScroll")).ScrollToTop(); Pump(250);
+                    AssertLayout("gpu-light-" + lang + "-" + gpu[1]);
+                    Shot("gpu-light-" + lang + "-" + gpu[1]);
+                }
+                advanced.IsChecked = true;
+                ((StackPanel)Find("ProxyDetails")).Visibility = Visibility.Visible;
+                Preview("density-advanced-light-" + lang);
+                advanced.IsChecked = false;
+            }
+
+            var inspection = Member(_controller, "_lastInspectResult");
+            var backend = ((Array)Member(inspection, "Backends")).GetValue(0);
+            var savedMissing = Member(backend, "MissingPackageFiles");
+            var savedHints = Member(backend, "Hints");
+            SetMember(backend, "MissingPackageFiles", new[] { "runtime.dll", "runtime.dll" });
+            SetMember(backend, "Hints", new string[0]);
+            Call("RefreshModelImportBar");
+            Check(((StackPanel)Find("MissingPackageItems")).Children.Count == 1, "duplicate missing components deduplicated");
+            SetMember(backend, "MissingPackageFiles", new string[0]);
+            Call("RefreshModelImportBar");
+            Check(((Border)Find("BeforeInstallChecklist")).Visibility == Visibility.Collapsed, "no prerequisites means no checklist");
+            SetMember(backend, "Hints", new[] { "mochi-unsupported-source" });
+            Call("RefreshModelImportBar");
+            Check(((TextBlock)Find("ModelImportText")).Text.Contains("unsupported"), "unsupported model source has actionable checklist item");
+            SetMember(backend, "MissingPackageFiles", savedMissing);
+            SetMember(backend, "Hints", savedHints);
+            SetMember(_controller, "_nativeDlssdCacheDir", cacheDir);
+            SetMember(_controller, "_nativeDlssdCacheVal", cacheValue);
+            Call("ApplyModeVisibility");
+            Call("RefreshModelImportBar");
         }
         catch (Exception ex)
         {
@@ -285,6 +351,15 @@ static class LauncherSmoke
         if (f != null) return f.GetValue(o);
         var p = o.GetType().GetProperty(name, flags);
         return p != null ? p.GetValue(o, null) : null;
+    }
+
+    static object Call(string name, params object[] args)
+    {
+        return _controller.GetType().GetMethod(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic).Invoke(_controller, args);
+    }
+    static void SetMember(object target, string name, object value)
+    {
+        target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic).SetValue(target, value);
     }
 
     static void CheckEnglish(string lang)

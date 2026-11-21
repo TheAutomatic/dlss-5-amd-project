@@ -695,13 +695,10 @@ namespace OptScalerNR.Launcher
                 if (_refreshButton != null) _refreshButton.Content = isZh ? "刷新" : "Refresh";
                 if (_packageBrowse != null) _packageBrowse.Content = isZh ? "浏览…" : "Browse…";
                 if (_heroKicker != null) _heroKicker.Text = isZh ? "已选游戏" : "Selected game";
-                if (_replaceIni != null) _replaceIni.Content = isZh ? "覆盖现有配置文件 (.ini，推荐)" : "Replace existing configuration files (.ini, recommended)";
-                SetLabel("OptiPatcherToggle", "安装 OptiPatcher（DLSS 伪装增强，按 Wiki 推荐预选）", "Install OptiPatcher (DLSS spoofing enhancement, preselected by Wiki recommendation)");
+                if (_replaceIni != null) _replaceIni.Content = isZh ? "覆盖现有配置" : "Replace existing configuration";
+                SetLabel("OptiPatcherToggle", "安装 OptiPatcher", "Install OptiPatcher");
                 ApplyOptiPatcherTooltip(IsOptiPatcherSupported(_selectedGame, (_selectedGame == null || _recommendations == null) ? null : _recommendations.Match(_selectedGame)));
-                SetLabel("OpenRrToggle", "OpenRR 0.1.7（Plus）", "OpenRR 0.1.7 (Plus)");
-                SetLabel("OpenRrDescription",
-                    "适合 RX 9000 系列，实验性支持 RX 7000 / RDNA3（仅限光线重建游戏）",
-                    "For RX 9000 series; experimental RX 7000 / RDNA3 (Ray Reconstruction games only)");
+                SetLabel("OpenRrToggle", "OpenRR 0.1.7 Plus", "OpenRR 0.1.7 Plus");
                 SetLabel("OpenRrAutoSpoofToggle",
                     "实验性：减少全局显卡伪装（Dxgi=auto，配合 OptiPatcher 保持真实 A 卡身份）",
                     "Experimental: Reduce global GPU spoofing (Dxgi=auto, keeps native AMD adapter with OptiPatcher)");
@@ -711,9 +708,9 @@ namespace OptScalerNR.Launcher
 
                 SetLabel("LocalGamesHeading", "游戏库", "Library");
                 SetLabel("ProxyHeading", "注入代理", "Injection proxy");
-                SetLabel("BackendsHeading", "ASI 插件选择 (神经渲染 & 光线重建)", "ASI Plugins (Neural Rendering & Ray Reconstruction)");
-                SetLabel("MochiCheck", "mochizuki 0.0.9（M3）", "mochizuki 0.0.9 (M3)");
-                SetLabel("MochiDescription", "适合 RX 7000/9000 系列（6000 系请暂时先使用老版本）", "For RX 7000/9000 series (RX 6000 series please use the legacy version for now)");
+                SetLabel("BackendsHeading", "画质插件", "Quality plugins");
+                SetLabel("MochiCheck", "mochizuki 0.0.9 M3", "mochizuki 0.0.9 M3");
+                RefreshGpuHints();
                 SetLabel("DiagnosticsHeading", "安装选项与兼容修复", "Install options & compatibility");
                 SetLabel("LogHeading", "运行诊断日志", "Diagnostic log");
                 SetLabel("LogPreviewHeading", "显示最近日志", "Show recent log");
@@ -867,7 +864,6 @@ namespace OptScalerNR.Launcher
 
         void RefreshBackendHints()
         {
-            bool any = false;
             var details = new List<string>();
             foreach (var id in new[] { "mochizuki" })
             {
@@ -882,21 +878,20 @@ namespace OptScalerNR.Launcher
                 if (label != null)
                 {
                     label.Text = text;
-                    label.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
-                    label.ToolTip = null;
+                    label.Visibility = Visibility.Collapsed;
+                    label.ToolTip = text;
                 }
-                any |= !string.IsNullOrEmpty(text);
             }
             var path = _lastInspectResult != null ? _lastInspectResult.PackageRoot : null;
             var pathLabel = _window.FindName("BackendPackagePath") as TextBlock;
             if (pathLabel != null)
             {
                 pathLabel.Text = L("安装包目录：", "Package folder: ") + (path ?? "");
-                pathLabel.Visibility = any && !string.IsNullOrEmpty(path) ? Visibility.Visible : Visibility.Collapsed;
+                pathLabel.Visibility = Visibility.Collapsed;
             }
             var detailText = (TextBlock)_window.FindName("BackendDetailsText");
             detailText.Text = string.Join(Environment.NewLine, details.ToArray());
-            ((Expander)_window.FindName("BackendDetails")).Visibility = details.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+            ((Expander)_window.FindName("BackendDetails")).Visibility = _showAdvancedOptions && details.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             ((Expander)_window.FindName("BackendDetails")).Header = L("组件详情", "Component details");
             SetLabel("BackendDetailsHeading", "安装包中缺少的组件", "Missing package components");
         }
@@ -906,6 +901,7 @@ namespace OptScalerNR.Launcher
         string _statusZh, _statusEn;
         void SetStatus(string zh, string en)
         {
+            if (zh == "成功" || zh == "success" || en == "success") { zh = ""; en = ""; }
             _statusZh = zh;
             _statusEn = en;
             if (_statusText != null) _statusText.Text = L(zh, en);
@@ -926,12 +922,12 @@ namespace OptScalerNR.Launcher
             }
             switch (_statusText.Text)
             {
-                case "": SetStatus("就绪", "Ready"); break;
-                case "就绪": case "Ready": SetStatus("就绪", "Ready"); break;
+                case "":
+                case "就绪": case "Ready": SetStatus("", ""); break;
                 case "正在扫描游戏库…": case "Scanning library…": SetStatus("正在扫描游戏库…", "Scanning library…"); break;
                 case "游戏库已更新": case "Library updated": SetStatus("游戏库已更新", "Library updated"); break;
                 case "Cancelled.": case "已取消。": SetStatus("已取消。", "Cancelled."); break;
-                case "success": case "成功": SetStatus("成功", "success"); break;
+                case "success": case "成功": SetStatus("", ""); break;
                 case "failed": case "失败": SetStatus("失败", "failed"); break;
                 case "正在检查安装环境…": case "Inspecting installation…": _statusText.Text = StageText("inspect"); break;
                 case "正在检查安装条件…": case "Validating installation…": _statusText.Text = StageText("validate"); break;
@@ -2060,6 +2056,7 @@ namespace OptScalerNR.Launcher
             // Keep restoration reachable even when inspection reports damaged package inputs.
             if (_restoreCompatButton != null) _restoreCompatButton.IsEnabled = available && (report.Active || !string.IsNullOrEmpty(report.Error));
             if (_compatSummary == null) return;
+            _compatSummary.ToolTip = null;
             if (_selectedGame == null || report == null) {
                 _compatSummary.Text = L("选择游戏后自动检查配套运行库文件。", "Select a game to check its companion runtime files automatically.");
                 return;
@@ -2069,17 +2066,15 @@ namespace OptScalerNR.Launcher
                 return;
             }
             if (report.Active) {
-                _compatSummary.Text = L("已有修复备份，可恢复原文件；游戏更新后的处理选项见恢复窗口。", "Repair backup available. Restore originals or review game-update options in the restore dialog.");
+                _compatSummary.Text = L("已有修复备份，可恢复原文件", "Repair backup available; originals can be restored");
                 return;
             }
             var names = new List<string>();
             if (report.Groups != null) foreach (var group in report.Groups)
                 if (group.Files != null) foreach (var file in group.Files)
                     if (file.State == "different") names.Add(file.Name);
-            _compatSummary.Text = names.Count > 0
-                ? L("游戏目录与包内配套文件不同：", "Game and package companion files differ: ") + string.Join(", ", names) +
-                    L("。不同不等于故障；仅在启动或插帧异常时尝试修复。", ". Differences do not prove a fault; try repair only for startup or frame-generation issues.")
-                : L("启动、插帧或 XeSS 异常时可检查配套运行库；正常使用无需修复。", "Check companion runtimes for startup, frame-generation or XeSS issues; no repair is needed when working normally.");
+            _compatSummary.Text = L("游戏打不开或插帧异常时再用", "Use only for startup or frame-generation issues");
+            _compatSummary.ToolTip = names.Count > 0 ? L("配套文件存在差异：", "Companion files differ: ") + string.Join(", ", names) : null;
         }
 
         Window CreateCompatibilityDialog(bool restore)
@@ -2909,7 +2904,13 @@ namespace OptScalerNR.Launcher
                 else
                 {
                     if (_statusLed != null) _statusLed.Fill = ReadyBrush;
-                    if (_statusText != null) _statusText.Text = result.Status + (string.IsNullOrEmpty(result.Error) ? "" : (": " + result.Error));
+                    if (_statusText != null) {
+                        if (result.Status == "success") {
+                            if (action == "install") SetStatus("安装完成", "Installation complete");
+                            else if (action == "uninstall") SetStatus("卸载完成", "Uninstall complete");
+                            else SetStatus("", "");
+                        } else _statusText.Text = result.Status + (string.IsNullOrEmpty(result.Error) ? "" : (": " + result.Error));
+                    }
                     RefreshStatusLanguage();
                 }
 

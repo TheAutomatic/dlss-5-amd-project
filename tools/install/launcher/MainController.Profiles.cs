@@ -81,9 +81,10 @@ namespace OptScalerNR.Launcher
 
         void RefreshProfilesLanguage()
         {
-            SetLabel("InstallOptionsHeading", "安装选项（下次安装或更新时生效）", "Install options (applied on the next install or update)");
+            SetLabel("InstallOptionsHeading", "安装选项", "Install options");
+            ((TextBlock)_window.FindName("InstallOptionsHeading")).ToolTip = L("下次安装或更新时生效", "Applied on the next install or update");
             SetLabel("IniHeading", "配置文件与风格码", "Config files & style codes");
-            SetLabel("IniSelectHint", "选择配置后点击“应用所选配置”。仅更改插件时请选择“当前游戏 INI”。", "Select a profile, then Apply selection. Choose Current game INI to apply only the plugin setting.");
+            SetLabel("IniSelectHint", "", "");
             SetLabel("PluginHeading", "第三方插件", "Third-party plugins");
             if (_iniSaveButton != null) _iniSaveButton.Content = L("保存", "Save");
             if (_iniQuickSaveButton != null) _iniQuickSaveButton.Content = L("快速保存", "Quick save");
@@ -208,7 +209,7 @@ namespace OptScalerNR.Launcher
             {
                 var query = _iniSearchBox == null ? "" : _iniSearchBox.Text.Trim();
                 _iniProfileCombo.Items.Clear();
-                var current = new ComboBoxItem { Content = L("当前游戏 INI（仅插件设置）", "Current game INI (plugin setting only)"), Tag = "" };
+                var current = new ComboBoxItem { Content = L("当前游戏 INI", "Current game INI"), ToolTip = L("仅插件设置", "Plugin setting only"), Tag = "" };
                 _iniProfileCombo.Items.Add(current);
                 ComboBoxItem chosen = string.IsNullOrEmpty(_iniSelectedProfile) ? current : null;
                 foreach (var name in _iniProfileNames)
@@ -482,8 +483,7 @@ namespace OptScalerNR.Launcher
                 case "io": text = L("配置操作失败，请检查文件权限与可用空间。", "Profile operation failed. Check file permissions and free space."); break;
                 default: text = _iniProfiles == null ? L("配置库不可用。", "Profile library unavailable.")
                     : _selectedGame == null ? L("选择游戏以使用共享配置。", "Select a game to use shared profiles.")
-                    : _iniProfileNames.Length == 0 ? L("暂无共享配置。可保存当前游戏 INI 或导入。", "No shared profiles yet. Save the current game INI or import one.")
-                    : L("配置对所有游戏可见；选择与插件开关按游戏保存。", "Profiles are shared; selection and plugin setting are saved per game."); break;
+                    : _iniProfileNames.Length == 0 ? L("暂无共享配置", "No shared profiles") : ""; break;
             }
             _iniProfileStatus.Text = text;
         }

@@ -34,7 +34,7 @@ namespace OptScalerNR.Launcher
         void RefreshModelImportLanguage()
         {
             if (_modelImportButton != null)
-                _modelImportButton.Content = L("导入模型源文件…", "Import model source file…");
+                _modelImportButton.Content = L("导入模型源…", "Import model source…");
             if (_openRrImportButton != null)
                 _openRrImportButton.Content = L("导入 nvngx_dlssd.dll…", "Import nvngx_dlssd.dll…");
             RefreshModelImportBar();
@@ -46,7 +46,7 @@ namespace OptScalerNR.Launcher
         // by an import and stay out of this bar.
         static bool BackendHintsContain(BackendInfo backend, params string[] needles)
         {
-            if (backend.Hints == null) return false;
+            if (backend == null || backend.Hints == null) return false;
             foreach (var hint in backend.Hints)
                 foreach (var needle in needles)
                     if (string.Equals(hint, needle, StringComparison.OrdinalIgnoreCase)) return true;
@@ -355,7 +355,8 @@ namespace OptScalerNR.Launcher
             }
             else
             {
-                _openRrStatusText.Text = isPlaceholderAsi ? L("openrr.asi 占位符 · 待导入 nvngx_dlssd.dll", "Placeholder ASI · Needs nvngx_dlssd.dll") : L("待导入 nvngx_dlssd.dll (310.9.1.0)", "Needs nvngx_dlssd.dll (310.9.1.0)");
+                _openRrStatusText.Text = L("待准备", "Setup needed");
+                _openRrStatusText.ToolTip = isPlaceholderAsi ? L("openrr.asi 是占位文件，请替换后导入模型源。", "openrr.asi is a placeholder; replace it and import a model source.") : "nvngx_dlssd.dll 310.9.1.0";
                 _openRrStatusText.Foreground = WarningBrush;
                 _openRrBadge.Background = MissingBg;
                 _openRrBadge.BorderBrush = WarningBrush;
@@ -373,13 +374,7 @@ namespace OptScalerNR.Launcher
             {
                 _openRrAutoSpoofToggle.Visibility = (enabled && !isRtxMc) ? Visibility.Visible : Visibility.Collapsed;
                 _openRrAutoSpoofToggle.IsEnabled = PresentationIdle && enabled && optiActive;
-                _openRrAutoSpoofToggle.Content = optiActive
-                    ? L(
-                        "实验性：减少全局显卡伪装（Dxgi=auto，配合 OptiPatcher 保持真实 A 卡身份）",
-                        "Experimental: Reduce global GPU spoofing (Dxgi=auto, keeps native AMD adapter with OptiPatcher)")
-                    : L(
-                        "实验性：减少全局显卡伪装（需先启用 OptiPatcher；仅少量游戏支持）",
-                        "Experimental: Reduce global GPU spoofing (requires OptiPatcher; only a few games are supported)");
+                _openRrAutoSpoofToggle.Content = L("实验性：减少全局显卡伪装", "Experimental: Reduce global GPU spoofing");
                 _selectingOpenRrSpoof = true;
                 try { _openRrAutoSpoofToggle.IsChecked = wantAutoSpoof; }
                 finally { _selectingOpenRrSpoof = false; }
@@ -391,20 +386,54 @@ namespace OptScalerNR.Launcher
                         "需先启用 OptiPatcher 才能减少全局显卡伪装（当前游戏不支持或未勾选 OptiPatcher，自动保持完整伪装）。",
                         "Requires OptiPatcher enabled to reduce global GPU spoofing (OptiPatcher is unsupported or unchecked; full spoofing stays active).");
             }
-            SetLabel("OpenRrDescription",
-                "适合 RX 9000 系列，实验性支持 RX 7000 / RDNA3（仅限光线重建游戏）",
-                "For RX 9000 series; experimental RX 7000 / RDNA3 (Ray Reconstruction games only)");
+            RefreshGpuHints();
         }
         void RefreshModelImportBar()
         {
             RefreshOpenRrCard();
             if (_modelImportBar == null) return;
             string message = null;
-            var needs = _selectedGame != null && _selectedGame.HasExecutable && SelectedBackendNeedsImport(out message);
-            var visible = needs;
+            var backend = FindBackend("mochizuki");
+            var visible = _selectedGame != null && _selectedGame.HasExecutable && IsBackendSelected("mochizuki") && backend != null && BackendHintsContain(backend, "mochi-source", "mochi-unsupported-source");
             _modelImportBar.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-            if (_modelImportText != null) _modelImportText.Text = message ?? "";
+            if (_modelImportText != null) {
+                _modelImportText.Text = backend != null && BackendHintsContain(backend, "mochi-unsupported-source") ? L("更换不支持的 Mochizuki 模型源", "Replace unsupported Mochizuki model source") : L("缺少 Mochizuki 模型源", "Mochizuki model source missing");
+                if (visible) SelectedBackendNeedsImport(out message);
+                _modelImportText.ToolTip = message;
+            }
             if (_modelImportButton != null) _modelImportButton.IsEnabled = visible && PresentationIdle;
+            RefreshInstallChecklist();
+        }
+
+        void RefreshInstallChecklist()
+        {
+            var items = (StackPanel)_window.FindName("MissingPackageItems");
+            items.Children.Clear();
+            var missing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var result = _lastInspectResult;
+            if (_selectedGame != null && _selectedGame.HasExecutable && result != null) {
+                if (string.IsNullOrEmpty(result.PackageRoot)) missing.Add(L("缺少安装包", "Installation package missing"));
+                else if (result.Backends != null) foreach (var backend in result.Backends)
+                    if (backend != null && IsBackendSelected(backend.Id)) foreach (var file in backend.MissingPackageFiles ?? new string[0])
+                        missing.Add(L("缺少组件：", "Missing component: ") + file);
+            }
+            foreach (var text in missing) {
+                var row = new DockPanel { Margin = new Thickness(0, 4, 0, 0) };
+                var button = new Button { Content = L("获取完整安装包", "Get full package"), Style = (Style)_window.FindResource("CardAction"), Margin = new Thickness(12, 0, 0, 0), IsEnabled = PresentationIdle };
+                DockPanel.SetDock(button, Dock.Right);
+                button.Click += delegate { OpenUrl("https://github.com/TheAutomatic/dlss-5-amd-project/releases/latest"); };
+                row.Children.Add(button);
+                row.Children.Add(new TextBlock { Text = text, FontSize = 12, Foreground = LauncherTheme.Brush("ThemeDanger"), VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap });
+                items.Children.Add(row);
+            }
+            bool openRrMissing = _selectedGame != null && _selectedGame.HasExecutable && IsOptiScalerSelectedMode() && !IsOpenRrUnsupportedLocked() && _openRrToggle != null && _openRrToggle.IsChecked == true && !HasValidOpenRrDlssd();
+            ((DockPanel)_window.FindName("OpenRrModelImportRow")).Visibility = openRrMissing ? Visibility.Visible : Visibility.Collapsed;
+            SetLabel("OpenRrModelImportText", "缺少 OpenRR 模型源", "OpenRR model source missing");
+            ((TextBlock)_window.FindName("OpenRrModelImportText")).ToolTip = "nvngx_dlssd.dll 310.9.1.0";
+            bool locked = _selectedGame != null && _selectedGame.HasExecutable && IsOpenRrUnsupportedLocked();
+            ((Border)_window.FindName("OpenRrUnsupportedBar")).Visibility = locked ? Visibility.Visible : Visibility.Collapsed;
+            SetLabel("BeforeInstallHeading", "还差这几步", "Before you install");
+            ((Border)_window.FindName("BeforeInstallChecklist")).Visibility = missing.Count > 0 || _modelImportBar.Visibility == Visibility.Visible || openRrMissing || locked ? Visibility.Visible : Visibility.Collapsed;
         }
 
         void PickOpenRrDlssdFile()
@@ -830,7 +859,7 @@ namespace OptScalerNR.Launcher
             if (_session == null || !_session.IsRunning) SetBusy(false, "");
             if (_statusLed != null) _statusLed.Fill = ReadyBrush;
             if (_statusText != null && (_session == null || !_session.IsRunning))
-                SetStatus("成功", "success");
+                SetStatus("", "");
             ApplyInspect(immediateResult, pkgRoot);
             var resume = _resumeInstallAction;
             _resumeInstallAction = "";

@@ -15,6 +15,58 @@ namespace OptScalerNR.Launcher
     public sealed partial class MainController
     {
         string _theme = "auto";
+        enum GpuFamily { Unknown, Rdna4, Rdna3, Rdna2, OtherAmd, NonAmd }
+        GpuFamily _gpuFamily;
+        string _detectedAdapterName;
+
+        static GpuFamily ClassifyGpu(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return GpuFamily.Unknown;
+            if (!ContainsHardwareText(name, "AMD") && !ContainsHardwareText(name, "Radeon"))
+                return ContainsHardwareText(name, "NVIDIA") || ContainsHardwareText(name, "Intel") ? GpuFamily.NonAmd : GpuFamily.Unknown;
+            var match = System.Text.RegularExpressions.Regex.Match(name, @"\bRX\s*(\d{4})(?!\d)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (match.Success) {
+                switch (match.Groups[1].Value[0]) {
+                    case '9': return GpuFamily.Rdna4;
+                    case '7': return GpuFamily.Rdna3;
+                    case '6': return GpuFamily.Rdna2;
+                }
+            }
+            return GpuFamily.OtherAmd;
+        }
+        void SetDetectedAdapter(string name)
+        {
+            _detectedAdapterName = name;
+            _gpuFamily = ClassifyGpu(name);
+            RefreshGpuHints();
+        }
+        void RefreshGpuHints()
+        {
+            bool unknown = _gpuFamily == GpuFamily.Unknown;
+            bool mochiSupported = _gpuFamily == GpuFamily.Rdna4 || _gpuFamily == GpuFamily.Rdna3;
+            SetGpuHint("MochiDescription", mochiSupported ? "" : unknown ? L("适合 RX 7000 / 9000 系列", "For RX 7000 / 9000 series")
+                : _gpuFamily == GpuFamily.Rdna2 ? L("RX 6000 请使用旧版 Mochizuki", "RX 6000: use legacy Mochizuki")
+                : L("当前显卡不在 Mochizuki 支持范围内", "This GPU is not supported by Mochizuki"), !unknown && !mochiSupported);
+            SetGpuHint("OpenRrDescription", _gpuFamily == GpuFamily.Rdna4 ? "" : unknown ? L("适合 RX 9000；RX 7000 为实验性支持", "For RX 9000; experimental on RX 7000")
+                : _gpuFamily == GpuFamily.Rdna3 ? L("RX 7000 为实验性支持", "Experimental on RX 7000")
+                : L("当前显卡不在 OpenRR 支持范围内", "This GPU is not supported by OpenRR"), !unknown && _gpuFamily != GpuFamily.Rdna3 && _gpuFamily != GpuFamily.Rdna4);
+        }
+        void SetGpuHint(string name, string text, bool warning)
+        {
+            var label = (TextBlock)_window.FindName(name);
+            label.Text = text;
+            label.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+            label.Foreground = LauncherTheme.Brush(warning ? "ThemeWarning" : "ThemeMuted");
+            label.ToolTip = _detectedAdapterName;
+        }
+        void SetCardDescription(string name, string zh, string en, string detailsZh, string detailsEn)
+        {
+            SetLabel(name, zh, en);
+            var label = (TextBlock)_window.FindName(name);
+            label.TextWrapping = TextWrapping.NoWrap;
+            label.TextTrimming = TextTrimming.CharacterEllipsis;
+            ((FrameworkElement)label.Parent).ToolTip = L(detailsZh, detailsEn);
+        }
         bool _showAdvancedOptions;
         bool _closed, _presentationBusy, _hardwareStarted, _hardwareComplete;
         string _presentationAction = "", _hardwareDetails, _hardwareWindowsDriver;
@@ -182,6 +234,7 @@ namespace OptScalerNR.Launcher
             en.Foreground = LauncherTheme.Brush(_language == "en" ? "ThemeInk" : "ThemeMuted");
             RefreshDiagnosticModeUI();
             RefreshHardwareText();
+            RefreshGpuHints();
             RefreshHeroState();
         }
         string ThemeName(string theme)
@@ -195,6 +248,7 @@ namespace OptScalerNR.Launcher
             foreach (var name in new[] { "AdvancedProxySection", "AdvancedInstallSection", "AdvancedProfilesSection", "AdvancedLogSection" })
                 ((StackPanel)_window.FindName(name)).Visibility = _showAdvancedOptions ? Visibility.Visible : Visibility.Collapsed;
             if (!_showAdvancedOptions) ((Popup)_window.FindName("ProfileMorePopup")).IsOpen = false;
+            RefreshBackendHints();
         }
         void RefreshProxySummary()
         {
@@ -202,7 +256,7 @@ namespace OptScalerNR.Launcher
             string manual;
             bool hasManual = _selectedGame != null && _proxyChoices.TryGetValue(_selectedGame.Id, out manual) && ProxyRecommendations.Supports(manual);
             var profile = _recommendations == null || _selectedGame == null ? null : _recommendations.Match(_selectedGame);
-            var origin = hasManual ? L("（手动选择）", " (manual)") : profile != null ? L("（Wiki 推荐）", " (Wiki recommended)") : L("（本地检测）", " (local detection)");
+            var origin = hasManual ? L(" · 手动选择", " · Manual") : profile != null ? L(" · Wiki 推荐", " · Wiki recommended") : L(" · 本地检测", " · Local detection");
             SetLabel("ProxySummary", "代理：" + (string.IsNullOrEmpty(proxy) ? "未选择" : proxy + origin), "Proxy: " + (string.IsNullOrEmpty(proxy) ? "Not selected" : proxy + origin));
             bool expanded = ((StackPanel)_window.FindName("ProxyDetails")).Visibility == Visibility.Visible;
             SetLabel("ProxyChangeButton", expanded ? "收起" : "更改", expanded ? "Hide" : "Change");
@@ -297,6 +351,7 @@ namespace OptScalerNR.Launcher
                 _window.Dispatcher.BeginInvoke(new Action(delegate {
                     if (_closed) return;
                     var adapter = completed.Result;
+                    SetDetectedAdapter(adapter == null ? null : adapter.Name);
                     if (adapter != null) {
                         _hardwareDetails = adapter.Name + (string.IsNullOrWhiteSpace(adapter.RadeonVersion) ? "" : " · Adrenalin " + adapter.RadeonVersion.Trim());
                         _hardwareWindowsDriver = adapter.WindowsDriver;
@@ -327,9 +382,11 @@ namespace OptScalerNR.Launcher
             bool missing = string.IsNullOrEmpty(r.PackageRoot);
             if (r.Backends != null) foreach (var backend in r.Backends)
                 if (backend != null && IsBackendSelected(backend.Id) && backend.MissingPackageFiles != null && backend.MissingPackageFiles.Length > 0) missing = true;
-            if (missing) { _heroKicker.Text = L("安装包不完整 · 请检查设置", "Package incomplete · Check settings"); return; }
+            string importMessage;
+            missing |= SelectedBackendNeedsImport(out importMessage);
+            if (missing) { _heroKicker.Text = L("待准备", "Setup needed"); return; }
             _heroKicker.Text = _selectedGame.Installed ? (PackageDiffers(_selectedGame)
-                ? L("已安装 · 版本不同", "Installed · Version differs")
+                ? L("已安装 · 可更新", "Installed · Update available")
                 : PackageStatusText(_selectedGame)) : L("准备就绪 · 可安装", "Ready to install");
         }
         bool PresentationIdle
@@ -379,7 +436,7 @@ namespace OptScalerNR.Launcher
             bool? different;
             if (!TryGetPackageDifference(game, out different)) return L("正在核对版本…", "Checking version…") + tag;
             if (!different.HasValue) return L("已安装 · 版本未知", "Installed · Version unknown") + tag;
-            return (different.Value ? L("版本不同", "Version differs") : L("已安装", "Installed")) + tag;
+            return (different.Value ? L("可更新", "Update available") : L("已安装", "Installed")) + tag;
         }
         void DetectPackageUpdate(LauncherResult result, string requestedPackageRoot)
         {

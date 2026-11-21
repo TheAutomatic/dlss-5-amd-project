@@ -440,7 +440,7 @@
       <!-- Tools -->
       <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
         <Button x:Name="RefreshButton" Style="{DynamicResource IconButton}" local:DialogTheme.Icon="M 13.25 8 A 5.25 5.25 0 1 1 11.71 4.29 M 12.25 1.75 V 4.75 H 9.25" Margin="0,0,2,0" WindowChrome.IsHitTestVisibleInChrome="True"/>
-        <Border Background="{DynamicResource ThemeControl}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="1" CornerRadius="6" Padding="2" Margin="4,0,4,0" VerticalAlignment="Center">
+        <Border Visibility="Collapsed">
           <StackPanel Orientation="Horizontal">
             <Button x:Name="LangZh" Style="{DynamicResource SubtleButton}" Width="32" Height="24" MinHeight="24" Padding="0" FontSize="12" WindowChrome.IsHitTestVisibleInChrome="True"/>
             <Button x:Name="LangEn" Content="EN" Style="{DynamicResource SubtleButton}" Width="32" Height="24" MinHeight="24" Padding="0" FontSize="12" WindowChrome.IsHitTestVisibleInChrome="True"/>
@@ -703,8 +703,6 @@
                         <Border x:Name="OpenRrBadge" Style="{StaticResource Badge}">
                           <TextBlock x:Name="OpenRrStatusText" FontSize="11" Foreground="{DynamicResource ThemeMuted}"/>
                         </Border>
-                        <Button x:Name="OpenRrImportButton" Style="{DynamicResource CardAction}" Margin="8,0,0,0"
-                                local:DialogTheme.Icon="M 8 2.5 V 10 M 5 7 L 8 10 L 11 7 M 3 8.5 V 13.5 H 13 V 8.5"/>
                       </StackPanel>
                       <CheckBox x:Name="OpenRrToggle" Style="{DynamicResource ToggleSwitch}" IsChecked="False" FontWeight="SemiBold" FontSize="13.5" VerticalAlignment="Center"/>
                     </DockPanel>
@@ -712,14 +710,6 @@
                     <TextBlock x:Name="OpenRrNoDlssdWarningText" FontSize="12" Foreground="{DynamicResource ThemeWarning}" Margin="52,6,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
                     <CheckBox x:Name="OpenRrAutoSpoofToggle" Style="{DynamicResource ToggleSwitch}" IsChecked="False" FontSize="12" Foreground="{DynamicResource ThemeMuted}" Margin="52,12,0,0" Visibility="Collapsed" ToolTipService.ShowOnDisabled="True"/>
                   </StackPanel>
-                </Border>
-                <Border x:Name="OpenRrUnsupportedBar" Style="{StaticResource InfoBar}" Background="{DynamicResource ThemeWarningBg}" BorderThickness="0" Margin="0,8,0,0" Visibility="Collapsed">
-                  <DockPanel>
-                    <Button x:Name="UnlockOpenRrBtn" DockPanel.Dock="Right" Style="{DynamicResource CardAction}" Margin="12,0,0,0" VerticalAlignment="Center" Content="强制解锁"/>
-                    <Path DockPanel.Dock="Left" Width="16" Height="16" Stretch="None" Stroke="{DynamicResource ThemeWarning}" StrokeThickness="1.2" Margin="0,0,10,0" VerticalAlignment="Center"
-                          Data="M 3.75 7.25 H 12.25 V 13.75 H 3.75 Z M 5.5 7.25 V 5 A 2.5 2.5 0 0 1 10.5 5 V 7.25"/>
-                    <TextBlock x:Name="OpenRrUnsupportedText" Text="当前游戏未检测到原生 nvngx_dlssd.dll（可能不支持 DLSS 光线重建），OpenRR 已默认锁定" FontSize="12" Foreground="{DynamicResource ThemeWarning}" VerticalAlignment="Center" TextWrapping="Wrap"/>
-                  </DockPanel>
                 </Border>
                 <Border x:Name="OpenRrCollapsedBar" Style="{StaticResource InfoBar}" Margin="0,8,0,0" Visibility="Collapsed">
                   <DockPanel>
@@ -729,15 +719,30 @@
                     <TextBlock x:Name="OpenRrCollapsedText" Text="当前模式仅适用 DLSSNR-AMD；OpenRR / OptiPatcher 已自动屏蔽" FontSize="12" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center" TextWrapping="Wrap"/>
                   </DockPanel>
                 </Border>
-                <Border x:Name="ModelImportBar" Background="{DynamicResource ThemeDangerBg}" BorderBrush="{DynamicResource ThemeDanger}" BorderThickness="1" CornerRadius="8" Margin="0,8,0,0" Visibility="Collapsed">
+                <Border x:Name="BeforeInstallChecklist" Background="{DynamicResource ThemeCardBg}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="1" CornerRadius="8" Margin="0,12,0,0" Padding="16,12" Visibility="Collapsed">
+                  <StackPanel>
+                    <TextBlock x:Name="BeforeInstallHeading" FontWeight="SemiBold" Foreground="{DynamicResource ThemeInk}" Margin="0,0,0,6"/>
+                    <StackPanel x:Name="MissingPackageItems"/>
+                <Border x:Name="ModelImportBar" Margin="0,4,0,0" Visibility="Collapsed">
                   <Grid>
-                    <DockPanel Margin="16,10,12,10">
+                    <DockPanel>
                       <Button x:Name="ModelImportButton" DockPanel.Dock="Right" Style="{DynamicResource GhostButton}" Height="30" FontSize="12" FontWeight="SemiBold" Padding="10,0,12,0" Margin="12,0,0,0" VerticalAlignment="Center"
                               local:DialogTheme.Icon="M 8 2.5 V 10 M 5 7 L 8 10 L 11 7 M 3 8.5 V 13.5 H 13 V 8.5"/>
-                      <TextBlock DockPanel.Dock="Left" Text="⚠" Foreground="{DynamicResource ThemeDanger}" FontSize="16" Margin="0,0,8,0" VerticalAlignment="Center"/>
                       <TextBlock x:Name="ModelImportText" Foreground="{DynamicResource ThemeDanger}" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
                     </DockPanel>
                   </Grid>
+                </Border>
+                    <DockPanel x:Name="OpenRrModelImportRow" Margin="0,4,0,0" Visibility="Collapsed">
+                      <Button x:Name="OpenRrImportButton" DockPanel.Dock="Right" Style="{DynamicResource CardAction}" Margin="12,0,0,0"/>
+                      <TextBlock x:Name="OpenRrModelImportText" FontSize="12" Foreground="{DynamicResource ThemeDanger}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                    </DockPanel>
+                    <Border x:Name="OpenRrUnsupportedBar" Margin="0,4,0,0" Visibility="Collapsed">
+                      <DockPanel>
+                        <Button x:Name="UnlockOpenRrBtn" DockPanel.Dock="Right" Style="{DynamicResource CardAction}" Margin="12,0,0,0" Content="强制解锁"/>
+                        <TextBlock x:Name="OpenRrUnsupportedText" FontSize="12" Foreground="{DynamicResource ThemeWarning}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                      </DockPanel>
+                    </Border>
+                  </StackPanel>
                 </Border>
                 <TextBlock x:Name="BackendPackagePath" Foreground="{DynamicResource ThemeFaint}" FontSize="11" Margin="2,8,0,0" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" Visibility="Collapsed"/>
                 <TextBlock x:Name="MochiHint" TextWrapping="Wrap" Foreground="{DynamicResource ThemeMuted}" FontSize="12" Margin="2,8,0,0" Visibility="Collapsed"/>
@@ -776,6 +781,7 @@
                     <Border x:Name="InjectBanner" Background="Transparent" Padding="0,2" Margin="0,2,0,0">
                       <DockPanel VerticalAlignment="Center">
                         <TextBlock DockPanel.Dock="Left" x:Name="InjectIcon" Text="ℹ" Foreground="{DynamicResource ThemeSuccess}" FontWeight="Bold" Margin="0,0,8,0" VerticalAlignment="Top"/>
+                        <TextBlock x:Name="WikiDetailsText" DockPanel.Dock="Right" Margin="12,0,0,0" VerticalAlignment="Center" FontSize="12"><Hyperlink x:Name="WikiDetailsLink" Foreground="{DynamicResource ThemeInk}"/></TextBlock>
                         <TextBlock x:Name="InjectRecommendation" TextWrapping="Wrap" Text="选择游戏后将分析 PE 导入表并自动匹配推荐代理。" Foreground="{DynamicResource ThemeInk}" FontSize="12" LineHeight="18" VerticalAlignment="Center"/>
                       </DockPanel>
                     </Border>
@@ -848,7 +854,10 @@
                   <TextBlock x:Name="InstallOptionsHeading" FontSize="12" Foreground="{DynamicResource ThemeMuted}" Margin="0,0,0,10"/>
                   <CheckBox x:Name="ReplaceIni" Style="{DynamicResource ToggleSwitch}" IsChecked="True" FontSize="13"/>
                   <StackPanel x:Name="OptiScalerInstallExtras">
-                    <CheckBox x:Name="OptiPatcherToggle" Style="{DynamicResource ToggleSwitch}" FontSize="13" Margin="0,12,0,0"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                      <CheckBox x:Name="OptiPatcherToggle" Style="{DynamicResource ToggleSwitch}" FontSize="13"/>
+                      <TextBlock x:Name="OptiPatcherWikiTag" FontSize="11" Foreground="{DynamicResource ThemeMuted}" Margin="10,0,0,0" VerticalAlignment="Center" Visibility="Collapsed"/>
+                    </StackPanel>
                     <DockPanel Margin="0,12,0,0">
                       <WrapPanel VerticalAlignment="Center">
                         <TextBlock x:Name="PluginHeading" Foreground="{DynamicResource ThemeMuted}" FontSize="12" VerticalAlignment="Center"/>
