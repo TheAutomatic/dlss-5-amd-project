@@ -76,6 +76,7 @@ static class LauncherSmoke
             app.MainWindow = _window;
             _window.Show();
             Pump(3500);
+            WaitForInspection();
 
             var list = (ListBox)Find("GameList");
             var advanced = (CheckBox)Find("ShowAdvancedOptions");
@@ -88,6 +89,8 @@ static class LauncherSmoke
             var backendReason = ((TextBlock)Find("MochiReason")).Text;
             foreach (var appearance in new[] { "classic", "midnight", "light", "dark" }) {
                 Invoke("SetTheme", appearance);
+                Check(((Border)Find("MochiCard")).BorderThickness == new Thickness(appearance == "classic" ? 0 : 1), "card border follows appearance: " + appearance);
+                Check(((Border)Find("MochiBadge")).BorderThickness == new Thickness(0), "status is borderless: " + appearance);
                 Check(((CheckBox)Find("MochiCheck")).IsChecked == backendChecked, "appearance preserves backend selection: " + appearance);
                 Check(((TextBlock)Find("MochiReason")).Text == backendReason, "appearance preserves backend status: " + appearance);
             }
@@ -154,6 +157,12 @@ static class LauncherSmoke
                 foreach (MenuItem item in toggle.ContextMenu.Items)
                     Check(item.IsChecked == ((string)item.Tag == theme), "appearance menu selection: " + item.Tag);
                 toggle.ContextMenu.IsOpen = false;
+                Invoke("SetLanguage", "en");
+                Shot(theme + "-en-optiscaler");
+                ((Button)Find("SettingsTab")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                Pump(200);
+                Shot(theme + "-en-settings");
+                ((Button)Find("SettingsCloseButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             }
 
             // Minimum window size: every key control must stay inside the window.
@@ -227,13 +236,25 @@ static class LauncherSmoke
             Check(((ComboBox)Find("LangCombo")).Items.Count == 2, "language selector retained in Settings");
             Check(((TextBlock)Find("MochiHint")).Visibility == Visibility.Collapsed, "duplicate backend hints hidden");
             Check(((Border)Find("BeforeInstallChecklist")).IsVisible, "prerequisite checklist visible");
+            Check(((SolidColorBrush)((Border)Find("BeforeInstallChecklist")).Background).Color.A > 0, "blocking prerequisites use one filled checklist");
             Check(((System.Windows.Documents.Hyperlink)Find("WikiDetailsLink")).NavigateUri.Scheme == "https", "Wiki details use a navigable URL");
             Call("SetStatus", "库已刷新", "Library refreshed");
             Invoke("SetLanguage", "en");
             Check(((TextBlock)Find("StatusText")).Text == "Library refreshed", "specific status localizes");
             Call("SetStatus", "success", "success");
             Call("RefreshStatusLanguage");
+            Pump(50);
             Check(((TextBlock)Find("StatusText")).Text == "", "generic success hidden");
+            Check(!((FrameworkElement)Find("StatusLed")).IsVisible, "no lone status dot without text");
+            Call("SetStatus", "库已刷新", "Library refreshed");
+            Pump(50);
+            Check(((FrameworkElement)Find("StatusLed")).IsVisible, "specific status retains dot");
+            Call("SetStatus", "", "");
+            Check(!((FrameworkElement)Find("ModeStandaloneTag")).IsVisible && !((FrameworkElement)Find("ModeReShadeTag")).IsVisible, "redundant mode badges removed");
+            foreach (var name in new[] { "MochiHotkeysButton", "MochiShareCodeButton", "ModelImportButton" }) {
+                var button = (Button)Find(name);
+                Check(button.BorderThickness == new Thickness(0) && ((SolidColorBrush)button.Background).Color.A == 0, "secondary action is borderless: " + name);
+            }
 
             var selectedGame = Member(_controller, "_selectedGame");
             var cacheDir = Member(_controller, "_nativeDlssdCacheDir");
@@ -275,6 +296,10 @@ static class LauncherSmoke
             SetMember(backend, "MissingPackageFiles", new string[0]);
             Call("RefreshModelImportBar");
             Check(((Border)Find("BeforeInstallChecklist")).Visibility == Visibility.Collapsed, "no prerequisites means no checklist");
+            SetMember(_controller, "_nativeDlssdCacheVal", false);
+            Call("RefreshModelImportBar");
+            Check(((Border)Find("BeforeInstallChecklist")).IsVisible && ((SolidColorBrush)((Border)Find("BeforeInstallChecklist")).Background).Color.A == 0, "lock-only notice has no filled banner");
+            SetMember(_controller, "_nativeDlssdCacheVal", true);
             SetMember(backend, "Hints", new[] { "mochi-unsupported-source" });
             Call("RefreshModelImportBar");
             Check(((TextBlock)Find("ModelImportText")).Text.Contains("unsupported"), "unsupported model source has actionable checklist item");
@@ -340,7 +365,8 @@ static class LauncherSmoke
             var isMc = Member(info, "IsRtxRemixMinecraft") as bool? == true;
             if (isMc == rtxMc)
             {
-                if (list.SelectedIndex != i) { list.SelectedIndex = i; Pump(1200); }
+                if (list.SelectedIndex != i) { list.SelectedIndex = i; Pump(150); }
+                WaitForInspection();
                 return true;
             }
         }
@@ -404,6 +430,7 @@ static class LauncherSmoke
     {
         try
         {
+            WaitForInspection();
             var root = (FrameworkElement)_window.Content;
             int w = (int)Math.Ceiling(root.ActualWidth), h = (int)Math.Ceiling(root.ActualHeight);
             if (w < 1 || h < 1) return;
@@ -433,6 +460,23 @@ static class LauncherSmoke
     {
         Failures.Add(message);
         Console.WriteLine("FAIL: " + message);
+    }
+
+    static void WaitForInspection()
+    {
+        var end = DateTime.UtcNow.AddSeconds(30);
+        while (DateTime.UtcNow < end) {
+            var session = Member(_controller, "_session");
+            if (session == null && !(bool)Member(_controller, "_presentationBusy") && Member(_controller, "_lastInspectResult") != null) {
+                Pump(100);
+                if (Member(_controller, "_session") == null && !(bool)Member(_controller, "_presentationBusy")) {
+                    Call("RefreshInspectionText");
+                    return;
+                }
+            }
+            Pump(50);
+        }
+        throw new TimeoutException("Inspection did not settle before screenshot");
     }
 
     static void Pump(int ms)

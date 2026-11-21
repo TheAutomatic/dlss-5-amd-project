@@ -109,6 +109,7 @@ namespace OptScalerNR.Launcher
                 catch { light = true; }
             }
             IsDark = !light;
+            Resources["ThemeCardBorderThickness"] = new Thickness(_mode == "classic" ? 0 : 1);
             var palette = _mode == "classic" ? Classic : _mode == "midnight" ? Midnight : light ? Light : Dark;
             for (int i = 0; i < Keys.Length; i++)
                 Colors[i].Color = (Color)ColorConverter.ConvertFromString(palette[i]);

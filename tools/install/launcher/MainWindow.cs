@@ -790,12 +790,7 @@ namespace OptScalerNR.Launcher
             if (_mochiReason != null)
             {
                 _mochiReason.Text = reason;
-                _mochiReason.Foreground = ready ? ReadyBrush : MissingBrush;
-            }
-            if (_mochiBadge != null)
-            {
-                _mochiBadge.Background = ready ? ReadyBg : MissingBg;
-                _mochiBadge.BorderBrush = ready ? ReadyBorder : MissingBorder;
+                _mochiReason.Foreground = ready ? ReadyBrush : IsBackendSelected(id) ? WarningBrush : MissingBrush;
             }
         }
 

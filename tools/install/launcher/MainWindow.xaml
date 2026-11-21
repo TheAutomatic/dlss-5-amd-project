@@ -125,16 +125,16 @@
     <Style x:Key="Card" TargetType="Border">
       <Setter Property="Background" Value="{DynamicResource ThemeCardBg}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource ThemeHairline}"/>
-      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="BorderThickness" Value="{DynamicResource ThemeCardBorderThickness}"/>
       <Setter Property="CornerRadius" Value="8"/>
       <Setter Property="Padding" Value="16,14"/>
     </Style>
     <Style x:Key="Surface" TargetType="Border" BasedOn="{StaticResource Card}"/>
     <!-- Informational strip inside a card (lock notices, import prompts). -->
     <Style x:Key="InfoBar" TargetType="Border">
-      <Setter Property="Background" Value="{DynamicResource ThemeCardBg}"/>
+      <Setter Property="Background" Value="Transparent"/>
       <Setter Property="BorderBrush" Value="{DynamicResource ThemeHairline}"/>
-      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="BorderThickness" Value="0"/>
       <Setter Property="CornerRadius" Value="8"/>
       <Setter Property="Padding" Value="14,10"/>
     </Style>
@@ -152,11 +152,11 @@
     </Style>
     <!-- Low-saturation status badge. -->
     <Style x:Key="Badge" TargetType="Border">
-      <Setter Property="Background" Value="{DynamicResource ThemeSubtle}"/>
+      <Setter Property="Background" Value="Transparent"/>
       <Setter Property="BorderBrush" Value="{DynamicResource ThemeHairline}"/>
-      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="BorderThickness" Value="0"/>
       <Setter Property="CornerRadius" Value="4"/>
-      <Setter Property="Padding" Value="7,1,7,2"/>
+      <Setter Property="Padding" Value="0"/>
       <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
 
@@ -526,9 +526,7 @@
                     <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="FontWeight" Value="Normal"/><Style.Triggers><DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True"><Setter Property="FontWeight" Value="SemiBold"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
                   </TextBlock>
                   <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                    <Border Background="{DynamicResource ThemeCardBg}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="1" CornerRadius="3" Padding="5,0,5,1" VerticalAlignment="Center" MaxWidth="96">
-                      <TextBlock Text="{Binding SourceText}" FontSize="10.5" Foreground="{DynamicResource ThemeMuted}" TextTrimming="CharacterEllipsis"/>
-                    </Border>
+                    <TextBlock Text="{Binding SourceText}" FontSize="10.5" Foreground="{DynamicResource ThemeMuted}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" MaxWidth="96"/>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0" ToolTip="{Binding StatusExplanation}">
                       <Ellipse Width="6" Height="6" Fill="{Binding StatusBrush}" Margin="0,1,5,0" VerticalAlignment="Center"/>
                       <TextBlock Text="{Binding StatusText}" FontSize="11" Foreground="{DynamicResource ThemeMuted}" TextTrimming="CharacterEllipsis" MaxWidth="120"/>
@@ -588,7 +586,7 @@
               <StackPanel>
                 <DockPanel Margin="2,0,0,10">
                   <Border x:Name="ModeDetectBadge" DockPanel.Dock="Right" Style="{StaticResource Badge}" Visibility="Collapsed">
-                    <TextBlock x:Name="ModeDetectText" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource ThemeMuted}"/>
+                    <StackPanel Orientation="Horizontal"><Ellipse Width="6" Height="6" Margin="0,0,5,0" Fill="{Binding Foreground, ElementName=ModeDetectText}"/><TextBlock x:Name="ModeDetectText" FontSize="11" Foreground="{DynamicResource ThemeMuted}"/></StackPanel>
                   </Border>
                   <TextBlock x:Name="InstallModeHeading" Text="安装模式" Style="{StaticResource SectionHeader}"/>
                 </DockPanel>
@@ -596,7 +594,7 @@
                   <RadioButton x:Name="ModeOptiScalerRadio" GroupName="InstallMode" Style="{StaticResource ModeCardRadio}" Margin="0,0,6,0" IsChecked="True">
                     <StackPanel>
                       <DockPanel Margin="0,0,0,5">
-                        <Border DockPanel.Dock="Right" Background="{DynamicResource ThemeSuccessBg}" CornerRadius="4" Padding="6,1,6,2" VerticalAlignment="Center" Margin="6,0,0,0">
+                        <Border DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0">
                           <TextBlock x:Name="ModeOptiTag" Text="推荐" FontSize="10.5" FontWeight="SemiBold" Foreground="{DynamicResource ThemeSuccess}"/>
                         </Border>
                         <TextBlock x:Name="ModeOptiTitle" Text="OptiScaler（默认）" FontWeight="SemiBold" FontSize="13" Foreground="{DynamicResource ThemeInk}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
@@ -607,7 +605,7 @@
                   <RadioButton x:Name="ModeStandaloneRadio" GroupName="InstallMode" Style="{StaticResource ModeCardRadio}" Margin="3,0,3,0">
                     <StackPanel>
                       <DockPanel Margin="0,0,0,5">
-                        <Border DockPanel.Dock="Right" Style="{StaticResource Badge}" Margin="6,0,0,0">
+                        <Border DockPanel.Dock="Right" Visibility="Collapsed">
                           <TextBlock x:Name="ModeStandaloneTag" Text="直通" FontSize="10.5" FontWeight="SemiBold" Foreground="{DynamicResource ThemeMuted}"/>
                         </Border>
                         <TextBlock x:Name="ModeStandaloneTitle" Text="独立直通（Standalone）" FontWeight="SemiBold" FontSize="13" Foreground="{DynamicResource ThemeInk}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
@@ -618,7 +616,7 @@
                   <RadioButton x:Name="ModeReShadeRadio" GroupName="InstallMode" Style="{StaticResource ModeCardRadio}" Margin="6,0,0,0">
                     <StackPanel>
                       <DockPanel Margin="0,0,0,5">
-                        <Border DockPanel.Dock="Right" Style="{StaticResource Badge}" Margin="6,0,0,0">
+                        <Border DockPanel.Dock="Right" Visibility="Collapsed">
                           <TextBlock x:Name="ModeReShadeTag" Text="经典兼容" FontSize="10.5" FontWeight="SemiBold" Foreground="{DynamicResource ThemeMuted}"/>
                         </Border>
                         <TextBlock x:Name="ModeReShadeTitle" Text="ReShade 兼容模式" FontWeight="SemiBold" FontSize="13" Foreground="{DynamicResource ThemeInk}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
@@ -633,7 +631,7 @@
                     <Border Width="3" CornerRadius="1.5" Margin="0,14" HorizontalAlignment="Left" Background="{DynamicResource ThemeAccent}"/>
                     <StackPanel Margin="16,13,14,13">
                       <DockPanel Margin="0,0,0,6">
-                        <Border DockPanel.Dock="Right" Background="{DynamicResource ThemeSuccessBg}" CornerRadius="4" Padding="7,1,7,2" VerticalAlignment="Center" Margin="6,0,0,0">
+                        <Border DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0">
                           <TextBlock x:Name="RtxRemixMcTag" Text="专用模式" FontSize="10.5" FontWeight="SemiBold" Foreground="{DynamicResource ThemeSuccess}"/>
                         </Border>
                         <TextBlock x:Name="RtxRemixMcTitle" Text="RTX Remix for Minecraft（Java 版）" FontWeight="SemiBold" FontSize="13.5" Foreground="{DynamicResource ThemeInk}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
@@ -642,8 +640,8 @@
                     </StackPanel>
                   </Grid>
                 </Border>
-                <Border x:Name="ModeSwitchNotice" Background="{DynamicResource ThemeWarningBg}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="1" CornerRadius="8" Padding="12,8" Margin="0,10,0,0" Visibility="Collapsed">
-                  <TextBlock x:Name="ModeSwitchNoticeText" Foreground="{DynamicResource ThemeWarning}" FontSize="12" TextWrapping="Wrap"/>
+                <Border x:Name="ModeSwitchNotice" Margin="2,10,0,0" Visibility="Collapsed">
+                  <DockPanel><TextBlock Text="ℹ" Foreground="{DynamicResource ThemeMuted}" Margin="0,0,8,0"/><TextBlock x:Name="ModeSwitchNoticeText" Foreground="{DynamicResource ThemeMuted}" FontSize="12" TextWrapping="Wrap"/></DockPanel>
                 </Border>
               </StackPanel>
             </Border>
@@ -663,10 +661,10 @@
                       <DockPanel>
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top" Margin="8,0,0,0">
                           <Border x:Name="MochiRequiredBadge" Style="{StaticResource Badge}" Margin="0,0,8,0" Visibility="Collapsed">
-                            <TextBlock x:Name="MochiRequiredText" Text="当前模式必选" FontSize="11" Foreground="{DynamicResource ThemeMuted}"/>
+                            <StackPanel Orientation="Horizontal"><Ellipse Width="6" Height="6" Margin="0,0,5,0" Fill="{Binding Foreground, ElementName=MochiRequiredText}"/><TextBlock x:Name="MochiRequiredText" Text="当前模式必选" FontSize="11" Foreground="{DynamicResource ThemeMuted}"/></StackPanel>
                           </Border>
-                          <Border x:Name="MochiMcWarningBadge" Style="{StaticResource Badge}" Background="{DynamicResource ThemeWarningBg}" BorderThickness="0" Margin="0,0,8,0" Visibility="Collapsed">
-                            <TextBlock x:Name="MochiMcWarningBadgeText" Text="不建议用于 MC" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource ThemeWarning}"/>
+                          <Border x:Name="MochiMcWarningBadge" Style="{StaticResource Badge}" Margin="0,0,8,0" Visibility="Collapsed">
+                            <TextBlock x:Name="MochiMcWarningBadgeText" Text="不建议用于 MC" FontSize="11" Foreground="{DynamicResource ThemeMuted}"/>
                           </Border>
                           <Button x:Name="RelockMochiMcBtn" Style="{DynamicResource CardAction}" Margin="0,0,8,0" Content="重新锁定" Visibility="Collapsed"
                                   local:DialogTheme.Icon="M 3.75 7.25 H 12.25 V 13.75 H 3.75 Z M 5.5 7.25 V 5 A 2.5 2.5 0 0 1 10.5 5 V 7.25"/>
@@ -676,9 +674,9 @@
                         <CheckBox x:Name="MochiCheck" Style="{DynamicResource ToggleSwitch}" Content="mochizuki 0.0.9 (M3)" FontWeight="SemiBold" FontSize="13.5" VerticalAlignment="Center" IsChecked="True" IsEnabled="True"/>
                       </DockPanel>
                       <TextBlock x:Name="MochiDescription" Grid.Row="1" Style="{StaticResource Caption}" Margin="52,6,0,0"/>
-                      <TextBlock x:Name="MochiMcWarningText" Grid.Row="2" FontSize="12" Foreground="{DynamicResource ThemeWarning}" Margin="52,6,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+                      <TextBlock x:Name="MochiMcWarningText" Grid.Row="2" FontSize="12" Foreground="{DynamicResource ThemeMuted}" Margin="52,6,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
                       <Border x:Name="MochiBadge" Grid.Row="3" Style="{StaticResource Badge}" Margin="52,10,0,0" HorizontalAlignment="Left">
-                        <TextBlock x:Name="MochiReason" FontSize="11" Foreground="{DynamicResource ThemeMuted}"/>
+                        <StackPanel Orientation="Horizontal"><Ellipse Width="6" Height="6" Margin="0,0,5,0" Fill="{Binding Foreground, ElementName=MochiReason}"/><TextBlock x:Name="MochiReason" FontSize="11" Foreground="{DynamicResource ThemeMuted}"/></StackPanel>
                       </Border>
                     </Grid>
                   </Border>
@@ -695,19 +693,19 @@
                   <StackPanel>
                     <DockPanel>
                       <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0">
-                        <Border x:Name="OpenRrNoDlssdWarningBadge" Style="{StaticResource Badge}" Background="{DynamicResource ThemeWarningBg}" BorderThickness="0" Margin="0,0,8,0" Visibility="Collapsed">
-                          <TextBlock x:Name="OpenRrNoDlssdWarningBadgeText" Text="未检测到原生 DLSSD" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource ThemeWarning}"/>
+                        <Border x:Name="OpenRrNoDlssdWarningBadge" Style="{StaticResource Badge}" Margin="0,0,8,0" Visibility="Collapsed">
+                          <TextBlock x:Name="OpenRrNoDlssdWarningBadgeText" Text="未检测到原生 DLSSD" FontSize="11" Foreground="{DynamicResource ThemeMuted}"/>
                         </Border>
                         <Button x:Name="RelockOpenRrBtn" Style="{DynamicResource CardAction}" Margin="0,0,8,0" Content="重新锁定" Visibility="Collapsed"
                                 local:DialogTheme.Icon="M 3.75 7.25 H 12.25 V 13.75 H 3.75 Z M 5.5 7.25 V 5 A 2.5 2.5 0 0 1 10.5 5 V 7.25"/>
                         <Border x:Name="OpenRrBadge" Style="{StaticResource Badge}">
-                          <TextBlock x:Name="OpenRrStatusText" FontSize="11" Foreground="{DynamicResource ThemeMuted}"/>
+                          <StackPanel Orientation="Horizontal"><Ellipse Width="6" Height="6" Margin="0,0,5,0" Fill="{Binding Foreground, ElementName=OpenRrStatusText}"/><TextBlock x:Name="OpenRrStatusText" FontSize="11" Foreground="{DynamicResource ThemeMuted}"/></StackPanel>
                         </Border>
                       </StackPanel>
                       <CheckBox x:Name="OpenRrToggle" Style="{DynamicResource ToggleSwitch}" IsChecked="False" FontWeight="SemiBold" FontSize="13.5" VerticalAlignment="Center"/>
                     </DockPanel>
                     <TextBlock x:Name="OpenRrDescription" Style="{StaticResource Caption}" Margin="52,6,0,0"/>
-                    <TextBlock x:Name="OpenRrNoDlssdWarningText" FontSize="12" Foreground="{DynamicResource ThemeWarning}" Margin="52,6,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+                    <TextBlock x:Name="OpenRrNoDlssdWarningText" FontSize="12" Foreground="{DynamicResource ThemeMuted}" Margin="52,6,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
                     <CheckBox x:Name="OpenRrAutoSpoofToggle" Style="{DynamicResource ToggleSwitch}" IsChecked="False" FontSize="12" Foreground="{DynamicResource ThemeMuted}" Margin="52,12,0,0" Visibility="Collapsed" ToolTipService.ShowOnDisabled="True"/>
                   </StackPanel>
                 </Border>
@@ -719,27 +717,30 @@
                     <TextBlock x:Name="OpenRrCollapsedText" Text="当前模式仅适用 DLSSNR-AMD；OpenRR / OptiPatcher 已自动屏蔽" FontSize="12" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center" TextWrapping="Wrap"/>
                   </DockPanel>
                 </Border>
-                <Border x:Name="BeforeInstallChecklist" Background="{DynamicResource ThemeCardBg}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="1" CornerRadius="8" Margin="0,12,0,0" Padding="16,12" Visibility="Collapsed">
+                <Border x:Name="BeforeInstallChecklist" Style="{StaticResource Card}" BorderThickness="0" Margin="0,12,0,0" Padding="16,12" Visibility="Collapsed">
                   <StackPanel>
                     <TextBlock x:Name="BeforeInstallHeading" FontWeight="SemiBold" Foreground="{DynamicResource ThemeInk}" Margin="0,0,0,6"/>
                     <StackPanel x:Name="MissingPackageItems"/>
                 <Border x:Name="ModelImportBar" Margin="0,4,0,0" Visibility="Collapsed">
                   <Grid>
                     <DockPanel>
-                      <Button x:Name="ModelImportButton" DockPanel.Dock="Right" Style="{DynamicResource GhostButton}" Height="30" FontSize="12" FontWeight="SemiBold" Padding="10,0,12,0" Margin="12,0,0,0" VerticalAlignment="Center"
+                      <Button x:Name="ModelImportButton" DockPanel.Dock="Right" Style="{DynamicResource CardAction}" Height="30" FontSize="12" FontWeight="SemiBold" Padding="10,0,12,0" Margin="12,0,0,0" VerticalAlignment="Center"
                               local:DialogTheme.Icon="M 8 2.5 V 10 M 5 7 L 8 10 L 11 7 M 3 8.5 V 13.5 H 13 V 8.5"/>
+                      <TextBlock Text="⚠" Foreground="{DynamicResource ThemeDanger}" Margin="0,0,6,0" VerticalAlignment="Center"/>
                       <TextBlock x:Name="ModelImportText" Foreground="{DynamicResource ThemeDanger}" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"/>
                     </DockPanel>
                   </Grid>
                 </Border>
                     <DockPanel x:Name="OpenRrModelImportRow" Margin="0,4,0,0" Visibility="Collapsed">
                       <Button x:Name="OpenRrImportButton" DockPanel.Dock="Right" Style="{DynamicResource CardAction}" Margin="12,0,0,0"/>
+                      <TextBlock Text="⚠" Foreground="{DynamicResource ThemeDanger}" Margin="0,0,6,0" VerticalAlignment="Center"/>
                       <TextBlock x:Name="OpenRrModelImportText" FontSize="12" Foreground="{DynamicResource ThemeDanger}" TextWrapping="Wrap" VerticalAlignment="Center"/>
                     </DockPanel>
                     <Border x:Name="OpenRrUnsupportedBar" Margin="0,4,0,0" Visibility="Collapsed">
                       <DockPanel>
                         <Button x:Name="UnlockOpenRrBtn" DockPanel.Dock="Right" Style="{DynamicResource CardAction}" Margin="12,0,0,0" Content="强制解锁"/>
-                        <TextBlock x:Name="OpenRrUnsupportedText" FontSize="12" Foreground="{DynamicResource ThemeWarning}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                        <TextBlock Text="ℹ" Foreground="{DynamicResource ThemeMuted}" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="OpenRrUnsupportedText" FontSize="12" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center" TextWrapping="Wrap"/>
                       </DockPanel>
                     </Border>
                   </StackPanel>
@@ -912,7 +913,7 @@
                     </Border>
                   </Popup>
                   <Grid Visibility="Collapsed"><TextBox x:Name="IniSearchBox"/><TextBlock x:Name="IniSelectHint"/></Grid>
-                  <Border x:Name="StyleShareBar" Background="{DynamicResource ThemeLayer}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="1" CornerRadius="6" Padding="14,10" Margin="0,14,0,0">
+                  <Border x:Name="StyleShareBar" Padding="0,10,0,0" Margin="0,14,0,0">
                     <DockPanel>
                       <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                         <Button x:Name="StyleOutButton" Style="{DynamicResource CardAction}" Height="30" Margin="8,0,0,0"
@@ -964,7 +965,7 @@
         <ColumnDefinition Width="Auto"/>
       </Grid.ColumnDefinitions>
       <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-        <Ellipse x:Name="StatusLed" Width="7" Height="7" VerticalAlignment="Center" Fill="{DynamicResource ThemeSuccess}" Margin="0,0,8,0"/>
+        <Ellipse x:Name="StatusLed" Visibility="{Binding Visibility, ElementName=StatusText}" Width="7" Height="7" VerticalAlignment="Center" Fill="{DynamicResource ThemeSuccess}" Margin="0,0,8,0"/>
         <TextBlock x:Name="StatusText" VerticalAlignment="Center" Foreground="{DynamicResource ThemeMuted}" FontSize="11.5" MaxWidth="420" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}">
           <TextBlock.Style>
             <Style TargetType="TextBlock"><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger></Style.Triggers></Style>
@@ -1004,29 +1005,34 @@
           <TextBlock x:Name="SettingsHeading" DockPanel.Dock="Top" FontSize="20" FontWeight="SemiBold" Foreground="{DynamicResource ThemeInk}" Margin="24,20,24,14"/>
           <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="24,0,20,18">
             <StackPanel>
-              <Border Background="{DynamicResource ThemeLayer}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="1" CornerRadius="6" Padding="16,10" Margin="0,0,0,4">
+              <Border x:Name="SettingsOptionsPanel" Style="{StaticResource Card}" Padding="0">
+              <StackPanel>
+              <Border Padding="16,10">
                 <DockPanel>
                   <ComboBox x:Name="LangCombo" DockPanel.Dock="Right" Width="180" Height="32"/>
                   <TextBlock x:Name="LanguageHeading" Foreground="{DynamicResource ThemeInk}" VerticalAlignment="Center"/>
                 </DockPanel>
               </Border>
-              <Border Background="{DynamicResource ThemeLayer}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="1" CornerRadius="6" Padding="16,10" Margin="0,0,0,4">
+              <Border Background="{DynamicResource ThemeBorder}" Height="1" Margin="16,0"/>
+              <Border Padding="16,10">
                 <DockPanel>
                   <ComboBox x:Name="ThemeCombo" DockPanel.Dock="Right" Width="180" Height="32"/>
                   <TextBlock x:Name="ThemeHeading" Foreground="{DynamicResource ThemeInk}" VerticalAlignment="Center"/>
                 </DockPanel>
               </Border>
-              <Border Background="{DynamicResource ThemeLayer}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="1" CornerRadius="6" Padding="16,12" Margin="0,0,0,4">
+              <Border Background="{DynamicResource ThemeBorder}" Height="1" Margin="16,0"/>
+              <Border Padding="16,12">
                 <CheckBox x:Name="ShowAdvancedOptions" Style="{DynamicResource ToggleSwitch}" FontSize="13"/>
               </Border>
-              <Border Background="{DynamicResource ThemeLayer}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="1" CornerRadius="6" Padding="16,12" Margin="0,0,0,4">
+              <Border Background="{DynamicResource ThemeBorder}" Height="1" Margin="16,0"/>
+              <Border Padding="16,12">
                 <DockPanel>
                   <Button x:Name="DiagnosticModeButton" DockPanel.Dock="Right" Style="{DynamicResource CardAction}" Height="30" Margin="12,0,0,0" VerticalAlignment="Center"/>
                   <CheckBox x:Name="ScanOnStartup" Style="{DynamicResource ToggleSwitch}" FontSize="13" VerticalAlignment="Center"/>
                 </DockPanel>
               </Border>
-              <Grid x:Name="DiagnosticPackagePanel" Visibility="Collapsed" Margin="0,0,0,4">
-                <Border Background="{DynamicResource ThemeLayer}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="1" CornerRadius="6"/>
+              <Grid x:Name="DiagnosticPackagePanel" Visibility="Collapsed">
+                <Border Background="{DynamicResource ThemeBorder}" Height="1" Margin="16,0" VerticalAlignment="Top"/>
                 <StackPanel Margin="16,12">
                   <TextBlock x:Name="PackageHeading" Foreground="{DynamicResource ThemeInk}" Margin="0,0,0,8"/>
                   <DockPanel>
@@ -1036,6 +1042,8 @@
                   <TextBlock x:Name="PackageDesc" Style="{StaticResource Caption}" FontSize="11.5" Margin="0,8,0,0"/>
                 </StackPanel>
               </Grid>
+              </StackPanel>
+              </Border>
               <TextBlock x:Name="CommunityHeading" Style="{StaticResource SectionHeader}" FontSize="13" Margin="2,18,0,8"/>
               <WrapPanel>
                 <Button x:Name="GithubButton" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,8,8" ToolTip="https://github.com/TheAutomatic/dlss-5-amd-project"

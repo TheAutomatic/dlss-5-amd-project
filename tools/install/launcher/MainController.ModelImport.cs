@@ -343,23 +343,17 @@ namespace OptScalerNR.Launcher
             {
                 _openRrStatusText.Text = L("已关闭", "Off");
                 _openRrStatusText.Foreground = MissingBrush;
-                _openRrBadge.Background = MissingBg;
-                _openRrBadge.BorderBrush = MissingBorder;
             }
             else if (hasDlssd)
             {
                 _openRrStatusText.Text = isPlaceholderAsi ? L("占位符待替换 · nvngx_dlssd.dll 已就绪", "Placeholder ASI · nvngx_dlssd.dll Ready") : L("已就绪 · nvngx_dlssd.dll 310.9.1", "Ready · nvngx_dlssd.dll 310.9.1");
                 _openRrStatusText.Foreground = ReadyBrush;
-                _openRrBadge.Background = ReadyBg;
-                _openRrBadge.BorderBrush = ReadyBorder;
             }
             else
             {
                 _openRrStatusText.Text = L("待准备", "Setup needed");
                 _openRrStatusText.ToolTip = isPlaceholderAsi ? L("openrr.asi 是占位文件，请替换后导入模型源。", "openrr.asi is a placeholder; replace it and import a model source.") : "nvngx_dlssd.dll 310.9.1.0";
                 _openRrStatusText.Foreground = WarningBrush;
-                _openRrBadge.Background = MissingBg;
-                _openRrBadge.BorderBrush = WarningBrush;
             }
             if (_openRrImportButton != null)
             {
@@ -423,7 +417,7 @@ namespace OptScalerNR.Launcher
                 DockPanel.SetDock(button, Dock.Right);
                 button.Click += delegate { OpenUrl("https://github.com/TheAutomatic/dlss-5-amd-project/releases/latest"); };
                 row.Children.Add(button);
-                row.Children.Add(new TextBlock { Text = text, FontSize = 12, Foreground = LauncherTheme.Brush("ThemeDanger"), VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap });
+                row.Children.Add(new TextBlock { Text = "⚠ " + text, FontSize = 12, Foreground = LauncherTheme.Brush("ThemeDanger"), VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap });
                 items.Children.Add(row);
             }
             bool openRrMissing = _selectedGame != null && _selectedGame.HasExecutable && IsOptiScalerSelectedMode() && !IsOpenRrUnsupportedLocked() && _openRrToggle != null && _openRrToggle.IsChecked == true && !HasValidOpenRrDlssd();
@@ -433,6 +427,8 @@ namespace OptScalerNR.Launcher
             bool locked = _selectedGame != null && _selectedGame.HasExecutable && IsOpenRrUnsupportedLocked();
             ((Border)_window.FindName("OpenRrUnsupportedBar")).Visibility = locked ? Visibility.Visible : Visibility.Collapsed;
             SetLabel("BeforeInstallHeading", "还差这几步", "Before you install");
+            bool blocking = missing.Count > 0 || _modelImportBar.Visibility == Visibility.Visible || openRrMissing;
+            ((Border)_window.FindName("BeforeInstallChecklist")).Background = blocking ? LauncherTheme.Brush("ThemeDangerBg") : System.Windows.Media.Brushes.Transparent;
             ((Border)_window.FindName("BeforeInstallChecklist")).Visibility = missing.Count > 0 || _modelImportBar.Visibility == Visibility.Visible || openRrMissing || locked ? Visibility.Visible : Visibility.Collapsed;
         }
 
