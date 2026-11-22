@@ -55,11 +55,11 @@ try {
     [void][IO.Directory]::CreateDirectory($bitnessDir)
     $peProbe = $asm.GetType('OptScalerNR.Launcher.PeProbe', $true)
     foreach ($bits in 32,64) {
-        $systemDir = if ($bits -eq 32) { [Environment]::SystemDirectory.Replace('System32', 'SysWOW64') } else { [Environment]::SystemDirectory }
+        $systemDir = if ($bits -eq 32) { [Environment]::GetFolderPath('SystemX86') } else { [Environment]::SystemDirectory }
         $exe = Join-Path $bitnessDir "Game$bits.exe"
         Copy-Item -LiteralPath (Join-Path $systemDir 'where.exe') -Destination $exe
         $pe = Get-ProxyRecommendation $exe
-        Assert ($pe.pe.bitness -eq $bits -and $pe.pe.ok -and !$pe.blockInstall -and @($pe.pe.imports).Count -gt 0) "Incorrect $bits-bit PE probe"
+        Assert ($pe.pe.bitness -eq $bits -and $pe.pe.ok -and !$pe.blockInstall -and @($pe.pe.imports).Count -gt 0) "Incorrect ${bits}-bit PE probe: $($pe.pe | ConvertTo-Json -Compress)"
         Assert ($peProbe::ReadGameBitness($exe) -eq $bits) "Launcher did not detect $bits-bit PE"
     }
     $x86 = Join-Path $bitnessDir 'Game32.exe'
@@ -77,6 +77,56 @@ try {
     Assert ((Get-ProxyRecommendation $x86).installedMode -eq 'reshade-feeder-vulkan') 'x86 ReShade Vulkan install was not detected'
     Assert ($peProbe::DetectInstalledMode($bitnessDir) -eq 'reshade-feeder-vulkan') 'Launcher did not identify the x86 ReShade Vulkan install'
     Write-Host '32-bit and 64-bit PE probing, x86 mode restrictions, and x86 ReShade installation detection passed.'
+
+    Copy-Item -LiteralPath (Join-Path $install 'install.ps1'), (Join-Path $install 'uninstall.ps1') -Destination $pkgFixture
+    foreach ($rel in 'OptiScaler/plugins/dlssnr-amd.asi','model-tools/dlssnr_extract_model.exe',
+            'dlssnr-amd/shaders/fixture','dlssnr-amd/aco/d3d12_outer.nra','dlssnr-amd/aco/rdna3/d3d12_outer.nra',
+            'dlssnr-amd/CC_SMALL_FP8.bin','reshade/reshade-shaders/Shaders/DLSS5_Feed.fx',
+            'reshade/ReShade32.dll','reshade/ReShade64.dll','reshade/dlssnr_amd.addon32','reshade/dlssnr_amd.addon64',
+            'reshade/vk-override/implicit_layer/ReShade32.json','reshade/vk-override/implicit_layer/ReShade64.json',
+            'dxvk/x86/d3d9.dll','dxvk/x86/dxgi.dll','vulkan/x86/vulkan-1.dll','vulkan/vulkan-1.dll') {
+        Put (Join-Path $pkgFixture $rel) $rel
+    }
+    foreach ($bits in 32,64) {
+        foreach ($mode in 'reshade-feeder','reshade-feeder-dx9','reshade-feeder-vulkan') {
+            if ($bits -eq 64 -and $mode -eq 'reshade-feeder-dx9') { continue }
+            $target = Join-Path $work "$mode-$bits"
+            [void][IO.Directory]::CreateDirectory($target)
+            $targetExe = Join-Path $target 'Game.exe'
+            Copy-Item -LiteralPath $x86 -Destination $targetExe
+            $request = @{schema=1;requestId='test';action='install';gameExe=$targetExe;packageRoot=$pkgFixture;installMode=$mode;
+                explicitDecisions=@{mochizukiNetworks=@('small')}}
+            if ($bits -eq 64) { $request.gameBitness = 64 }
+            Put $req ($request | ConvertTo-Json -Depth 5)
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $install 'launcher-worker.ps1') -RequestJson $req -ResultJson $res -EventsJsonl (Join-Path $work 'events.jsonl')
+            $code = $LASTEXITCODE
+            if ($code -ne 0) {
+                Get-Content -LiteralPath (Join-Path $work 'setup.stdout.log'), (Join-Path $work 'setup.stderr.log') -ErrorAction SilentlyContinue | Write-Host
+                throw "$mode $bits-bit failed: $(Get-Content -LiteralPath $res -Raw)"
+            }
+            $addon = "dlssnr_amd.addon$bits"
+            $otherBits = if ($bits -eq 32) { 64 } else { 32 }
+            $component = "ReShade$bits.dll"
+            $targetDll = if ($mode -eq 'reshade-feeder') { 'dxgi.dll' } else { $component }
+            Assert ((Get-Content -LiteralPath (Join-Path $target $addon) -Raw) -eq "reshade/$addon") "$mode installed wrong add-on"
+            Assert ((Get-Content -LiteralPath (Join-Path $target $targetDll) -Raw) -eq "reshade/$component") "$mode installed wrong ReShade DLL"
+            Assert (!(Test-Path -LiteralPath (Join-Path $target "dlssnr_amd.addon$otherBits"))) "$mode installed the other architecture's add-on"
+            if ($mode -ne 'reshade-feeder') {
+                $loader = if ($bits -eq 32) { 'vulkan/x86/vulkan-1.dll' } else { 'vulkan/vulkan-1.dll' }
+                $layer = "vk-override/implicit_layer/ReShade$bits.json"
+                Assert ((Get-Content -LiteralPath (Join-Path $target 'vulkan-1.dll') -Raw) -eq $loader) "$mode installed wrong Vulkan loader"
+                Assert ((Get-Content -LiteralPath (Join-Path $target $layer) -Raw) -eq "reshade/$layer") "$mode installed wrong layer"
+                Assert (!(Test-Path -LiteralPath (Join-Path $target "vk-override/implicit_layer/ReShade$otherBits.json"))) "$mode installed the other architecture's layer"
+            }
+            if ($mode -eq 'reshade-feeder-dx9') {
+                foreach ($dll in 'd3d9.dll','dxgi.dll') {
+                    Assert ((Get-Content -LiteralPath (Join-Path $target $dll) -Raw) -eq "dxvk/x86/$dll") "DX9 installed wrong DXVK $dll"
+                }
+            }
+            Assert ((Get-ProxyRecommendation $targetExe).installedMode -eq $mode) "Could not identify installed $mode"
+            Write-Host "Installed and verified ${bits}-bit payload for $mode."
+        }
+    }
 
     # Exercise cache migration and selection without launching background workers.
     $ctrl = [Runtime.Serialization.FormatterServices]::GetUninitializedObject($type)
