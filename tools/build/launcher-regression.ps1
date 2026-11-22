@@ -65,12 +65,13 @@ try {
     $x86 = Join-Path $bitnessDir 'Game32.exe'
     $pkgFixture = Join-Path $work 'ReShadePackage'
     Put (Join-Path $pkgFixture 'OptiScaler.dll') 'test package'
+    Copy-Item -LiteralPath (Join-Path $install 'install.ps1'), (Join-Path $install 'uninstall.ps1') -Destination $pkgFixture
     Assert ($peProbe::ReadGameBitness((Join-Path $pkgFixture 'OptiScaler.dll')) -eq 0) 'Invalid PE was not reported as unknown'
     foreach ($mode in 'optiscaler','standalone') {
         Put $req (@{schema=1;requestId='test';action='install';gameExe=$x86;packageRoot=$pkgFixture;installMode=$mode} | ConvertTo-Json)
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $install 'launcher-worker.ps1') -RequestJson $req -ResultJson $res -EventsJsonl (Join-Path $work 'events.jsonl')
         $result = Get-Content -LiteralPath $res -Raw | ConvertFrom-Json
-        Assert ($LASTEXITCODE -eq 1 -and $result.error -eq '32-bit games support ReShade mode only.') "x86 worker did not guard $mode"
+        Assert ($LASTEXITCODE -eq 1 -and $result.error -eq '32-bit games support ReShade mode only.') "x86 worker did not guard ${mode}: $($result.error)"
     }
     Put (Join-Path $bitnessDir 'dlssnr_amd.addon32') 'test add-on'
     Put (Join-Path $bitnessDir 'ReShade32.dll') 'test Vulkan layer'
@@ -78,7 +79,6 @@ try {
     Assert ($peProbe::DetectInstalledMode($bitnessDir) -eq 'reshade-feeder-vulkan') 'Launcher did not identify the x86 ReShade Vulkan install'
     Write-Host '32-bit and 64-bit PE probing, x86 mode restrictions, and x86 ReShade installation detection passed.'
 
-    Copy-Item -LiteralPath (Join-Path $install 'install.ps1'), (Join-Path $install 'uninstall.ps1') -Destination $pkgFixture
     foreach ($rel in 'OptiScaler/plugins/dlssnr-amd.asi','model-tools/dlssnr_extract_model.exe',
             'dlssnr-amd/shaders/fixture','dlssnr-amd/aco/d3d12_outer.nra','dlssnr-amd/aco/rdna3/d3d12_outer.nra',
             'dlssnr-amd/CC_SMALL_FP8.bin','reshade/reshade-shaders/Shaders/DLSS5_Feed.fx',
