@@ -540,6 +540,7 @@ static class LauncherSmoke
         x64.IsChecked = true;
         Check(opti.IsEnabled && standalone.IsEnabled && !restriction.IsVisible &&
             bitness.Text == "64 位游戏 · 手动设置", "manual 64-bit unlocks other modes");
+        Pump(150);
         Shot("reshade-game-bitness-override-light-zh", false);
         var saved = File.ReadAllText(Path.Combine(settingsDirectory, "settings.json"));
         Check(saved.Contains("gameBitnessOverrides") && saved.Contains("manual:game-bitness"), "override persisted to settings");

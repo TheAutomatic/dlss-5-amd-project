@@ -711,7 +711,7 @@ namespace OptScalerNR.Launcher
                 SetLabel("LocalGamesHeading", "游戏库", "Library");
                 SetLabel("ProxyHeading", "注入代理", "Injection proxy");
                 SetLabel("BackendsHeading", "画质插件", "Quality plugins");
-                SetLabel("MochiCheck", "mochizuki 0.0.9 M4", "mochizuki 0.0.9 M4");
+                SetLabel("MochiCheck", "mochizuki 0.0.9 M6", "mochizuki 0.0.9 M6");
                 RefreshGpuHints();
                 SetLabel("DiagnosticsHeading", "安装选项", "Install options");
                 SetLabel("LogHeading", "安装日志", "Install log");
