@@ -2869,7 +2869,7 @@ namespace OptScalerNR.Launcher
                 PackageRoot = _packageRoot,
                 ExplicitDecisions = _decisions,
                 InstallMode = installMode,
-                GameBitness = EffectiveGameBitness(),
+                GameBitness = GameBitnessOverride(),
                 Fingerprint = (action != "inspect" && _lastInspectResult != null) ? _lastInspectResult.Fingerprint : null,
                 CompatibilityFingerprint = compatibilityFingerprint ?? (_lastInspectResult != null && _lastInspectResult.Compatibility != null ? _lastInspectResult.Compatibility.Fingerprint : null)
             };

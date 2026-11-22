@@ -90,13 +90,15 @@ try {
     foreach ($bits in 32,64) {
         foreach ($mode in 'reshade-feeder','reshade-feeder-dx9','reshade-feeder-vulkan') {
             if ($bits -eq 64 -and $mode -eq 'reshade-feeder-dx9') { continue }
-            $target = Join-Path $work "$mode-$bits"
+            $updating = $bits -eq 64 -and $mode -eq 'reshade-feeder-vulkan'
+            $target = Join-Path $work $(if ($updating) { "$mode-32" } else { "$mode-$bits" })
             [void][IO.Directory]::CreateDirectory($target)
             $targetExe = Join-Path $target 'Game.exe'
-            Copy-Item -LiteralPath $x86 -Destination $targetExe
-            $request = @{schema=1;requestId='test';action='install';gameExe=$targetExe;packageRoot=$pkgFixture;installMode=$mode;
+            $fixtureBits = if ($mode -eq 'reshade-feeder-vulkan') { 64 } else { 32 }
+            Copy-Item -LiteralPath (Join-Path $bitnessDir "Game$fixtureBits.exe") -Destination $targetExe
+            $request = @{schema=1;requestId='test';action=$(if ($updating) { 'update' } else { 'install' });gameExe=$targetExe;packageRoot=$pkgFixture;installMode=$mode;
                 explicitDecisions=@{mochizukiNetworks=@('small')}}
-            if ($bits -eq 64) { $request.gameBitness = 64 }
+            if ($bits -ne $fixtureBits) { $request.gameBitness = $bits }
             Put $req ($request | ConvertTo-Json -Depth 5)
             & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $install 'launcher-worker.ps1') -RequestJson $req -ResultJson $res -EventsJsonl (Join-Path $work 'events.jsonl')
             $code = $LASTEXITCODE
@@ -111,6 +113,7 @@ try {
             Assert ((Get-Content -LiteralPath (Join-Path $target $addon) -Raw) -eq "reshade/$addon") "$mode installed wrong add-on"
             Assert ((Get-Content -LiteralPath (Join-Path $target $targetDll) -Raw) -eq "reshade/$component") "$mode installed wrong ReShade DLL"
             Assert (!(Test-Path -LiteralPath (Join-Path $target "dlssnr_amd.addon$otherBits"))) "$mode installed the other architecture's add-on"
+            Assert (!(Test-Path -LiteralPath (Join-Path $target "ReShade$otherBits.dll"))) "$mode kept the other architecture's ReShade DLL"
             if ($mode -ne 'reshade-feeder') {
                 $loader = if ($bits -eq 32) { 'vulkan/x86/vulkan-1.dll' } else { 'vulkan/vulkan-1.dll' }
                 $layer = "vk-override/implicit_layer/ReShade$bits.json"
