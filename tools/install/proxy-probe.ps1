@@ -59,6 +59,7 @@ function Get-PeImports([string]$path) {
     $info = @{
         ok = $false
         arch = 'unknown'
+        bitness = 0
         imports = @()
         delayImports = @()
         error = $null
@@ -89,9 +90,9 @@ function Get-PeImports([string]$path) {
         $got = $fs.Read($b, 0, $read)
         if ($got -lt $read) { $b = $b[0..($got-1)] }
         if ($b[0] -ne 0x4D -or $b[1] -ne 0x5A) { $info.error = 'not-pe'; return $info }
-        $pe = [int](Read-UInt32 $b 0x3C)
-        if ($pe + 24 -gt $b.Length) { $info.error = 'truncated'; $info.partial = $true; return $info }
-        if ($b[$pe] -ne 0x50 -or $b[$pe+1] -ne 0x45) { $info.error = 'not-pe'; return $info }
+        $pe = Read-UInt32 $b 0x3C
+        if ($pe -lt 64 -or $pe + 26 -gt $b.Length) { $info.error = 'truncated'; $info.partial = $true; return $info }
+        if ((Read-UInt32 $b $pe) -ne 0x4550) { $info.error = 'not-pe'; return $info }
         $machine = Read-UInt16 $b ($pe + 4)
         $nsec = Read-UInt16 $b ($pe + 6)
         $optSize = Read-UInt16 $b ($pe + 20)
@@ -100,11 +101,15 @@ function Get-PeImports([string]$path) {
         elseif ($machine -eq 0x8664) { $info.arch = 'x64' }
         elseif ($machine -eq 0xAA64) { $info.arch = 'arm64' }
         else { $info.arch = ('machine-{0:x}' -f $machine) }
-        if ($info.arch -ne 'x64') { $info.error = 'unsupported-arch'; return $info }
-        if ($opt + $optSize -gt $b.Length) { $info.error = 'truncated'; $info.partial = $true; return $info }
+        if ($info.arch -notin 'x86', 'x64') { $info.error = 'unsupported-arch'; return $info }
+        if ($optSize -lt 2 -or $opt + $optSize -gt $b.Length) { $info.error = 'truncated'; $info.partial = $true; return $info }
         $magic = Read-UInt16 $b $opt
-        if ($magic -ne 0x20B) { $info.error = 'not-pe32plus'; return $info }
-        $dd = $opt + 112
+        if ($info.arch -eq 'x86' -and $magic -eq 0x10B) { $dd = $opt + 96 }
+        elseif ($info.arch -eq 'x64' -and $magic -eq 0x20B) { $dd = $opt + 112 }
+        else { $info.error = 'invalid-optional-header'; return $info }
+        if ($dd -gt $opt + $optSize) { $info.error = 'invalid-optional-header'; return $info }
+        $info.bitness = if ($info.arch -eq 'x86') { 32 } else { 64 }
+        $directoryCount = Read-UInt32 $b ($dd - 4)
         $secs = @()
         $secOff = $opt + $optSize
         for ($i = 0; $i -lt $nsec; $i++) {
@@ -139,10 +144,10 @@ function Get-PeImports([string]$path) {
             return $names
         }
         $script:partial = $false
-        $impRva = Read-UInt32 $b ($dd + 8)
+        $impRva = if ($directoryCount -gt 1 -and $dd + 16 -le $secOff) { Read-UInt32 $b ($dd + 8) } else { 0 }
         $info.imports = @(Read-NameList $impRva)
         # Delay import directory is index 13.
-        $delayRva = Read-UInt32 $b ($dd + 13 * 8)
+        $delayRva = if ($directoryCount -gt 13 -and $dd + 14 * 8 -le $secOff) { Read-UInt32 $b ($dd + 13 * 8) } else { 0 }
         $delay = @()
         if ($delayRva -ne 0) {
             $off = RvaToOffset $secs $delayRva $len
@@ -251,7 +256,7 @@ function Get-LocalImportWalk([string]$startExe, [Diagnostics.Stopwatch]$sw) {
 
 function Get-DirFingerprint([string]$exe, [string]$dir) {
     $parts = New-Object System.Collections.Generic.List[string]
-    $extra = @('OptiScaler.dll', 'remixbridge.dll', 'dlssnr-amd-backup\remixbridge.dll', 'd3d9.dll', 'vulkan-1.dll', 'dlssnr-amd.asi', 'dlssnr_amd.addon64', 'ReShade64.dll', 'amd-presr-install.txt', 'dlssnr-amd-install.txt')
+    $extra = @('OptiScaler.dll', 'remixbridge.dll', 'dlssnr-amd-backup\remixbridge.dll', 'd3d9.dll', 'vulkan-1.dll', 'dlssnr-amd.asi', 'dlssnr_amd.addon64', 'ReShade64.dll', 'dlssnr_amd.addon32', 'ReShade32.dll', 'amd-presr-install.txt', 'dlssnr-amd-install.txt')
     foreach ($p in @($exe) + @(($CandidateNames + $extra) | ForEach-Object { Join-Path $dir $_ })) {
         if (Test-Path -LiteralPath $p -PathType Leaf) {
             try {
@@ -323,17 +328,20 @@ function Get-InstalledModeFromDir([string]$dir) {
             } catch { }
         }
     }
-    if (Test-Path -LiteralPath (Join-Path $dir 'dlssnr_amd.addon64') -PathType Leaf) {
+    if ((Test-Path -LiteralPath (Join-Path $dir 'dlssnr_amd.addon64') -PathType Leaf) -or
+        (Test-Path -LiteralPath (Join-Path $dir 'dlssnr_amd.addon32') -PathType Leaf)) {
         if (Test-Path -LiteralPath (Join-Path $dir 'd3d9.dll') -PathType Leaf) { return 'reshade-feeder-dx9' }
         if ((Test-Path -LiteralPath (Join-Path $dir 'vulkan-1.dll') -PathType Leaf) -or
-            (Test-Path -LiteralPath (Join-Path $dir 'ReShade64.dll') -PathType Leaf)) {
+            (Test-Path -LiteralPath (Join-Path $dir 'ReShade64.dll') -PathType Leaf) -or
+            (Test-Path -LiteralPath (Join-Path $dir 'ReShade32.dll') -PathType Leaf)) {
             return 'reshade-feeder-vulkan'
         }
         return 'reshade-feeder'
     }
     if ((Test-Path -LiteralPath (Join-Path $dir 'dlssnr-amd.asi') -PathType Leaf) -and
         (Test-Path -LiteralPath (Join-Path $dir 'vk-override\implicit_layer\dlssnr_standalone.json') -PathType Leaf) -and
-        -not (Test-Path -LiteralPath (Join-Path $dir 'ReShade64.dll') -PathType Leaf)) {
+        -not (Test-Path -LiteralPath (Join-Path $dir 'ReShade64.dll') -PathType Leaf) -and
+        -not (Test-Path -LiteralPath (Join-Path $dir 'ReShade32.dll') -PathType Leaf)) {
         return 'standalone'
     }
     foreach ($c in $CandidateNames) {
@@ -413,9 +421,9 @@ function Get-ProxyRecommendation([string]$exe) {
         $result.candidates += $c
     }
     $result.recommend = $null
-    $blockedArch = ($result.pe.arch -and $result.pe.arch -ne 'x64' -and $result.pe.arch -ne 'unknown')
+    $blockedArch = ($result.pe.arch -and $result.pe.arch -notin 'x86', 'x64', 'unknown')
     if ($blockedArch) {
-        $result.hint = '选中的 EXE 不是 x64。请改选游戏真正的渲染程序。'
+        $result.hint = '选中的 EXE 不是 x86 或 x64。请改选游戏真正的渲染程序。'
         $result.blockInstall = $true
     } elseif ($owned.Count -eq 1) {
         $result.recommend = $owned[0]

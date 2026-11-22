@@ -13,6 +13,7 @@ Exit codes match `status`: 0 success, 1 failed, 2 needsInput, 3 cancelled.
   "requestId": "uuid",
   "action": "inspect | install | update | uninstall | repairXess | restoreXess | keepXess",
   "gameExe": "C:\\\\absolute\\\\game.exe",
+  "gameBitness": 32,
   "proxyChoice": "auto | dxgi.dll | winmm.dll | d3d12.dll | winhttp.dll | wininet.dll | dbghelp.dll",
   "backendChoice": "auto | daniel | lmxxf | mochizuki | all",
   "language": "zh | en",
@@ -23,6 +24,9 @@ Exit codes match `status`: 0 success, 1 failed, 2 needsInput, 3 cancelled.
 
 `gameExe` is the actual target shown to the user. For Xbox games use the EXE in
 XboxGames; WindowsApps selections are rejected, never remapped.
+For install/update, optional `gameBitness` is 32 or 64 (the launcher's effective
+selection, including any manual override). When omitted, the worker probes the
+EXE and falls back to 64 for unknown headers. Only ReShade routes support 32-bit.
 
 `explicitDecisions` keys used by install/update:
 
@@ -63,7 +67,7 @@ available when no result JSON was produced. Script stderr is included in the eve
 loadable Mochizuki installation. This is informational only: there is no decision, the
 installer never moves or deletes these files, and no install is refused because of them.
 Fields: `detected`, `recorded` (its `dlssnr-amd-install.txt` record names `dlssnr_core.dll`,
-`dlssnr_amd.addon64`, `OptiScaler.asi`, root-level `dlssnr-amd.asi`, or
+`dlssnr_amd.addon32`, `dlssnr_amd.addon64`, `OptiScaler.asi`, root-level `dlssnr-amd.asi`, or
 `vk-override\implicit_layer\dlssnr_standalone.json`), `files` (those marker files when
 present, the recorded proxy DLL when its name is one of this project's load-entry
 candidate names, and the record itself) and `proxy` (the recorded proxy DLL, e.g. `dxgi.dll`). The rest of

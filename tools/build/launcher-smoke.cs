@@ -455,6 +455,7 @@ static class LauncherSmoke
             SelectGame(list, true);
             Check(!(bool)Member(_controller, "_pendingActionsWarned"), "game change clears warning");
             CheckProxyModes(args[1]);
+            CheckGameBitness(args[1]);
             CheckCommunityLinks();
         }
         catch (Exception ex)
@@ -495,6 +496,62 @@ static class LauncherSmoke
         ((Button)Find("SettingsTab")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent)); Pump(150);
         Shot("community-links-light-zh", false);
         ((Button)Find("SettingsCloseButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+    }
+
+    static void CheckGameBitness(string settingsDirectory)
+    {
+        Invoke("SetTheme", "light");
+        Invoke("SetLanguage", "zh");
+        var previous = Member(_controller, "_selectedGame");
+        var directory = Path.Combine(settingsDirectory, "game-bitness");
+        Directory.CreateDirectory(directory);
+        var executable = Path.Combine(directory, "ClassicGame.exe");
+        File.Copy(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.SystemX86), "where.exe"), executable);
+        var game = Activator.CreateInstance(previous.GetType());
+        SetMember(game, "Id", "manual:game-bitness");
+        SetMember(game, "Name", "经典游戏 · 32 位");
+        SetMember(game, "Exe", executable);
+        SetMember(game, "Root", directory);
+        SetMember(game, "Source", "Manual");
+        ((System.Collections.IList)Member(_controller, "_allGames")).Add(game);
+        Call("RefreshGameListView");
+        var list = (ListBox)Find("GameList");
+        foreach (var item in list.Items)
+            if (ReferenceEquals(Member(item, "Info"), game)) { list.SelectedItem = item; break; }
+        WaitForInspection(false);
+        var opti = (RadioButton)Find("ModeOptiScalerRadio");
+        var standalone = (RadioButton)Find("ModeStandaloneRadio");
+        var reshade = (RadioButton)Find("ModeReShadeRadio");
+        var auto = (RadioButton)Find("GameBitnessAutoRadio");
+        var x86 = (RadioButton)Find("GameBitness32Radio");
+        var x64 = (RadioButton)Find("GameBitness64Radio");
+        var bitness = (TextBlock)Find("GameBitnessText");
+        var restriction = (TextBlock)Find("GameBitnessRestriction");
+        Check(auto.IsChecked == true && reshade.IsChecked == true && !opti.IsEnabled && !standalone.IsEnabled &&
+            restriction.IsVisible && bitness.Text == "32 位游戏 · 自动识别", "x86 EXE automatically selects ReShade and disables 64-bit routes");
+        var scroll = (ScrollViewer)Find("DetailsScroll");
+        scroll.ScrollToTop(); Pump(100);
+        Shot("reshade-game-bitness-auto-light-zh", false);
+        var section = (FrameworkElement)Find("InstallModeSection");
+        scroll.ScrollToVerticalOffset(section.TranslatePoint(new Point(), (UIElement)scroll.Content).Y - 8);
+        Pump(150);
+        Shot("reshade-game-bitness-controls-light-zh", false);
+
+        x64.IsChecked = true;
+        Check(opti.IsEnabled && standalone.IsEnabled && !restriction.IsVisible &&
+            bitness.Text == "64 位游戏 · 手动设置", "manual 64-bit unlocks other modes");
+        Shot("reshade-game-bitness-override-light-zh", false);
+        var saved = File.ReadAllText(Path.Combine(settingsDirectory, "settings.json"));
+        Check(saved.Contains("gameBitnessOverrides") && saved.Contains("manual:game-bitness"), "override persisted to settings");
+        Call("SelectGame", previous); WaitForInspection(false);
+        Check(auto.IsChecked == true && opti.IsEnabled && standalone.IsEnabled, "override does not affect another game");
+        Call("SelectGame", game); WaitForInspection(false);
+        Check(x64.IsChecked == true && opti.IsEnabled, "override restored on reselection");
+        x86.IsChecked = true;
+        Check(!opti.IsEnabled && bitness.Text == "32 位游戏 · 手动设置", "manual 32-bit restricts modes");
+        auto.IsChecked = true;
+        Check(!opti.IsEnabled && bitness.Text == "32 位游戏 · 自动识别", "Auto clears override and returns to PE detection");
+        Call("SelectGame", previous); WaitForInspection(false);
     }
 
     static void CheckProxyModes(string settingsDirectory)

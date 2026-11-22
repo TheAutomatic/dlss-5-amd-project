@@ -722,7 +722,7 @@ namespace OptScalerNR.Launcher
             var parts = new System.Collections.Generic.List<string>();
             var checkPaths = new System.Collections.Generic.List<string> { exe };
             foreach (var c in ProxyRecommendations.ProxyNames) checkPaths.Add(Path.Combine(dir, c));
-            foreach (var extra in new[] { "OptiScaler.dll", "remixbridge.dll", @"dlssnr-amd-backup\remixbridge.dll", "d3d9.dll", "vulkan-1.dll", "dlssnr-amd.asi", "dlssnr_amd.addon64", "ReShade64.dll", "amd-presr-install.txt", "dlssnr-amd-install.txt" })
+            foreach (var extra in new[] { "OptiScaler.dll", "remixbridge.dll", @"dlssnr-amd-backup\remixbridge.dll", "d3d9.dll", "vulkan-1.dll", "dlssnr-amd.asi", "dlssnr_amd.addon64", "ReShade64.dll", "dlssnr_amd.addon32", "ReShade32.dll", "amd-presr-install.txt", "dlssnr-amd-install.txt" })
                 checkPaths.Add(Path.Combine(dir, extra));
             foreach (var p in checkPaths)
             {
@@ -874,7 +874,8 @@ namespace OptScalerNR.Launcher
                 }
                 foreach (var marker in new[] { "dlssnr_core.dll", "OptiScaler.asi" })
                     if (File.Exists(Path.Combine(gameDir, marker))) return false;
-                if (!isOurOptiNr && File.Exists(Path.Combine(gameDir, "dlssnr_amd.addon64"))) return false;
+                if (!isOurOptiNr && (File.Exists(Path.Combine(gameDir, "dlssnr_amd.addon64")) ||
+                    File.Exists(Path.Combine(gameDir, "dlssnr_amd.addon32")))) return false;
             }
             catch { return false; }
 

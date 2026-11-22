@@ -11,6 +11,7 @@ namespace OptScalerNR.Launcher
     {
         readonly Dictionary<string, string> _gameModes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string, string> _gameReshadeApis = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<string, int> _gameBitnessOverrides = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string, string> _gameRenoDx = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string, string> _gameLumenite = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string, string> _gameLumeniteZips = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -24,6 +25,9 @@ namespace OptScalerNR.Launcher
         FrameworkElement _compatPanel, _optiScalerInstallExtras, _optiScalerIniButtonsLeft, _optiScalerIniProfileGroup;
         Button _switchToOptiScalerBtn, _unlockMochiMcBtn, _relockMochiMcBtn, _unlockOpenRrBtn, _relockOpenRrBtn, _lumeniteZipBrowseBtn, _lumeniteZipClearBtn;
         RadioButton _reshadeApiDxRadio, _reshadeApiDx9Radio, _reshadeApiVulkanRadio;
+        RadioButton _gameBitnessAutoRadio, _gameBitness32Radio, _gameBitness64Radio;
+        TextBlock _gameBitnessText, _gameBitnessRestriction;
+        int _detectedGameBitness;
         RadioButton _reshadeStyleRenoDxRadio, _reshadeStyleWilsjo2Radio;
         CheckBox _lumeniteCheck;
         FrameworkElement _lumeniteZipRow;
@@ -75,6 +79,11 @@ namespace OptScalerNR.Launcher
             _reshadeApiDxRadio = (RadioButton)_window.FindName("ReshadeApiDxRadio");
             _reshadeApiDx9Radio = (RadioButton)_window.FindName("ReshadeApiDx9Radio");
             _reshadeApiVulkanRadio = (RadioButton)_window.FindName("ReshadeApiVulkanRadio");
+            _gameBitnessAutoRadio = (RadioButton)_window.FindName("GameBitnessAutoRadio");
+            _gameBitness32Radio = (RadioButton)_window.FindName("GameBitness32Radio");
+            _gameBitness64Radio = (RadioButton)_window.FindName("GameBitness64Radio");
+            _gameBitnessText = (TextBlock)_window.FindName("GameBitnessText");
+            _gameBitnessRestriction = (TextBlock)_window.FindName("GameBitnessRestriction");
             _reshadeStyleRenoDxRadio = (RadioButton)_window.FindName("ReshadeStyleRenoDxRadio");
             _reshadeStyleWilsjo2Radio = (RadioButton)_window.FindName("ReshadeStyleWilsjo2Radio");
 
@@ -98,6 +107,9 @@ namespace OptScalerNR.Launcher
             if (_reshadeApiVulkanRadio != null) _reshadeApiVulkanRadio.Checked += modeChanged;
             if (_reshadeStyleRenoDxRadio != null) _reshadeStyleRenoDxRadio.Checked += modeChanged;
             if (_reshadeStyleWilsjo2Radio != null) _reshadeStyleWilsjo2Radio.Checked += modeChanged;
+            _gameBitnessAutoRadio.Checked += (s, e) => SetGameBitnessOverride(0);
+            _gameBitness32Radio.Checked += (s, e) => SetGameBitnessOverride(32);
+            _gameBitness64Radio.Checked += (s, e) => SetGameBitnessOverride(64);
 
             if (_lumeniteCheck != null)
             {
@@ -108,7 +120,7 @@ namespace OptScalerNR.Launcher
             {
                 _switchToOptiScalerBtn.Click += (s, e) =>
                 {
-                    if (_modeOptiScalerRadio != null) _modeOptiScalerRadio.IsChecked = true;
+                    if (_modeOptiScalerRadio.IsEnabled) _modeOptiScalerRadio.IsChecked = true;
                 };
             }
             if (_unlockMochiMcBtn != null)
@@ -148,6 +160,40 @@ namespace OptScalerNR.Launcher
         {
             if (_selectedGame == null) return null;
             return !string.IsNullOrEmpty(_selectedGame.Id) ? _selectedGame.Id : _selectedGame.Exe;
+        }
+
+        int GameBitnessOverride()
+        {
+            var key = ModeKey();
+            int bits;
+            return key != null && !IsRtxRemixMinecraftSelected() && _gameBitnessOverrides.TryGetValue(key, out bits) ? bits : 0;
+        }
+
+        int EffectiveGameBitness()
+        {
+            var bits = GameBitnessOverride();
+            return bits == 0 ? _detectedGameBitness : bits;
+        }
+
+        void SetGameBitnessOverride(int bits)
+        {
+            var key = ModeKey();
+            if (_selectingMode || _loadingSettings || key == null || !_selectedGame.HasExecutable) return;
+            if (bits == 0) _gameBitnessOverrides.Remove(key);
+            else _gameBitnessOverrides[key] = bits;
+            SaveSettings();
+            ApplyModeVisibility();
+        }
+
+        void RefreshGameBitnessText()
+        {
+            int bits = EffectiveGameBitness();
+            bool manual = GameBitnessOverride() != 0;
+            _gameBitnessText.Text = bits == 0 ? L("未能识别游戏位数", "Game bitness not detected")
+                : bits == 32 ? L("32 位游戏", "32-bit game") : L("64 位游戏", "64-bit game");
+            if (bits != 0) _gameBitnessText.Text += manual ? L(" · 手动设置", " · Manual") : L(" · 自动识别", " · Auto-detected");
+            _gameBitnessRestriction.Text = L("32 位游戏仅支持 ReShade，不能使用 OptiScaler 或独立直通。",
+                "32-bit games support ReShade only, not OptiScaler or Standalone.");
         }
 
         public bool IsRtxRemixMinecraftSelected()
@@ -465,6 +511,24 @@ namespace OptScalerNR.Launcher
         void ApplyModeVisibility()
         {
             bool isRtxMc = IsRtxRemixMinecraftSelected();
+            bool hasExe = _selectedGame != null && _selectedGame.HasExecutable;
+            bool reshadeOnly = hasExe && !isRtxMc && EffectiveGameBitness() == 32;
+            _modeOptiScalerRadio.IsEnabled = !reshadeOnly;
+            _modeStandaloneRadio.IsEnabled = !reshadeOnly;
+            if (_switchToOptiScalerBtn != null) _switchToOptiScalerBtn.IsEnabled = !reshadeOnly;
+            _gameBitnessRestriction.Visibility = reshadeOnly ? Visibility.Visible : Visibility.Collapsed;
+            _gameBitnessAutoRadio.IsEnabled = _gameBitness32Radio.IsEnabled = _gameBitness64Radio.IsEnabled = hasExe;
+            _selectingMode = true;
+            try
+            {
+                var bits = GameBitnessOverride();
+                if (bits == 32) _gameBitness32Radio.IsChecked = true;
+                else if (bits == 64) _gameBitness64Radio.IsChecked = true;
+                else _gameBitnessAutoRadio.IsChecked = true;
+                if (reshadeOnly) _modeReShadeRadio.IsChecked = true;
+            }
+            finally { _selectingMode = false; }
+            RefreshGameBitnessText();
             var baseMode = GetSelectedBaseMode();
             var isOpti = (baseMode == "optiscaler");
             bool mcMochiLocked = isRtxMc && !IsMcMochiUnlocked();
@@ -728,6 +792,10 @@ namespace OptScalerNR.Launcher
             ((TextBlock)_window.FindName("StandaloneProtectedNote")).Visibility = Visibility.Collapsed;
 
             SetLabel("ReShadeCardHeading", "ReShade 兼容配置", "ReShade Compatibility Settings");
+            SetLabel("GameBitnessAutoRadio", "自动", "Auto");
+            SetLabel("GameBitness32Radio", "32 位", "32-bit");
+            SetLabel("GameBitness64Radio", "64 位", "64-bit");
+            RefreshGameBitnessText();
             SetLabel("ReshadeApiLabel", "图形接口", "Graphics API");
             SetLabel("ReshadeApiDxRadio", "DX10 / DX11 / DX12", "DX10 / DX11 / DX12");
             SetLabel("ReshadeApiDx9Radio", "DX9 · DXVK", "DX9 · DXVK");

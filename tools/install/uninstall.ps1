@@ -167,7 +167,7 @@ $projectLeafNames = @(
     'dlssnr_on_amd.ini', 'dlssnr-amd-crash.dmp',
     'LmxxfNrRuntime.dll', 'MochizukiNrRuntime.dll', 'OpenNrRrRuntime.dll', 'opennr_rr.log', 'openrr-amd.log', 'openrr-amd.ini', 'openrr-ngx-host.dll', 'openrr-control.bin', 'openrr-amd-crash.dmp', 'lmxxf-module-package.ps1',
 
-    'dlssnr-amd.ini', 'dlssnr-amd.default.ini', 'dlssnr-amd.asi', 'dlssnr_amd.addon64',
+    'dlssnr-amd.ini', 'dlssnr-amd.default.ini', 'dlssnr-amd.asi', 'dlssnr_amd.addon64', 'dlssnr_amd.addon32',
     'nr-report.txt', 'nr-report-series.txt',
     'Uninstall_OptiScaler_NR.bat','Uninstall_OptiScaler_NR.ps1',
     'person-model/onnxruntime.dll',

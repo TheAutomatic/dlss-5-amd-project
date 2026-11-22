@@ -30,7 +30,9 @@ param(
     [ValidateSet('on', 'off')]
     [string]$Lumenite = 'off',
     [string]$LumeniteZip = '',
-    [string]$DecisionJson
+    [string]$DecisionJson,
+    [ValidateSet('32', '64')]
+    [int]$GameBitness = 64
 )
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
@@ -150,6 +152,13 @@ if ($launcherDecisions) {
 }
 $isRtxRemixMc = ($InstallMode -eq 'rtx-remix-mc')
 $isOptiMode = ($InstallMode -eq 'optiscaler' -or $isRtxRemixMc)
+$reshadeDll = "ReShade$GameBitness.dll"
+$reshadeAddon = "dlssnr_amd.addon$GameBitness"
+$reshadeLayer = "vk-override\implicit_layer\ReShade$GameBitness.json"
+$reshadeArchFolder = if ($GameBitness -eq 32) { 'x86\' } else { '' }
+if ($GameBitness -eq 32 -and $InstallMode -notlike 'reshade-feeder*') {
+    Fail '32-bit games support ReShade mode only.'
+}
 $effectiveProxy = if ($isRtxRemixMc) { 'OptiScaler.dll' } else { $Proxy }
 if ($InstallMode -eq 'standalone') {
     $RenoDX = 'on'
@@ -709,6 +718,7 @@ try {
     }
     $elevArgs = "-NoProfile -ExecutionPolicy Bypass -STA -File `"$PSCommandPath`" -GameDir `"$game`" -Root `"$Root`" -InstallMode $InstallMode -Proxy $Proxy -RenoDX $RenoDX -Lumenite $Lumenite -OpenRrSpoof $OpenRrSpoof"
     if ($LumeniteZip) { $elevArgs += " -LumeniteZip `"$LumeniteZip`"" }
+    if ($GameBitness -eq 32) { $elevArgs += ' -GameBitness 32' }
     if ($MochizukiModels) { $elevArgs += " -MochizukiModels $MochizukiModels" }
     if ($MochizukiActiveModel) { $elevArgs += " -MochizukiActiveModel $MochizukiActiveModel" }
     if ($UninstallExisting) { $elevArgs += ' -UninstallExisting' }
@@ -745,7 +755,7 @@ foreach ($legacyRoot in @($game, (Join-Path $game '_storage_'))) {
 }
 
 $locked = @()
-foreach ($name in ($proxies + @('d3d9.dll', 'vulkan-1.dll', 'dlssnr-amd.asi', 'dlssnr_amd.addon64', 'ReShade64.dll', 'LmxxfNrRuntime.dll', 'OpenNrRrRuntime.dll', 'dlssnr_amd_pass1.dll', 'dlssnr_amd_pass2.dll', 'dlssnr_amd_pass3.dll', 'dlssnr_on_amd_weights.bin'))) {
+foreach ($name in ($proxies + @('d3d9.dll', 'vulkan-1.dll', 'dlssnr-amd.asi', 'dlssnr_amd.addon32', 'dlssnr_amd.addon64', 'ReShade32.dll', 'ReShade64.dll', 'LmxxfNrRuntime.dll', 'OpenNrRrRuntime.dll', 'dlssnr_amd_pass1.dll', 'dlssnr_amd_pass2.dll', 'dlssnr_amd_pass3.dll', 'dlssnr_on_amd_weights.bin'))) {
     $p = Join-Path $game $name
     if (Test-FileLocked $p) { $locked += $name }
 }
@@ -822,24 +832,17 @@ OptiScaler.dll sits next to Setup.ps1.
         }
     }
 } else {
-    foreach ($reqFile in @('reshade\ReShade64.dll', 'reshade\dlssnr_amd.addon64', 'reshade\reshade-shaders\Shaders\DLSS5_Feed.fx')) {
-        if (-not (Test-Path -LiteralPath (Join-Path $Root $reqFile) -PathType Leaf) -and
-            -not (Test-Path -LiteralPath (Join-Path $release $reqFile) -PathType Leaf)) {
-            Fail "Missing ReShade route component: $reqFile. Re-extract the complete package."
-        }
-    }
+    $reshadeFiles = @("reshade\$reshadeDll", "reshade\$reshadeAddon", 'reshade\reshade-shaders\Shaders\DLSS5_Feed.fx')
     if ($InstallMode -in @('reshade-feeder-dx9', 'reshade-feeder-vulkan')) {
-        if (-not (Test-Path -LiteralPath (Join-Path $Root 'vulkan\vulkan-1.dll') -PathType Leaf) -and
-            -not (Test-Path -LiteralPath (Join-Path $release 'vulkan\vulkan-1.dll') -PathType Leaf)) {
-            Fail "Missing vulkan\vulkan-1.dll for $InstallMode. Re-extract the complete package."
-        }
+        $reshadeFiles += @("vulkan\${reshadeArchFolder}vulkan-1.dll", "reshade\$reshadeLayer")
     }
     if ($InstallMode -eq 'reshade-feeder-dx9') {
-        foreach ($dxvkFile in @('dxvk\d3d9.dll', 'dxvk\dxgi.dll')) {
-            if (-not (Test-Path -LiteralPath (Join-Path $Root $dxvkFile) -PathType Leaf) -and
-                -not (Test-Path -LiteralPath (Join-Path $release $dxvkFile) -PathType Leaf)) {
-                Fail "Missing $dxvkFile for DX9 ReShade route. Re-extract the complete package."
-            }
+        $reshadeFiles += @("dxvk\${reshadeArchFolder}d3d9.dll", "dxvk\${reshadeArchFolder}dxgi.dll")
+    }
+    foreach ($reqFile in $reshadeFiles) {
+        if (-not (Test-Path -LiteralPath (Join-Path $Root $reqFile) -PathType Leaf) -and
+            -not (Test-Path -LiteralPath (Join-Path $release $reqFile) -PathType Leaf)) {
+            Fail "Missing $GameBitness-bit ReShade route component: $reqFile. Re-extract the complete package."
         }
     }
 }
@@ -2409,8 +2412,8 @@ if ($installMochizuki) {
         }
     }
     function Move-OtherAddons {
-        foreach ($item in @(Get-ChildItem -LiteralPath $game -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in @('.addon', '.addon64') })) {
-            if ($item.Name -ne 'dlssnr_amd.addon64') {
+        foreach ($item in @(Get-ChildItem -LiteralPath $game -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.addon', ".addon$GameBitness" })) {
+            if ($item.Name -ne $reshadeAddon) {
                 Save-ModeExisting $item.Name
                 Write-Host "Moved another ReShade add-on aside: $($item.Name)" -ForegroundColor Yellow
             }
@@ -2421,16 +2424,22 @@ if ($installMochizuki) {
         $rsDir = Find-PkgDir 'reshade'
         if (-not $rsDir) { Fail 'Missing reshade directory in package.' }
         foreach ($item in @(Get-ChildItem -LiteralPath $rsDir -Force)) {
-            if ($item.Name -ieq 'ReShadePreset-d3d9.ini') { continue }
-            if (-not $asLayer -and ($item.Name -ieq 'vk-override' -or $item.Name -ieq 'ReShade64.dll')) { continue }
+            if ($item.Name -in 'ReShadePreset-d3d9.ini', 'vk-override') { continue }
+            if ($item.Name -in 'ReShade32.dll', 'ReShade64.dll') { continue }
+            if ($item.Extension -in '.addon32', '.addon64' -and $item.Name -ne $reshadeAddon) { continue }
             if ($item.PSIsContainer) {
                 Put-ModeTree $item.FullName $item.Name
             } else {
                 Put-ModeFile $item.FullName $item.Name
             }
         }
-        if (-not $asLayer) {
-            $rsDll = Find-PkgFile 'reshade\ReShade64.dll'
+        $rsDll = Find-PkgFile "reshade\$reshadeDll"
+        if ($asLayer) {
+            Put-ModeFile $rsDll $reshadeDll
+            Save-ModeExisting 'vk-override'
+            Put-ModeFile (Find-PkgFile "reshade\$reshadeLayer") $reshadeLayer
+            $modeManifestLines.Add('D vk-override')
+        } else {
             Put-ModeFile $rsDll 'dxgi.dll'
         }
         Record-ModeLogs @('ReShade.log')
@@ -2561,11 +2570,11 @@ if ($installMochizuki) {
     } elseif ($InstallMode -eq 'reshade-feeder') {
         Put-ReShadeMode $false
         Record-ModeLogs @('dlssnr-amd.log', 'dlssnr-amd-crash.dmp')
-        Write-Host 'Installed ReShade DX10/11/12 route (dxgi.dll + dlssnr_amd.addon64 + reshade-shaders\).' -ForegroundColor Green
+        Write-Host "Installed $GameBitness-bit ReShade DX10/11/12 route." -ForegroundColor Green
     } elseif ($InstallMode -eq 'reshade-feeder-dx9') {
-        Put-ModeFile (Find-PkgFile 'vulkan\vulkan-1.dll') 'vulkan-1.dll'
-        Put-ModeFile (Find-PkgFile 'dxvk\d3d9.dll') 'd3d9.dll'
-        Put-ModeFile (Find-PkgFile 'dxvk\dxgi.dll') 'dxgi.dll'
+        Put-ModeFile (Find-PkgFile "vulkan\${reshadeArchFolder}vulkan-1.dll") 'vulkan-1.dll'
+        Put-ModeFile (Find-PkgFile "dxvk\${reshadeArchFolder}d3d9.dll") 'd3d9.dll'
+        Put-ModeFile (Find-PkgFile "dxvk\${reshadeArchFolder}dxgi.dll") 'dxgi.dll'
         foreach ($exeItem in @(Get-ChildItem -LiteralPath $game -Filter '*.exe' -File -ErrorAction SilentlyContinue)) {
             $stem = [IO.Path]::GetFileNameWithoutExtension($exeItem.Name)
             if ($stem) { Record-ModeLogs @("${stem}_dxgi.log", "${stem}_d3d9.log") }
@@ -2576,12 +2585,12 @@ if ($installMochizuki) {
             Copy-Item -LiteralPath $dx9Preset -Destination (Join-Path $game 'ReShadePreset.ini') -Force
         }
         Record-ModeLogs @('dlssnr-amd.log', 'dlssnr-amd-crash.dmp')
-        Write-Host 'Installed ReShade DX9 (DXVK) route (d3d9.dll + dxgi.dll + vulkan-1.dll + ReShade64.dll + vk-override\ + dlssnr_amd.addon64).' -ForegroundColor Green
+        Write-Host "Installed $GameBitness-bit ReShade DX9 (DXVK) route." -ForegroundColor Green
     } elseif ($InstallMode -eq 'reshade-feeder-vulkan') {
-        Put-ModeFile (Find-PkgFile 'vulkan\vulkan-1.dll') 'vulkan-1.dll'
+        Put-ModeFile (Find-PkgFile "vulkan\${reshadeArchFolder}vulkan-1.dll") 'vulkan-1.dll'
         Put-ReShadeMode $true
         Record-ModeLogs @('dlssnr-amd.log', 'dlssnr-amd-crash.dmp')
-        Write-Host 'Installed ReShade Vulkan route (vulkan-1.dll + ReShade64.dll + vk-override\ + dlssnr_amd.addon64).' -ForegroundColor Green
+        Write-Host "Installed $GameBitness-bit ReShade Vulkan route." -ForegroundColor Green
     }
 
     if ($InstallMode -like 'reshade-feeder*' -and $preservedUserInis.Count -gt 0 -and -not $overwriteIni -and -not $modeSwitching) {
@@ -3764,9 +3773,9 @@ if ($installMochizuki) {
     $routeDesc = switch ($InstallMode) {
         'rtx-remix-mc' { 'RTX Remix Minecraft (OptiScaler.dll + remixbridge.dll patch + dlssnr-amd.asi)' }
         'standalone' { 'Standalone (dxgi.dll + dlssnr-amd.asi + vulkan-1.dll + vk-override\)' }
-        'reshade-feeder' { 'ReShade DX10/11/12 (dxgi.dll + dlssnr_amd.addon64 + reshade-shaders\)' }
-        'reshade-feeder-dx9' { 'ReShade DX9 / DXVK (d3d9.dll + dxgi.dll + vulkan-1.dll + ReShade64.dll + vk-override\ + dlssnr_amd.addon64)' }
-        'reshade-feeder-vulkan' { 'ReShade Vulkan (vulkan-1.dll + ReShade64.dll + vk-override\ + dlssnr_amd.addon64)' }
+        'reshade-feeder' { "$GameBitness-bit ReShade DX10/11/12" }
+        'reshade-feeder-dx9' { "$GameBitness-bit ReShade DX9 / DXVK" }
+        'reshade-feeder-vulkan' { "$GameBitness-bit ReShade Vulkan" }
         default { 'OptiScaler + dlssnr-amd.asi (OptiScaler/plugins/dlssnr-amd.asi, resources)' }
     }
     Write-Host "  Installed:      $routeDesc" -ForegroundColor Green

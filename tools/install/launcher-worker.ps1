@@ -268,7 +268,7 @@ $script:requiresAdmin = [bool]$probe.requiresAdmin
 
 # A Mochizuki (DLSSNR-AMD) installation of its own in the game folder. Only files that can
 # actually conflict are reported and later moved: his marker files (dlssnr_core.dll,
-# dlssnr_amd.addon64, OptiScaler.asi -- an OptiScaler or an ASI loader picks these up), his
+# dlssnr_amd.addon32/64, OptiScaler.asi -- an OptiScaler or an ASI loader picks these up), his
 # proxy DLL when its name is one of this project's load-entry candidate names (both
 # installations would hook the same entry), and his dlssnr-amd-install.txt record (so the
 # detection clears together with the installation). The rest of his record is inert and
@@ -300,7 +300,7 @@ function Get-MochizukiInstall([string]$dir) {
             $entries += ,@($line[0], $rel)
         }
         # His record, not this project's: it names his core, his add-on, his ASI or standalone markers.
-        $recorded = @($entries | Where-Object { $_[0] -eq 'F' -and $_[1] -in @('dlssnr_core.dll','dlssnr_amd.addon64','OptiScaler.asi','dlssnr-amd.asi','vk-override\implicit_layer\dlssnr_standalone.json','vk-override/implicit_layer/dlssnr_standalone.json') }).Count -gt 0
+        $recorded = @($entries | Where-Object { $_[0] -eq 'F' -and $_[1] -in @('dlssnr_core.dll','dlssnr_amd.addon32','dlssnr_amd.addon64','OptiScaler.asi','dlssnr-amd.asi','vk-override\implicit_layer\dlssnr_standalone.json','vk-override/implicit_layer/dlssnr_standalone.json') }).Count -gt 0
         if ($recorded) {
             foreach ($e in $entries) {
                 if ($e[0] -ne 'F') { continue }
@@ -314,7 +314,7 @@ function Get-MochizukiInstall([string]$dir) {
             if (-not $files.Contains('dlssnr-amd-install.txt')) { $files.Add('dlssnr-amd-install.txt') }
         }
     }
-    foreach ($name in @('dlssnr_core.dll','OptiScaler.asi','dlssnr_amd.addon64','dlssnr-amd.asi','vk-override\implicit_layer\dlssnr_standalone.json')) {
+    foreach ($name in @('dlssnr_core.dll','OptiScaler.asi','dlssnr_amd.addon32','dlssnr_amd.addon64','dlssnr-amd.asi','vk-override\implicit_layer\dlssnr_standalone.json')) {
         if ((Test-Path -LiteralPath (Join-Path $dir $name) -PathType Leaf) -and -not $files.Contains($name)) { $files.Add($name) }
     }
     # Only the record (or nothing) is left: the installation is already dismantled and the
@@ -367,6 +367,9 @@ if (Test-Path -LiteralPath $compatScript -PathType Leaf) {
 if ($req.action -in @('repairXess','restoreXess','keepXess')) {
     if (-not (Test-Path -LiteralPath $compatScript -PathType Leaf)) { Fail-Result 'failed' 'Complete package required: xess-compat.ps1 is missing.' 1 }
     if ($probe.blockInstall) { Fail-Result 'failed' $probe.hint 1 }
+    if ($req.action -eq 'repairXess' -and $probe.pe.bitness -eq 32) {
+        Fail-Result 'failed' 'XeSS repair requires a 64-bit game executable.' 1
+    }
     Write-Event 'validate' 'Close the game before repairing or restoring XeSS.'
     try {
         if ($req.action -ne 'repairXess' -and (-not $req.compatibilityFingerprint -or
@@ -461,9 +464,16 @@ if ($installMode -notin @('optiscaler','rtx-remix-mc','standalone','reshade-feed
 }
 $isRtxRemixMc = ($installMode -eq 'rtx-remix-mc')
 $isOptiMode = ($installMode -eq 'optiscaler' -or $isRtxRemixMc)
+$requestedBitness = if ($req.PSObject.Properties['gameBitness']) { [string]$req.gameBitness } else { '0' }
+if ($requestedBitness -notin '0', '32', '64') { Fail-Result 'failed' 'Invalid gameBitness.' 1 }
+$gameBitness = if (-not $isRtxRemixMc -and $requestedBitness -ne '0') { [int]$requestedBitness }
+    elseif ($probe.pe.bitness -eq 32) { 32 } else { 64 }
 
 if ($req.action -in @('install','update')) {
     if ($probe.blockInstall) { Fail-Result 'failed' $probe.hint 1 }
+    if ($gameBitness -eq 32 -and $installMode -notlike 'reshade-feeder*') {
+        Fail-Result 'failed' '32-bit games support ReShade mode only.' 1
+    }
     if ($isOptiMode -and -not $isRtxRemixMc -and -not $script:resolved) { Fail-Result 'needsInput' 'No proxy recommendation is available. Select a DLL explicitly.' 2 }
     if (-not $script:packageRoot) {
         Fail-Result 'failed' 'Complete package required: OptiScaler.dll was not found next to the installer. Unzip the full package and run Setup.bat from that folder.' 1
@@ -590,6 +600,7 @@ $prevEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 $proxyForSetup = if ($isRtxRemixMc) { 'dxgi.dll' } elseif ($script:resolved) { $script:resolved } else { 'dxgi.dll' }
 $modeArgs = @('-InstallMode', $installMode)
+if ($gameBitness -eq 32) { $modeArgs += @('-GameBitness', '32') }
 if ($dec -and $dec.PSObject.Properties['renoDX'] -and $dec.renoDX) {
     $modeArgs += @('-RenoDX', [string]$dec.renoDX)
 }

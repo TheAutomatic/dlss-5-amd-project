@@ -999,6 +999,9 @@ namespace OptScalerNR.Launcher
                     foreach (var pair in rec.GameModes) _gameModes[pair.Key] = pair.Value;
                 if (rec.GameReshadeApis != null)
                     foreach (var pair in rec.GameReshadeApis) _gameReshadeApis[pair.Key] = pair.Value;
+                if (rec.GameBitnessOverrides != null)
+                    foreach (var pair in rec.GameBitnessOverrides)
+                        if (pair.Value == 32 || pair.Value == 64) _gameBitnessOverrides[pair.Key] = pair.Value;
                 if (rec.GameRenoDx != null)
                     foreach (var pair in rec.GameRenoDx) _gameRenoDx[pair.Key] = pair.Value;
                 if (rec.GameLumenite != null)
@@ -1041,6 +1044,7 @@ namespace OptScalerNR.Launcher
                     OpenRrSpoofByGame = _openRrSpoofByGame,
                     GameModes = _gameModes,
                     GameReshadeApis = _gameReshadeApis,
+                    GameBitnessOverrides = _gameBitnessOverrides,
                     GameRenoDx = _gameRenoDx,
                     GameLumenite = _gameLumenite,
                     GameLumeniteZips = _gameLumeniteZips,
@@ -1149,6 +1153,7 @@ namespace OptScalerNR.Launcher
             [System.Runtime.Serialization.DataMember] public Dictionary<string, BackendChoice> BackendChoices;
             [System.Runtime.Serialization.DataMember(Name = "gameModes", EmitDefaultValue = false)] public Dictionary<string, string> GameModes;
             [System.Runtime.Serialization.DataMember(Name = "gameReshadeApis", EmitDefaultValue = false)] public Dictionary<string, string> GameReshadeApis;
+            [System.Runtime.Serialization.DataMember(Name = "gameBitnessOverrides", EmitDefaultValue = false)] public Dictionary<string, int> GameBitnessOverrides;
             [System.Runtime.Serialization.DataMember(Name = "gameRenoDx", EmitDefaultValue = false)] public Dictionary<string, string> GameRenoDx;
             [System.Runtime.Serialization.DataMember(Name = "gameLumenite", EmitDefaultValue = false)] public Dictionary<string, string> GameLumenite;
             [System.Runtime.Serialization.DataMember(Name = "gameLumeniteZips", EmitDefaultValue = false)] public Dictionary<string, string> GameLumeniteZips;
@@ -1595,6 +1600,7 @@ namespace OptScalerNR.Launcher
             _lastPeInfo = null;
             InvalidateNativeDlssdCache();
             _selectedGame = game;
+            _detectedGameBitness = game != null && game.HasExecutable ? PeProbe.ReadGameBitness(game.Exe) : 0;
             SelectGameProfiles();
             _lastInspectResult = null;
             _heroArtwork.Replace(null);
@@ -1641,7 +1647,7 @@ namespace OptScalerNR.Launcher
             } else if (!_selectedGame.HasExecutable) {
                 _primaryButton.Content = L("扫描 / 选择启动程序", "Find / choose game EXE");
                 _primaryButton.ToolTip = L("选择此游戏的启动程序，不会开始安装。", "Choose this game's executable; this does not install anything.");
-            } else if (_lastPeInfo != null && _lastPeInfo.Is32Bit) {
+            } else if (IsRtxRemixMinecraftSelected() && EffectiveGameBitness() == 32) {
                 _primaryButton.Content = L("不支持 32 位程序", "32-bit EXE unsupported");
                 _primaryButton.ToolTip = L("不支持 32 位程序：请改选 64 位 (x64) 主程序。", "32-bit executable is not supported; please select the 64-bit (x64) executable.");
             } else if (!_selectedGame.Installed) {
@@ -1702,7 +1708,7 @@ namespace OptScalerNR.Launcher
             var hasBackend = true;
 
             var proxyChosen = !IsOptiScalerSelectedMode() || IsRtxRemixMinecraftSelected() || !string.IsNullOrEmpty(CurrentSelectedProxy);
-            var is32BitBlocked = _lastPeInfo != null && _lastPeInfo.Is32Bit;
+            var is32BitBlocked = IsRtxRemixMinecraftSelected() && EffectiveGameBitness() == 32;
             var isBusy = _session != null && _session.IsRunning && (_presentationBusy || !_session.CanKill);
             if (!_selectedGame.HasExecutable) {
                 _primaryButton.IsEnabled = !isBusy && !_writeBusy && _folderScan == null;
@@ -2734,9 +2740,9 @@ namespace OptScalerNR.Launcher
             var installMode = GetSelectedInstallMode();
             var isOptiMode = IsOptiScalerSelectedMode();
             var isRtxMc = IsRtxRemixMinecraftSelected();
-            if (installing && _lastPeInfo != null && _lastPeInfo.Is32Bit)
+            if (installing && EffectiveGameBitness() == 32 && !installMode.StartsWith("reshade", StringComparison.Ordinal))
             {
-                DialogTheme.Show(_window, L("当前选中的是 32 位程序，本插件仅支持 64 位 (x64) 程序。请改选 64 位主程序。", "The selected EXE is 32-bit; only 64-bit (x64) targets are supported."), _window.Title, MessageBoxButton.OK, MessageBoxImage.Warning);
+                DialogTheme.Show(_window, L("32 位游戏仅支持 ReShade 模式。", "32-bit games support ReShade mode only."), _window.Title, MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
             if (!TryLockTarget(dir))
@@ -2863,6 +2869,7 @@ namespace OptScalerNR.Launcher
                 PackageRoot = _packageRoot,
                 ExplicitDecisions = _decisions,
                 InstallMode = installMode,
+                GameBitness = EffectiveGameBitness(),
                 Fingerprint = (action != "inspect" && _lastInspectResult != null) ? _lastInspectResult.Fingerprint : null,
                 CompatibilityFingerprint = compatibilityFingerprint ?? (_lastInspectResult != null && _lastInspectResult.Compatibility != null ? _lastInspectResult.Compatibility.Fingerprint : null)
             };

@@ -24,6 +24,7 @@ namespace OptScalerNR.Launcher
         [DataMember(Name = "language")] public string Language;
         [DataMember(Name = "compatibilityFingerprint")] public string CompatibilityFingerprint;
         [DataMember(Name = "installMode", EmitDefaultValue = false)] public string InstallMode;
+        [DataMember(Name = "gameBitness", EmitDefaultValue = false)] public int GameBitness;
     }
 
     [DataContract]

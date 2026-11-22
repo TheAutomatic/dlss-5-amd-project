@@ -540,7 +540,7 @@ namespace OptScalerNR.Launcher
                         string optiDllPath = Path.Combine(request.PackageRoot, "OptiScaler.dll");
                         if (File.Exists(optiDllPath)) using (var source = File.OpenRead(optiDllPath)) packageHash = hash.ComputeHash(source);
                         byte[] pkgMochiHash = null, pkgOpenRrHash = null;
-                        byte[] pkgStandaloneDxgiHash = null, pkgVulkanHash = null, pkgAddonHash = null, pkgReShadeHash = null, pkgDxvkD3d9Hash = null, pkgRemixBridgeHash = null;
+                        byte[] pkgStandaloneDxgiHash = null, pkgVulkanHash = null, pkgRemixBridgeHash = null;
                         string pkgMochiPath = Path.Combine(request.PackageRoot, @"OptiScaler\plugins\dlssnr-amd.asi");
                         if (File.Exists(pkgMochiPath)) using (var s = File.OpenRead(pkgMochiPath)) pkgMochiHash = hash.ComputeHash(s);
                         string pkgOpenRrPath = Path.Combine(request.PackageRoot, @"OptiScaler\plugins\openrr-amd.asi");
@@ -551,15 +551,19 @@ namespace OptScalerNR.Launcher
                         if (File.Exists(pStandaloneDxgi)) using (var s = File.OpenRead(pStandaloneDxgi)) pkgStandaloneDxgiHash = hash.ComputeHash(s);
                         string pVulkan = Path.Combine(request.PackageRoot, @"vulkan\vulkan-1.dll");
                         if (File.Exists(pVulkan)) using (var s = File.OpenRead(pVulkan)) pkgVulkanHash = hash.ComputeHash(s);
-                        string pAddon = Path.Combine(request.PackageRoot, @"reshade\dlssnr_amd.addon64");
-                        if (File.Exists(pAddon)) using (var s = File.OpenRead(pAddon)) pkgAddonHash = hash.ComputeHash(s);
-                        string pReShade = Path.Combine(request.PackageRoot, @"reshade\ReShade64.dll");
-                        if (File.Exists(pReShade)) using (var s = File.OpenRead(pReShade)) pkgReShadeHash = hash.ComputeHash(s);
-                        string pDxvkD3d9 = Path.Combine(request.PackageRoot, @"dxvk\d3d9.dll");
-                        if (File.Exists(pDxvkD3d9)) using (var s = File.OpenRead(pDxvkD3d9)) pkgDxvkD3d9Hash = hash.ComputeHash(s);
                         string pRemixBridge = Path.Combine(request.PackageRoot, @"rtx-remix-mc\remixbridge.dll");
                         if (File.Exists(pRemixBridge)) using (var s = File.OpenRead(pRemixBridge)) pkgRemixBridgeHash = hash.ComputeHash(s);
 
+                        var routeHashes = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+                        Func<string, byte[]> routeHash = delegate(string relative) {
+                            byte[] bytes;
+                            if (!routeHashes.TryGetValue(relative, out bytes)) {
+                                var path = Path.Combine(request.PackageRoot, relative);
+                                if (File.Exists(path)) using (var s = File.OpenRead(path)) bytes = hash.ComputeHash(s);
+                                routeHashes[relative] = bytes;
+                            }
+                            return bytes;
+                        };
                         Func<string, byte[], bool> fileDiffers = delegate(string gameFile, byte[] pkgBytes) {
                             if (pkgBytes == null) return false;
                             if (!File.Exists(gameFile)) return true;
@@ -618,18 +622,18 @@ namespace OptScalerNR.Launcher
                                     continue;
                                 }
                                 if (installMode.StartsWith("reshade", StringComparison.OrdinalIgnoreCase)) {
-                                    bool diff = fileDiffers(Path.Combine(directory, "dlssnr_amd.addon64"), pkgAddonHash);
-                                    if (!diff) {
-                                        if (installMode == "reshade-feeder")
-                                            diff = fileDiffers(Path.Combine(directory, "dxgi.dll"), pkgReShadeHash);
-                                        else if (installMode == "reshade-feeder-dx9")
-                                            diff = fileDiffers(Path.Combine(directory, "ReShade64.dll"), pkgReShadeHash) ||
-                                                fileDiffers(Path.Combine(directory, "d3d9.dll"), pkgDxvkD3d9Hash) ||
-                                                fileDiffers(Path.Combine(directory, "vulkan-1.dll"), pkgVulkanHash);
-                                        else if (installMode == "reshade-feeder-vulkan")
-                                            diff = fileDiffers(Path.Combine(directory, "ReShade64.dll"), pkgReShadeHash) ||
-                                                fileDiffers(Path.Combine(directory, "vulkan-1.dll"), pkgVulkanHash);
-                                    }
+                                    bool is32Bit = File.Exists(Path.Combine(directory, "dlssnr_amd.addon32"));
+                                    string addon = is32Bit ? "dlssnr_amd.addon32" : "dlssnr_amd.addon64";
+                                    string dll = is32Bit ? "ReShade32.dll" : "ReShade64.dll";
+                                    string arch = is32Bit ? @"x86\" : "";
+                                    bool asLayer = installMode != "reshade-feeder";
+                                    bool diff = fileDiffers(Path.Combine(directory, addon), routeHash(@"reshade\" + addon)) ||
+                                                fileDiffers(Path.Combine(directory, asLayer ? dll : "dxgi.dll"), routeHash(@"reshade\" + dll));
+                                    if (!diff && asLayer)
+                                        diff = fileDiffers(Path.Combine(directory, "vulkan-1.dll"), routeHash(@"vulkan\" + arch + "vulkan-1.dll"));
+                                    if (!diff && installMode == "reshade-feeder-dx9")
+                                        diff = fileDiffers(Path.Combine(directory, "d3d9.dll"), routeHash(@"dxvk\" + arch + "d3d9.dll")) ||
+                                               fileDiffers(Path.Combine(directory, "dxgi.dll"), routeHash(@"dxvk\" + arch + "dxgi.dll"));
                                     compared.Differences[exe] = diff;
                                     continue;
                                 }

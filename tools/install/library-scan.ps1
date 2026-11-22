@@ -344,6 +344,7 @@ function Add-OptScalerGame($list, $seen, [string]$name, [string]$exe, [string]$s
     $installed = (Test-Path -LiteralPath (Join-Path $dir 'amd-presr-install.txt') -PathType Leaf) -or
         (Test-Path -LiteralPath (Join-Path $dir 'dlssnr-amd-install.txt') -PathType Leaf) -or
         (Test-Path -LiteralPath (Join-Path $dir 'dlssnr_amd.addon64') -PathType Leaf) -or
+        (Test-Path -LiteralPath (Join-Path $dir 'dlssnr_amd.addon32') -PathType Leaf) -or
         ((Test-Path -LiteralPath (Join-Path $dir 'dlssnr-amd.asi') -PathType Leaf) -and
          (Test-Path -LiteralPath (Join-Path $dir 'vk-override\implicit_layer\dlssnr_standalone.json') -PathType Leaf)) -or
         ($isRtxMc -and (Test-OptScalerIsOptiDll (Join-Path $dir 'OptiScaler.dll')))

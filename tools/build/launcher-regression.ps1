@@ -49,6 +49,35 @@ try {
         Assert ($LASTEXITCODE -eq 1 -and $result.error -like '*XboxGames*' -and -not $result.effectiveGameDir) "$action used WindowsApps"
     }
 
+    $probePath = Join-Path $install 'proxy-probe.ps1'
+    . $probePath
+    $bitnessDir = Join-Path $work 'ReShadeBitness'
+    [void][IO.Directory]::CreateDirectory($bitnessDir)
+    $peProbe = $asm.GetType('OptScalerNR.Launcher.PeProbe', $true)
+    foreach ($bits in 32,64) {
+        $systemDir = if ($bits -eq 32) { [Environment]::SystemDirectory.Replace('System32', 'SysWOW64') } else { [Environment]::SystemDirectory }
+        $exe = Join-Path $bitnessDir "Game$bits.exe"
+        Copy-Item -LiteralPath (Join-Path $systemDir 'where.exe') -Destination $exe
+        $pe = Get-ProxyRecommendation $exe
+        Assert ($pe.pe.bitness -eq $bits -and $pe.pe.ok -and !$pe.blockInstall -and @($pe.pe.imports).Count -gt 0) "Incorrect $bits-bit PE probe"
+        Assert ($peProbe::ReadGameBitness($exe) -eq $bits) "Launcher did not detect $bits-bit PE"
+    }
+    $x86 = Join-Path $bitnessDir 'Game32.exe'
+    $pkgFixture = Join-Path $work 'ReShadePackage'
+    Put (Join-Path $pkgFixture 'OptiScaler.dll') 'test package'
+    Assert ($peProbe::ReadGameBitness((Join-Path $pkgFixture 'OptiScaler.dll')) -eq 0) 'Invalid PE was not reported as unknown'
+    foreach ($mode in 'optiscaler','standalone') {
+        Put $req (@{schema=1;requestId='test';action='install';gameExe=$x86;packageRoot=$pkgFixture;installMode=$mode} | ConvertTo-Json)
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $install 'launcher-worker.ps1') -RequestJson $req -ResultJson $res -EventsJsonl (Join-Path $work 'events.jsonl')
+        $result = Get-Content -LiteralPath $res -Raw | ConvertFrom-Json
+        Assert ($LASTEXITCODE -eq 1 -and $result.error -eq '32-bit games support ReShade mode only.') "x86 worker did not guard $mode"
+    }
+    Put (Join-Path $bitnessDir 'dlssnr_amd.addon32') 'test add-on'
+    Put (Join-Path $bitnessDir 'ReShade32.dll') 'test Vulkan layer'
+    Assert ((Get-ProxyRecommendation $x86).installedMode -eq 'reshade-feeder-vulkan') 'x86 ReShade Vulkan install was not detected'
+    Assert ($peProbe::DetectInstalledMode($bitnessDir) -eq 'reshade-feeder-vulkan') 'Launcher did not identify the x86 ReShade Vulkan install'
+    Write-Host '32-bit and 64-bit PE probing, x86 mode restrictions, and x86 ReShade installation detection passed.'
+
     # Exercise cache migration and selection without launching background workers.
     $ctrl = [Runtime.Serialization.FormatterServices]::GetUninitializedObject($type)
     $gamesField = $type.GetField('_allGames', $instance)

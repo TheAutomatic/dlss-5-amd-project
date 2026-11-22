@@ -174,9 +174,12 @@ namespace OptScalerNR.Launcher
 
                 var optStart = fs.Position;
                 var magic = br.ReadUInt16();
-                if (magic != 0x20B) return null;
-
-                fs.Seek(optStart + 112, SeekOrigin.Begin);
+                int importOffset;
+                if (machine == 0x014C && magic == 0x10B) importOffset = 104;
+                else if (machine == 0x8664 && magic == 0x20B) importOffset = 120;
+                else return null;
+                if (optHeaderSize < importOffset + 8) return null;
+                fs.Seek(optStart + importOffset, SeekOrigin.Begin);
                 var importRva = br.ReadUInt32();
                 var importSize = br.ReadUInt32();
                 if (importRva == 0 || importSize == 0) return result;
@@ -381,10 +384,6 @@ namespace OptScalerNR.Launcher
                 var dir = Directory.Exists(exePath) ? exePath : Path.GetDirectoryName(exePath);
                 if (IsRtxRemixMinecraftDir(dir))
                 {
-                    if (Directory.Exists(exePath))
-                        targetExe = Path.Combine(dir, "remixbridge.dll");
-                    if (!string.IsNullOrEmpty(targetExe) && File.Exists(targetExe))
-                        info.Is32Bit = CheckIs32BitPe(targetExe);
                     info.HasUpscaler = true;
                     info.DetectedApi = "Vulkan (RTX Remix)";
                     info.RecommendedMode = "rtx-remix-mc";
@@ -397,7 +396,6 @@ namespace OptScalerNR.Launcher
                 }
                 if (!string.IsNullOrEmpty(targetExe) && File.Exists(targetExe))
                 {
-                    info.Is32Bit = CheckIs32BitPe(targetExe);
                     var leaf = Path.GetFileName(targetExe) ?? "";
                     var leafLower = leaf.ToLowerInvariant();
                     var fullLower = targetExe.ToLowerInvariant();
@@ -505,16 +503,18 @@ namespace OptScalerNR.Launcher
                 }
                 if (IsRtxRemixMinecraftDir(dir) && IsOptiScalerDll(Path.Combine(dir, "OptiScaler.dll")))
                     return "rtx-remix-mc";
-                if (File.Exists(Path.Combine(dir, "dlssnr_amd.addon64")))
+                if (File.Exists(Path.Combine(dir, "dlssnr_amd.addon64")) || File.Exists(Path.Combine(dir, "dlssnr_amd.addon32")))
                 {
                     if (File.Exists(Path.Combine(dir, "d3d9.dll"))) return "reshade-feeder-dx9";
-                    if (File.Exists(Path.Combine(dir, "vulkan-1.dll")) || File.Exists(Path.Combine(dir, "ReShade64.dll")))
+                    if (File.Exists(Path.Combine(dir, "vulkan-1.dll")) || File.Exists(Path.Combine(dir, "ReShade64.dll")) ||
+                        File.Exists(Path.Combine(dir, "ReShade32.dll")))
                         return "reshade-feeder-vulkan";
                     return "reshade-feeder";
                 }
                 if (File.Exists(Path.Combine(dir, "dlssnr-amd.asi")) &&
                     File.Exists(Path.Combine(dir, @"vk-override\implicit_layer\dlssnr_standalone.json")) &&
-                    !File.Exists(Path.Combine(dir, "ReShade64.dll")))
+                    !File.Exists(Path.Combine(dir, "ReShade64.dll")) &&
+                    !File.Exists(Path.Combine(dir, "ReShade32.dll")))
                     return "standalone";
                 foreach (var c in CandidateDlls)
                 {
@@ -550,24 +550,30 @@ namespace OptScalerNR.Launcher
             return imports;
         }
 
-        static bool CheckIs32BitPe(string exePath)
+        public static int ReadGameBitness(string exePath)
         {
             try
             {
                 using (var fs = new FileStream(exePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                 using (var br = new BinaryReader(fs))
                 {
-                    if (fs.Length < 0x100 || br.ReadUInt16() != 0x5A4D) return false;
+                    if (fs.Length < 64 || br.ReadUInt16() != 0x5A4D) return 0;
                     fs.Seek(0x3C, SeekOrigin.Begin);
                     var peOffset = br.ReadUInt32();
-                    if (peOffset + 28 > fs.Length) return false;
+                    if (peOffset < 64 || peOffset > fs.Length - 26) return 0;
                     fs.Seek(peOffset, SeekOrigin.Begin);
-                    if (br.ReadUInt32() != 0x00004550) return false;
+                    if (br.ReadUInt32() != 0x00004550) return 0;
                     var machine = br.ReadUInt16();
-                    return machine == 0x014C;
+                    fs.Position = peOffset + 20L;
+                    var optionalSize = br.ReadUInt16();
+                    if (peOffset + 24L + optionalSize > fs.Length || optionalSize < 2) return 0;
+                    fs.Position = peOffset + 24L;
+                    var magic = br.ReadUInt16();
+                    if (machine == 0x014C && magic == 0x10B && optionalSize >= 96) return 32;
+                    return machine == 0x8664 && magic == 0x20B && optionalSize >= 112 ? 64 : 0;
                 }
             }
-            catch { return false; }
+            catch { return 0; }
         }
 
         static string FindPrimaryExeInDir(string dir)
@@ -602,7 +608,6 @@ namespace OptScalerNR.Launcher
 
     public sealed class PeTargetInfo
     {
-        public bool Is32Bit;
         public bool HasUpscaler;
         public string DetectedApi;
         public bool IsKnownStandaloneApp;

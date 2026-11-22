@@ -625,6 +625,7 @@
                     </StackPanel>
                   </RadioButton>
                 </UniformGrid>
+                <TextBlock x:Name="GameBitnessRestriction" Style="{StaticResource Caption}" Margin="2,8,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
                 <!-- RTX Remix MC instances only have one mode: shown as the (selected) card, without a red frame. -->
                 <Border x:Name="RtxRemixMcModeCard" Background="{DynamicResource ThemeAccentSoft}" BorderBrush="{DynamicResource ThemeAccentBorder}" BorderThickness="1" CornerRadius="8" Visibility="Collapsed">
                   <Grid>
@@ -823,6 +824,12 @@
                 <TextBlock x:Name="ReShadeCardHeading" Text="ReShade 兼容配置" Style="{StaticResource SectionHeader}" Margin="2,0,0,10"/>
                 <Border Style="{StaticResource Card}">
                   <StackPanel>
+                    <TextBlock x:Name="GameBitnessText" Style="{StaticResource Caption}" Margin="0,0,0,8"/>
+                    <WrapPanel Margin="0,0,0,10">
+                      <RadioButton x:Name="GameBitnessAutoRadio" Content="自动" GroupName="GameBitness" Style="{StaticResource PillRadio}" IsChecked="True"/>
+                      <RadioButton x:Name="GameBitness32Radio" Content="32 位" GroupName="GameBitness" Style="{StaticResource PillRadio}"/>
+                      <RadioButton x:Name="GameBitness64Radio" Content="64 位" GroupName="GameBitness" Style="{StaticResource PillRadio}"/>
+                    </WrapPanel>
                     <TextBlock x:Name="ReshadeApiLabel" Text="图形接口路线（API）" FontSize="12" Foreground="{DynamicResource ThemeMuted}" Margin="0,0,0,8"/>
                     <WrapPanel Margin="0,0,0,4">
                       <RadioButton x:Name="ReshadeApiDxRadio" Content="DX10 / DX11 / DX12" GroupName="ReShadeApi" Style="{StaticResource PillRadio}" IsChecked="True" FontFamily="Segoe UI, Microsoft YaHei UI"/>

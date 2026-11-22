@@ -46,7 +46,7 @@ function Get-Sha256Hex([string]$Path) {
     } finally { $sha.Dispose() }
 }
 
-function Assert-Pe64Amd64([string]$Path, [int64]$MinBytes = 4096, [int64]$MaxBytes = 52428800) {
+function Assert-PeBinary([string]$Path, [int64]$MinBytes = 4096, [int64]$MaxBytes = 52428800, [int]$ExpectedMachine = 0x8664) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         throw "Missing PE binary: $Path"
     }
@@ -65,14 +65,14 @@ function Assert-Pe64Amd64([string]$Path, [int64]$MinBytes = 4096, [int64]$MaxByt
         throw "Missing PE signature: $Path"
     }
     $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
-    if ($machine -ne 0x8664) {
-        throw ("Expected AMD64 PE (0x8664), found 0x{0:X4}: {1}" -f $machine, $Path)
+    if ($machine -ne $ExpectedMachine) {
+        throw ("Expected PE machine 0x{0:X4}, found 0x{1:X4}: {2}" -f $ExpectedMachine, $machine, $Path)
     }
 }
 
 function Test-Pe64Amd64([string]$Path, [int64]$MinBytes = 4096, [int64]$MaxBytes = 52428800) {
     try {
-        Assert-Pe64Amd64 -Path $Path -MinBytes $MinBytes -MaxBytes $MaxBytes
+        Assert-PeBinary -Path $Path -MinBytes $MinBytes -MaxBytes $MaxBytes
         return $true
     } catch {
         return $false
@@ -378,10 +378,10 @@ function Stage-DlssnrPayload([string]$DestDir, [bool]$CustomMode) {
             }
         }
 
-        Assert-Pe64Amd64 -Path (Join-RelPath $stageTmp 'OptiScaler/plugins/dlssnr-amd.asi')
-        Assert-Pe64Amd64 -Path (Join-RelPath $stageTmp 'nr_present_probe.exe')
-        Assert-Pe64Amd64 -Path (Join-RelPath $stageTmp 'model-tools/dlssnr_extract_model.exe')
-        Assert-Pe64Amd64 -Path (Join-RelPath $stageTmp 'model-tools/dlssnr-int4-weights.exe')
+        Assert-PeBinary -Path (Join-RelPath $stageTmp 'OptiScaler/plugins/dlssnr-amd.asi')
+        Assert-PeBinary -Path (Join-RelPath $stageTmp 'nr_present_probe.exe')
+        Assert-PeBinary -Path (Join-RelPath $stageTmp 'model-tools/dlssnr_extract_model.exe')
+        Assert-PeBinary -Path (Join-RelPath $stageTmp 'model-tools/dlssnr-int4-weights.exe')
         foreach ($routePe in @(
             'standalone/dxgi.dll',
             'reshade/ReShade64.dll',
@@ -390,7 +390,11 @@ function Stage-DlssnrPayload([string]$DestDir, [bool]$CustomMode) {
             'dxvk/dxgi.dll',
             'vulkan/vulkan-1.dll'
         )) {
-            Assert-Pe64Amd64 -Path (Join-RelPath $stageTmp $routePe)
+            Assert-PeBinary -Path (Join-RelPath $stageTmp $routePe)
+        }
+        foreach ($routePe in @('reshade/ReShade32.dll', 'reshade/dlssnr_amd.addon32',
+                'dxvk/x86/d3d9.dll', 'dxvk/x86/dxgi.dll', 'vulkan/x86/vulkan-1.dll')) {
+            Assert-PeBinary -Path (Join-RelPath $stageTmp $routePe) -ExpectedMachine 0x014C
         }
 
         if (-not $CustomMode) {
@@ -425,7 +429,8 @@ if ($isCustomDlssnr) {
         (Test-Path -LiteralPath (Join-RelPath $dlssnrDir 'OptiScaler/plugins/dlssnr-amd.asi') -PathType Leaf) -and
         (Test-Path -LiteralPath (Join-RelPath $dlssnrDir 'dlssnr-amd/lang/zh-CN.txt') -PathType Leaf) -and
         (Test-Path -LiteralPath (Join-RelPath $dlssnrDir 'standalone/dxgi.dll') -PathType Leaf) -and
-        (Test-Path -LiteralPath (Join-RelPath $dlssnrDir 'reshade/dlssnr_amd.addon64') -PathType Leaf)) {
+        (Test-Path -LiteralPath (Join-RelPath $dlssnrDir 'reshade/dlssnr_amd.addon64') -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-RelPath $dlssnrDir 'reshade/dlssnr_amd.addon32') -PathType Leaf)) {
         try {
             $cur = Get-Content -LiteralPath $dlssnrStampPath -Raw -Encoding UTF8 | ConvertFrom-Json
             if ($cur.schema -eq $wantDlssnrStamp.schema -and
@@ -517,8 +522,8 @@ function Stage-OpenRrPayload([string]$DestDir, [bool]$CustomMode) {
         if (-not (Test-Path -LiteralPath $rrMitDest -PathType Leaf)) { throw 'Missing OpenRR_LICENSE.txt / Licenses/OpenRR_MIT.txt in OpenRR payload' }
         if (-not (Test-Path -LiteralPath $rrThirdDest -PathType Leaf)) { throw 'Missing OpenRR_THIRD_PARTY.md / Licenses/OpenRR_THIRD_PARTY.md in OpenRR payload' }
 
-        Assert-Pe64Amd64 -Path (Join-RelPath $stageTmp 'OptiScaler/plugins/openrr-amd.asi')
-        Assert-Pe64Amd64 -Path (Join-RelPath $stageTmp 'OptiScaler/plugins/openrr-ngx-host.dll')
+        Assert-PeBinary -Path (Join-RelPath $stageTmp 'OptiScaler/plugins/openrr-amd.asi')
+        Assert-PeBinary -Path (Join-RelPath $stageTmp 'OptiScaler/plugins/openrr-ngx-host.dll')
 
         if (-not $CustomMode) {
             $wantOpenRrStamp = @{
@@ -570,7 +575,7 @@ function Try-DownloadOptiPatcher {
     $tmp = "$optiPatcherCache.tmp-$([guid]::NewGuid().ToString('N'))"
     try {
         Download-FileWithFallback -Url $pins.optipatcher.url -Dest $tmp
-        Assert-Pe64Amd64 -Path $tmp -MinBytes 4096 -MaxBytes 20971520
+        Assert-PeBinary -Path $tmp -MinBytes 4096 -MaxBytes 20971520
         Move-Item -LiteralPath $tmp -Destination $optiPatcherCache -Force
         return $optiPatcherCache
     } catch {
@@ -584,7 +589,7 @@ if ($OptiPatcherFile) {
     if (-not (Test-Path -LiteralPath $OptiPatcherFile -PathType Leaf)) {
         throw "Provided -OptiPatcherFile not found: $OptiPatcherFile"
     }
-    Assert-Pe64Amd64 -Path $OptiPatcherFile -MinBytes 4096 -MaxBytes 20971520
+    Assert-PeBinary -Path $OptiPatcherFile -MinBytes 4096 -MaxBytes 20971520
     $optiPatcherResolved = $OptiPatcherFile
     Write-Host "Using provided OptiPatcher.asi: $OptiPatcherFile" -ForegroundColor Green
 } elseif ($RefreshOptiPatcher -and $pins.optipatcher.allowRollingRefresh) {
@@ -671,7 +676,7 @@ function Stage-RtxRemixMcPayload([string]$DestDir, [bool]$CustomMode) {
                 throw "RTX Remix Minecraft archive missing required entry: $reqEntry"
             }
         }
-        Assert-Pe64Amd64 -Path (Join-RelPath $stageTmp 'rtx-remix-mc/remixbridge.dll')
+        Assert-PeBinary -Path (Join-RelPath $stageTmp 'rtx-remix-mc/remixbridge.dll')
 
         if (-not $CustomMode) {
             $wantMcStamp = @{
