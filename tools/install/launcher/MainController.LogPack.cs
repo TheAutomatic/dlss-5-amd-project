@@ -21,25 +21,7 @@ namespace OptScalerNR.Launcher
         void PackLogs()
         {
             var game = _selectedGame;
-            // Install and INI operations target the chosen EXE's directory; collect there
-            // first. GameInfo.Root can differ (root added, exe in a subfolder) and is only
-            // a supplement for files that ended up there.
-            var dirs = new List<string>();
-            if (game != null && !string.IsNullOrEmpty(game.Exe))
-            {
-                try
-                {
-                    var exeDir = Path.GetDirectoryName(game.Exe);
-                    if (!string.IsNullOrEmpty(exeDir) && Directory.Exists(exeDir))
-                        dirs.Add(exeDir);
-                }
-                catch { }
-            }
-            string rootDir = null;
-            try { rootDir = game != null ? game.RootDirectory : null; } catch { }
-            if (!string.IsNullOrEmpty(rootDir) && Directory.Exists(rootDir) &&
-                (dirs.Count == 0 || !string.Equals(rootDir, dirs[0], StringComparison.OrdinalIgnoreCase)))
-                dirs.Add(rootDir);
+            var dirs = LogDirectories(game);
             if (dirs.Count == 0)
             {
                 DialogTheme.Show(_window,
@@ -56,44 +38,7 @@ namespace OptScalerNR.Launcher
                 if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
                 Directory.CreateDirectory(tempDir);
 
-                int copied = 0;
-                // One dedup set across all directories: the exe directory is scanned
-                // first, so its live files win and a stale same-named file in the added
-                // root can never overwrite them (File.Copy runs with overwrite).
-                var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var dir in dirs)
-                {
-                    copied += CopyGlobs(dir, tempDir, taken, new[]
-                    {
-                        "OptiScaler.log", "OptiScaler.?.log", "OptiScaler.ini",
-                        "opennr_rr.log", "opennr_rr*.log", "openrr.log", "openrr*.log", "openrr.ini", "openrr-amd.log", "openrr-amd*.log", "openrr-amd.ini", "openrr-amd-crash.dmp",
-                        "dlssnr-amd.ini", "dlssnr-amd.default.ini", "nr-report.txt",
-                        "mochizuki_nr.log", "dlssnr-amd*.log", "dlssnr-amd-crash.dmp",
-                        "ReShade.log", "ReShade.ini", "ReShadePreset.ini", "*_dxgi.log", "*_d3d9.log",
-                        "amd-presr-install.txt", "dlssnr-amd-install.txt"
-                    });
-                    // The ASI's recovery config lives beside its resources, not at the game root.
-                    var asiDir = Path.Combine(dir, "dlssnr-amd");
-                    if (Directory.Exists(asiDir))
-                        copied += CopyGlobs(asiDir, tempDir, taken, new[] { "dlssnr-amd.default.ini", "nr-report.txt" });
-                }
-                var localTaken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var dir in dirs)
-                {
-                    var appDir = DlssnrLocalData.ResolveAppDir(dir, game != null ? game.Exe : null);
-                    if (!string.IsNullOrEmpty(appDir) && Directory.Exists(appDir))
-                    {
-                        var localSub = Path.Combine(tempDir, "localappdata");
-                        Directory.CreateDirectory(localSub);
-                        copied += CopyGlobs(appDir, localSub, localTaken, new[]
-                        {
-                            "dlssnr-amd.ini", "dlssnr-amd.default.ini", "dlssnr-amd*.log", "dlssnr-amd-crash.dmp", "nr-report.txt"
-                        });
-                        var localAsiDir = Path.Combine(appDir, "dlssnr-amd");
-                        if (Directory.Exists(localAsiDir))
-                            copied += CopyGlobs(localAsiDir, localSub, localTaken, new[] { "dlssnr-amd.default.ini", "nr-report.txt" });
-                    }
-                }
+                int copied = CopyGameLogs(dirs, game.Exe, tempDir);
                 if (!string.IsNullOrEmpty(_currentLogPath) && File.Exists(_currentLogPath))
                 {
                     File.Copy(_currentLogPath, Path.Combine(tempDir, "launcher-install" + Path.GetExtension(_currentLogPath)), true);
@@ -239,9 +184,61 @@ namespace OptScalerNR.Launcher
             dialog.ShowDialog();
         }
 
-        static int CopyGlobs(string dir, string dest, HashSet<string> taken, IEnumerable<string> patterns)
+        static List<string> LogDirectories(GameInfo game)
         {
+            var dirs = new List<string>();
+            if (game == null) return dirs;
+            var exe = GamePaths.Normalize(game.Exe);
+            var exeDir = exe == null ? null : Path.GetDirectoryName(exe);
+            if (Directory.Exists(exeDir)) dirs.Add(exeDir);
+            var root = GamePaths.Normalize(game.RootDirectory);
+            // A manual EXE override may now point to a completely different game.
+            if (Directory.Exists(root) && !SamePath(root, exeDir) &&
+                (exe == null || exe.StartsWith(root.TrimEnd('\\', '/') + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+                dirs.Add(root);
+            return dirs;
+        }
+
+        static readonly string[] GameLogPatterns = {
+            "OptiScaler.log", "OptiScaler.?.log", "OptiScaler.ini",
+            "opennr_rr.log", "opennr_rr*.log", "openrr.log", "openrr*.log", "openrr.ini", "openrr-amd.log", "openrr-amd*.log", "openrr-amd.ini", "openrr-amd-crash.dmp",
+            "dlssnr-amd.ini", "dlssnr-amd.default.ini", "nr-report.txt", "nr-report-series.txt",
+            "mochizuki_nr.log", "dlssnr-amd*.log", "dlssnr-amd-crash.dmp",
+            "ReShade.log", "ReShade.ini", "ReShadePreset.ini", "*_dxgi.log", "*_d3d9.log",
+            "amd-presr-install.txt", "dlssnr-amd-install.txt"
+        };
+        static readonly string[] HostLogs = { "dlssnr-amd.ini", "dlssnr-amd.default.ini", "dlssnr-amd*.log", "dlssnr-amd-crash.dmp", "nr-report.txt", "nr-report-series.txt" };
+        static readonly string[] ResourceLogs = { "dlssnr-amd.default.ini", "nr-report.txt" };
+
+        static int CopyGameLogs(IList<string> dirs, string exe, string dest)
+        {
+            int copied = 0;
+            foreach (var dir in dirs)
+            {
+                var group = !string.IsNullOrEmpty(exe) && SamePath(dir, Path.GetDirectoryName(exe)) ? "game-exe" : "game-root";
+                var resources = Path.Combine(dir, "dlssnr-amd");
+                copied += CopyGlobs(dir, Path.Combine(dest, group), GameLogPatterns);
+                copied += CopyGlobs(resources, Path.Combine(dest, group, "dlssnr-amd"), ResourceLogs);
+
+                // A DLL anchor or a folder is not a process name. Never enumerate
+                // other apps' data to guess the missing executable.
+                if (!string.Equals(Path.GetExtension(exe), ".exe", StringComparison.OrdinalIgnoreCase)) continue;
+                foreach (var preferred in new[] { dir, resources })
+                {
+                    var local = DlssnrLocalData.ResolveAppDir(preferred, exe);
+                    if (local != null)
+                        copied += CopyGlobs(local, Path.Combine(dest, "localappdata", Path.GetFileName(local)),
+                            preferred == dir ? HostLogs : ResourceLogs);
+                }
+            }
+            return copied;
+        }
+
+        static int CopyGlobs(string dir, string dest, IEnumerable<string> patterns)
+        {
+            if (!Directory.Exists(dir)) return 0;
             int n = 0;
+            var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var pattern in patterns)
             {
                 string[] files;
@@ -249,8 +246,17 @@ namespace OptScalerNR.Launcher
                 catch { continue; }
                 foreach (var file in files)
                 {
-                    if (!taken.Add(Path.GetFileName(file))) continue;
-                    try { File.Copy(file, Path.Combine(dest, Path.GetFileName(file)), true); n++; } catch { }
+                    var name = Path.GetFileName(file);
+                    if (taken.Contains(name)) continue;
+                    try
+                    {
+                        Directory.CreateDirectory(dest);
+                        File.Copy(file, Path.Combine(dest, name), true);
+                        taken.Add(name);
+                        n++;
+                    }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
                 }
             }
             return n;

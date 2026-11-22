@@ -45,7 +45,7 @@ if (-not $Version) {
     }
     if (-not $Version) { $Version = '2.0.0' }
 }
-if (-not $Name) { $Name = "OptiScaler-NR-$Version" }
+if (-not $Name) { $Name = "OptiScaler-NR-Win-$Version" }
 
 $stage = Join-Path $root (Join-Path $OutDir $Name)
 $zip   = Join-Path $root (Join-Path $OutDir ($Name + '.zip'))
@@ -69,6 +69,14 @@ $upstreamInfo = & $fetchUpstreamScript `
 
 # 2. Verify ASI payloads exist
 $asiPayload = $upstreamInfo.DlssnrDir
+$reShade32Entries = @(
+    'reshade/ReShade32.dll',
+    'reshade/dlssnr_amd.addon32',
+    'reshade/vk-override/implicit_layer/ReShade32.json',
+    'dxvk/x86/d3d9.dll',
+    'dxvk/x86/dxgi.dll',
+    'vulkan/x86/vulkan-1.dll'
+)
 foreach ($required in @(
     'OptiScaler/plugins/dlssnr-amd.asi',
     'nr_present_probe.exe',
@@ -100,7 +108,7 @@ foreach ($required in @(
     'experimental/CC_SMALL_FP8_EXPERIMENTAL.bin.sha256',
     'optimized/dlssnr-optimized.delta',
     'optimized/CC_SILVER_AARDWOLD_OPTIMIZED.bin.sha256'
-)) {
+) + $reShade32Entries) {
     if (-not (Test-Path -LiteralPath (Join-Path $asiPayload $required) -PathType Leaf)) {
         throw "dlssnr-amd payload incomplete: $required"
     }

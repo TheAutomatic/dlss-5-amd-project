@@ -28,6 +28,7 @@ namespace OptScalerNR.Launcher
             _refreshProfilesButton=(Button)_window.FindName("RefreshProfilesButton");
             _useRecommendationButton=(Button)_window.FindName("UseRecommendationButton");
             _profileStatus=(TextBlock)_window.FindName("ProfileStatus");
+            ((System.Windows.Documents.Hyperlink)_window.FindName("WikiDetailsLink")).RequestNavigate += delegate(object sender, System.Windows.Navigation.RequestNavigateEventArgs e) { OpenUrl(e.Uri.AbsoluteUri); e.Handled = true; };
             if(_refreshProfilesButton!=null)_refreshProfilesButton.Click+=(s,e)=>RefreshProfiles();
             if(_useRecommendationButton!=null)_useRecommendationButton.Click+=delegate{
                 if(_selectedGame==null)return;_proxyChoices.Remove(_selectedGame.Id);SaveSettings();UpdateProxyRecommendation();
@@ -78,8 +79,11 @@ namespace OptScalerNR.Launcher
         void ApplyOptiPatcherTooltip(bool supported)
         {
             if(_optiPatcherToggle==null)return;
+            var profile = _selectedGame == null || _recommendations == null ? null : _recommendations.Match(_selectedGame);
+            SetLabel("OptiPatcherWikiTag", "Wiki 推荐", "Wiki recommended");
+            ((TextBlock)_window.FindName("OptiPatcherWikiTag")).Visibility = supported && profile != null && profile.OptiPatcher ? Visibility.Visible : Visibility.Collapsed;
             _optiPatcherToggle.ToolTip=supported
-                ?L("优先下载最新版本（30 秒时限），失败时回退包内离线副本，并启用 LoadAsiPlugins。","Downloads the latest version with a 30-second limit, falls back to the bundled offline copy, and enables LoadAsiPlugins.")
+                ?L("增强 DLSS 显卡伪装，按 Wiki 推荐预选。优先下载最新版本（30 秒时限），失败时回退包内离线副本，并启用 LoadAsiPlugins。","Enhances DLSS GPU spoofing and is preselected by Wiki recommendation. Downloads the latest version with a 30-second limit, falls back to the bundled offline copy, and enables LoadAsiPlugins.")
                 :L("当前游戏不在内置 OptiPatcher 支持名单内，已自动禁用。","This game is not in the bundled OptiPatcher support list and has been disabled.");
         }
         void RememberOptiPatcherChoice()
@@ -126,15 +130,23 @@ namespace OptScalerNR.Launcher
         }
         void UpdateProxyRecommendation(string quickCandidate=null)
         {
+            RefreshProxySummary();
             if(_recommendations==null)return;
             if(_refreshProfilesButton!=null)_refreshProfilesButton.Content=L("更新推荐资料","Refresh recommendations");
             if(_useRecommendationButton!=null){_useRecommendationButton.Content=L("使用推荐","Use suggestion");_useRecommendationButton.IsEnabled=_selectedGame!=null&&!_writeBusy;}
             if(_profileStatus!=null){
                 var origin=_recommendations.UsingCache?L("缓存资料","Cached data"):L("随包资料","Bundled data");
-                _profileStatus.Text=string.Format(L("{0}（{1} 款游戏）","{0} ({1} games)"),origin,_recommendations.Count);
+                _profileStatus.Text=string.Format(L("{0} · {1} 款游戏","{0} · {1} games"),origin,_recommendations.Count);
                 _profileStatus.ToolTip=string.Format(L("推荐规则来源：{0} · 共 {1} 款游戏 · 复核于 {2}","Recommendation source: {0} · {1} games · reviewed {2}"),origin,_recommendations.Count,_recommendations.Reviewed??"");
             }
             var profile=_selectedGame==null?null:_recommendations.Match(_selectedGame);
+            var wikiLink = (System.Windows.Documents.Hyperlink)_window.FindName("WikiDetailsLink");
+            Uri source = null;
+            bool hasLink = profile != null && Uri.TryCreate(profile.Source, UriKind.Absolute, out source) && (source.Scheme == Uri.UriSchemeHttps || source.Scheme == Uri.UriSchemeHttp);
+            ((TextBlock)_window.FindName("WikiDetailsText")).Visibility = hasLink ? Visibility.Visible : Visibility.Collapsed;
+            wikiLink.NavigateUri = hasLink ? source : null;
+            wikiLink.Inlines.Clear();
+            wikiLink.Inlines.Add(L("查看详情", "View details"));
             if(!IsOptiScalerSelectedMode()){
                 _selectingOptiPatcher=true;_selectingOpenRr=true;_selectingOpenRrSpoof=true;
                 try{
@@ -185,13 +197,14 @@ namespace OptScalerNR.Launcher
             var guess=_lastInspectResult!=null?_lastInspectResult.Recommend:quickCandidate;
             var proxy=hasManual?manual:profile!=null?profile.Preferred:guess;
             SelectProxy(proxy);
+            RefreshProxySummary();
             if(_injectRecommendation!=null){
-                if(hasManual)_injectRecommendation.Text=L("使用你的手选代理：","Using your selected proxy: ")+manual;
-                else if(profile!=null)_injectRecommendation.Text=L("Wiki 游戏规则建议：","Wiki game rule suggests: ")+profile.Preferred+
-                    (profile.Alternatives.Length>0?L("；备选 ","; alternatives ")+string.Join(", ",profile.Alternatives):"");
-                else if(!string.IsNullOrEmpty(guess))_injectRecommendation.Text=L("本地检测候选（未验证注入）：","Local candidate (injection not verified): ")+guess;
-                else _injectRecommendation.Text=L("尚无已验证的游戏规则，也未找到可靠导入候选。请手动选择代理。","No reviewed game rule or reliable import candidate was found. Select a proxy manually.");
-                if(profile!=null)_injectRecommendation.Text+="\n"+(_language=="zh"?profile.NotesZh:profile.NotesEn)+"\n"+profile.Source;
+                if(profile!=null)_injectRecommendation.Text=L("Wiki：可用 · 推荐 ","Wiki: available · Recommended ")+profile.Preferred;
+                else if(hasManual)_injectRecommendation.Text=L("手动代理：","Manual proxy: ")+manual;
+                else if(!string.IsNullOrEmpty(guess))_injectRecommendation.Text=L("本地候选：","Local candidate: ")+guess;
+                else _injectRecommendation.Text=L("无推荐，请选择代理", "No recommendation. Choose a proxy.");
+                _injectRecommendation.ToolTip = profile == null ? L("本地检测尚未验证注入兼容性。", "Local detection does not verify injection compatibility.")
+                    : (_language=="zh"?profile.NotesZh:profile.NotesEn) + "\n" + string.Join(", ", profile.Alternatives) + "\n" + profile.Source;
                 AppendMochizukiNote();
             }
             if(_injectIcon!=null){_injectIcon.Text=hasManual||profile!=null?"✓":"ℹ";_injectIcon.Foreground=hasManual||profile!=null?ReadyBrush:WarningBrush;}
@@ -203,14 +216,15 @@ namespace OptScalerNR.Launcher
             if(_injectRecommendation==null)return;
             var mochi=_lastInspectResult==null?null:_lastInspectResult.MochizukiInstall;
             if(mochi==null||!mochi.Detected)return;
-            if(_injectRecommendation.Text.Contains("DLSSNR-AMD"))return;
-            _injectRecommendation.Text+="\n"+L("注意：检测到 Mochizuki（DLSSNR-AMD）自己的安装（"+string.Join(", ",mochi.Files??new string[0])+"）。同类 NR 模组共存可能冲突；安装器不会移动或删除这些文件。","Note: a Mochizuki (DLSSNR-AMD) installation is in this folder ("+string.Join(", ",mochi.Files??new string[0])+"). The same kind of NR mod twice can conflict; the installer never moves or deletes these files.");
+            var tooltip = Convert.ToString(_injectRecommendation.ToolTip);
+            if(tooltip.Contains("DLSSNR-AMD"))return;
+            _injectRecommendation.ToolTip=tooltip+"\n"+L("注意：检测到 Mochizuki（DLSSNR-AMD）自己的安装（"+string.Join(", ",mochi.Files??new string[0])+"）。同类 NR 模组共存可能冲突；安装器不会移动或删除这些文件。","Note: a Mochizuki (DLSSNR-AMD) installation is in this folder ("+string.Join(", ",mochi.Files??new string[0])+"). The same kind of NR mod twice can conflict; the installer never moves or deletes these files.");
             }
         async void RefreshProfiles()
         {
             if(_recommendations==null)return;
             if(_refreshProfilesButton!=null)_refreshProfilesButton.IsEnabled=false;
-            if(_statusText!=null)_statusText.Text=L("正在从 OptiScaler 官方 Wiki 同步推荐资料…","Syncing recommendations from the official OptiScaler Wiki…");
+            if(_statusText!=null)SetStatus("正在从 OptiScaler 官方 Wiki 同步推荐资料…","Syncing recommendations from the official OptiScaler Wiki…");
             if(_statusLed!=null)_statusLed.Fill=WarningBrush;
             try{
                 var outcome=await _recommendations.RefreshAsync();
@@ -229,27 +243,27 @@ namespace OptScalerNR.Launcher
             var kind=colon<0?outcome:outcome.Substring(0,colon);
             switch(kind){
                 case "updated":
-                    if(_statusText!=null)_statusText.Text=string.Format(L("已从 OptiScaler 官方 Wiki 同步 {0} 条游戏推荐规则。","Synced {0} game recommendation rules from the official OptiScaler Wiki."),count);
+                    if(_statusText!=null)SetStatus(string.Format("已从 OptiScaler 官方 Wiki 同步 {0} 条游戏推荐规则。", count), string.Format("Synced {0} game recommendation rules from the official OptiScaler Wiki.", count));
                     if(_statusLed!=null)_statusLed.Fill=ReadyBrush;
                     break;
                 case "not-modified":
-                    if(_statusText!=null)_statusText.Text=string.Format(L("推荐资料已是最新（{0} 条规则）。","Recommendations are already up to date ({0} rules)."),count);
+                    if(_statusText!=null)SetStatus(string.Format("推荐资料已是最新（{0} 条规则）。", count), string.Format("Recommendations are already up to date ({0} rules).", count));
                     if(_statusLed!=null)_statusLed.Fill=ReadyBrush;
                     break;
                 case "offline":
-                    if(_statusText!=null)_statusText.Text=L("无法连接 OptiScaler Wiki，继续使用本地推荐资料。","Could not reach the OptiScaler Wiki; keeping local recommendations.");
+                    if(_statusText!=null)SetStatus("无法连接 OptiScaler Wiki，继续使用本地推荐资料。","Could not reach the OptiScaler Wiki; keeping local recommendations.");
                     if(_statusLed!=null)_statusLed.Fill=WarningBrush;
                     break;
                 case "timeout":
-                    if(_statusText!=null)_statusText.Text=L("连接 OptiScaler Wiki 超时，继续使用本地推荐资料。","Timed out contacting the OptiScaler Wiki; keeping local recommendations.");
+                    if(_statusText!=null)SetStatus("连接 OptiScaler Wiki 超时，继续使用本地推荐资料。","Timed out contacting the OptiScaler Wiki; keeping local recommendations.");
                     if(_statusLed!=null)_statusLed.Fill=WarningBrush;
                     break;
                 case "invalid":
-                    if(_statusText!=null)_statusText.Text=L("OptiScaler Wiki 返回无法解析的内容，继续使用本地推荐资料。","The OptiScaler Wiki returned unusable content; keeping local recommendations.");
+                    if(_statusText!=null)SetStatus("OptiScaler Wiki 返回无法解析的内容，继续使用本地推荐资料。","The OptiScaler Wiki returned unusable content; keeping local recommendations.");
                     if(_statusLed!=null)_statusLed.Fill=WarningBrush;
                     break;
                 case "busy":
-                    if(_statusText!=null)_statusText.Text=L("正在同步推荐资料，请稍候。","Recommendation sync is already running.");
+                    if(_statusText!=null)SetStatus("正在同步推荐资料，请稍候。","Recommendation sync is already running.");
                     break;
             }
         }

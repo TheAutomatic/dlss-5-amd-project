@@ -33,12 +33,12 @@
     }
   },
   "dlssnr": {
-    "version": "0.0.9m3",
-    "archiveName": "DLSSNR-AMD-Vulkan-Windows-0.0.9m3-preview-x86_64.zip",
-    "archiveUrl": "https://github.com/TheAutomatic/DLSSNR-AMD/releases/download/v0.0.9m3/DLSSNR-AMD-Vulkan-Windows-0.0.9m3-preview-x86_64.zip",
-    "archiveSha256": "0e12d52ae30aa12eda9a9ebc672b312a7240d1e0cc7c827eb36b061cc8890294",
+    "version": "0.0.9m7",
+    "archiveName": "DLSSNR-AMD-Vulkan-Windows-0.0.9m7-preview-x86_64.zip",
+    "archiveUrl": "https://github.com/TheAutomatic/DLSSNR-AMD/releases/download/v0.0.9m7/DLSSNR-AMD-Vulkan-Windows-0.0.9m7-preview-x86_64.zip",
+    "archiveSha256": "c9ed899e8cfa4cc05f8a10448935a671af45e31c506fac0e4226f62c1a6cf2d9",
     "langArchiveName": "DLSSNR-AMD-lang-CJK-0.0.9m1.zip",
-    "langArchiveUrl": "https://github.com/TheAutomatic/DLSSNR-AMD/releases/download/v0.0.9m3/DLSSNR-AMD-lang-CJK-0.0.9m1.zip",
+    "langArchiveUrl": "https://github.com/TheAutomatic/DLSSNR-AMD/releases/download/v0.0.9m6/DLSSNR-AMD-lang-CJK-0.0.9m1.zip",
     "langArchiveSha256": "14736abe9d8f9e763574603780993aaa285776c285264894d749e781704bd7c4"
   },
   "openrr": {
@@ -64,5 +64,24 @@
       "NOTICE": "efb16c0f7b4e7c286ac43828aded4289e065f7f2fd3f936aa72e3d10d65bc5eb",
       "THIRD_PARTY_LICENSES/NVIDIA-rtx-remix-minecraft-Apache-2.0.txt": "fcd7f4edc6be93f37717add43dcb2617812d74536c6717b57028234b19a6d1db"
     }
+  },
+  "mochizukiLinux": {
+    "version": "0.0.9",
+    "releaseUrl": "https://gitlab.com/mochizuki0323/DLSSNR-AMD/-/releases/v0.0.9",
+    "archives": {
+      "x86_64": {
+        "archiveName": "DLSSNR-AMD-Vulkan-Linux-0.0.9-x86_64.tar.gz",
+        "archiveUrl": "https://gitlab.com/api/v4/projects/88319462/packages/generic/dlssnr-amd/0.0.9/DLSSNR-AMD-Vulkan-Linux-0.0.9-x86_64.tar.gz",
+        "archiveSha256": "30c795f9e446cbea8af46cea142d78c108e2cce0ac26fa9ced7c3a56600fbdc2"
+      },
+      "i686": {
+        "archiveName": "DLSSNR-AMD-Vulkan-Linux-0.0.9-i686.tar.gz",
+        "archiveUrl": "https://gitlab.com/api/v4/projects/88319462/packages/generic/dlssnr-amd/0.0.9/DLSSNR-AMD-Vulkan-Linux-0.0.9-i686.tar.gz",
+        "archiveSha256": "6047e7e1d9ed4513dda6f53750911e8f7dc3b818755f0aa893c0a3cfd2a361d2"
+      }
+    },
+    "langArchiveName": "DLSSNR-AMD-lang-CJK-0.0.9.zip",
+    "langArchiveUrl": "https://gitlab.com/api/v4/projects/88319462/packages/generic/dlssnr-amd/0.0.9/DLSSNR-AMD-lang-CJK-0.0.9.zip",
+    "langArchiveSha256": "2fe930c08de465a474f6cf204790544388bc6b2e198d9c3b7c082559c964f14a"
   }
 }

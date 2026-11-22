@@ -3,9 +3,9 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:local="clr-namespace:OptScalerNR.Launcher;assembly=OptiScalerNRLauncher"
         Title="OptiScaler NR - 本软件免费，如付费购买请立即退款！"
-        Width="1200" Height="780"
+        Width="1240" Height="800"
         MinWidth="1020" MinHeight="660"
-        Background="{DynamicResource ThemeBackground}"
+        Background="{DynamicResource ThemeCanvas}"
         Foreground="{DynamicResource ThemeInk}"
         FontFamily="Segoe UI, Microsoft YaHei UI" FontSize="13"
         TextOptions.TextFormattingMode="Display"
@@ -17,88 +17,43 @@
         BorderBrush="{DynamicResource ThemeBorder}"
         BorderThickness="1"
         AllowDrop="True">
+  <!-- GlassFrameThickness 0,0,0,1 keeps the native DWM shadow without a visible glass strip.
+       NativeFrame upgrades this to a full Mica frame on Windows 11 22H2+ (see LauncherTheme.cs). -->
   <WindowChrome.WindowChrome>
-    <WindowChrome CaptionHeight="56"
+    <WindowChrome CaptionHeight="48"
                   ResizeBorderThickness="6"
                   CornerRadius="0"
-                  GlassFrameThickness="0"
+                  GlassFrameThickness="0,0,0,1"
                   UseAeroCaptionButtons="False" />
   </WindowChrome.WindowChrome>
 
   <Window.Resources>
-    <!-- Modern Dark ScrollBar -->
-    <Style TargetType="{x:Type ScrollBar}">
-      <Setter Property="Stylus.IsPressAndHoldEnabled" Value="false"/>
-      <Setter Property="Stylus.IsFlicksEnabled" Value="false"/>
-      <Setter Property="Width" Value="8"/>
-      <Setter Property="MinWidth" Value="8"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="{x:Type ScrollBar}">
-            <Grid x:Name="Bg" SnapsToDevicePixels="true" Background="Transparent">
-              <Track x:Name="PART_Track" IsDirectionReversed="true">
-                <Track.Thumb>
-                  <Thumb>
-                    <Thumb.Template>
-                      <ControlTemplate TargetType="{x:Type Thumb}">
-                        <Border x:Name="ThumbBorder" Background="{DynamicResource ThemeBorder}" CornerRadius="4" Margin="1,0"/>
-                        <ControlTemplate.Triggers>
-                          <Trigger Property="IsMouseOver" Value="true">
-                            <Setter TargetName="ThumbBorder" Property="Background" Value="{DynamicResource ThemeMuted}"/>
-                          </Trigger>
-                          <Trigger Property="IsDragging" Value="true">
-                            <Setter TargetName="ThumbBorder" Property="Background" Value="{DynamicResource ThemeAccent}"/>
-                          </Trigger>
-                        </ControlTemplate.Triggers>
-                      </ControlTemplate>
-                    </Thumb.Template>
-                  </Thumb>
-                </Track.Thumb>
-              </Track>
-            </Grid>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-      <Style.Triggers>
-        <Trigger Property="Orientation" Value="Horizontal">
-          <Setter Property="Width" Value="Auto"/>
-          <Setter Property="MinWidth" Value="0"/>
-          <Setter Property="Height" Value="8"/>
-          <Setter Property="MinHeight" Value="8"/>
-        </Trigger>
-      </Style.Triggers>
-    </Style>
-
-    <!-- ComboBox Toggle Button Template -->
+    <!-- ComboBox chrome is duplicated locally so LibraryFilter's BasedOn resolves while this file is parsed. -->
     <ControlTemplate x:Key="ComboBoxToggleButton" TargetType="{x:Type ToggleButton}">
       <Border x:Name="Border" CornerRadius="6" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" SnapsToDevicePixels="true">
         <Grid>
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="*"/>
-            <ColumnDefinition Width="28"/>
-          </Grid.ColumnDefinitions>
-          <Path x:Name="Arrow" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{DynamicResource ThemeMuted}" Data="M 0 0 L 4 4 L 8 0 Z"/>
+          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="28"/></Grid.ColumnDefinitions>
+          <Path x:Name="Arrow" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Width="10" Height="6" Stretch="None" Stroke="{DynamicResource ThemeMuted}" StrokeThickness="1.3" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Data="M 0.5 0.5 L 5 5 L 9.5 0.5"/>
         </Grid>
       </Border>
       <ControlTemplate.Triggers>
         <Trigger Property="IsMouseOver" Value="true">
-          <Setter TargetName="Border" Property="BorderBrush" Value="{DynamicResource ThemeMuted}"/>
-          <Setter TargetName="Arrow" Property="Fill" Value="{DynamicResource ThemeInk}"/>
+          <Setter TargetName="Border" Property="Background" Value="{DynamicResource ThemeControlHover}"/>
+          <Setter TargetName="Arrow" Property="Stroke" Value="{DynamicResource ThemeInk}"/>
         </Trigger>
         <Trigger Property="IsChecked" Value="true">
-          <Setter TargetName="Border" Property="BorderBrush" Value="{DynamicResource ThemeAccent}"/>
+          <Setter TargetName="Border" Property="Background" Value="{DynamicResource ThemeControlPressed}"/>
         </Trigger>
       </ControlTemplate.Triggers>
     </ControlTemplate>
-
-    <!-- Dark ComboBox Style -->
     <Style TargetType="{x:Type ComboBox}">
-      <Setter Property="Background" Value="{DynamicResource ThemeSubtle}"/>
+      <Setter Property="Background" Value="{DynamicResource ThemeControl}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorder}"/>
       <Setter Property="Foreground" Value="{DynamicResource ThemeInk}"/>
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="Height" Value="32"/>
-      <Setter Property="Padding" Value="10,0"/>
+      <Setter Property="Padding" Value="11,0,30,0"/>
+      <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="SnapsToDevicePixels" Value="true"/>
       <Setter Property="Template">
         <Setter.Value>
@@ -113,39 +68,43 @@
                                 ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
                                 Margin="{TemplateBinding Padding}" VerticalAlignment="Center" HorizontalAlignment="Left"/>
               <Popup Name="Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True"
-                     Focusable="False" PopupAnimation="Slide">
+                     Focusable="False" PopupAnimation="Fade">
                 <Grid Name="DropDown" SnapsToDevicePixels="True" MinWidth="{TemplateBinding ActualWidth}" MaxHeight="{TemplateBinding MaxDropDownHeight}">
-                  <Border x:Name="DropDownBorder" Background="{DynamicResource ThemeSubtle}" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorder}" CornerRadius="6" Margin="0,4,0,4">
-                    <ScrollViewer Margin="4,4" SnapsToDevicePixels="True">
+                  <Border x:Name="DropDownBorder" Background="{DynamicResource ThemeCardBg}" BorderThickness="1" BorderBrush="{DynamicResource ThemeBorder}" CornerRadius="8" Margin="6,4,6,10">
+                    <Border.Effect><DropShadowEffect BlurRadius="14" ShadowDepth="3" Direction="270" Opacity="0.16"/></Border.Effect>
+                    <ScrollViewer Margin="4" SnapsToDevicePixels="True">
                       <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained" />
                     </ScrollViewer>
                   </Border>
                 </Grid>
               </Popup>
             </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.5"/></Trigger>
+            </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
     </Style>
-
-    <!-- Dark ComboBoxItem Style -->
     <Style TargetType="{x:Type ComboBoxItem}">
       <Setter Property="SnapsToDevicePixels" Value="true"/>
       <Setter Property="Foreground" Value="{DynamicResource ThemeInk}"/>
-      <Setter Property="Padding" Value="10,6"/>
+      <Setter Property="Padding" Value="11,7"/>
+      <Setter Property="Margin" Value="0,1"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="{x:Type ComboBoxItem}">
-            <Border x:Name="Bd" Padding="{TemplateBinding Padding}" CornerRadius="4" Background="Transparent" SnapsToDevicePixels="true">
-              <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"/>
-            </Border>
+            <Grid>
+              <Border x:Name="Bd" Padding="{TemplateBinding Padding}" CornerRadius="5" Background="Transparent" SnapsToDevicePixels="true">
+                <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"/>
+              </Border>
+              <Border x:Name="Bar" Width="3" Height="14" CornerRadius="1.5" HorizontalAlignment="Left" Background="{DynamicResource ThemeAccent}" Visibility="Collapsed"/>
+            </Grid>
             <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="true">
-                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ThemeHover}"/>
-              </Trigger>
+              <Trigger Property="IsMouseOver" Value="true"><Setter TargetName="Bd" Property="Background" Value="{DynamicResource ThemeHover}"/></Trigger>
               <Trigger Property="IsSelected" Value="true">
                 <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ThemeHover}"/>
-                <Setter Property="Foreground" Value="{DynamicResource ThemeInk}"/>
+                <Setter TargetName="Bar" Property="Visibility" Value="Visible"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -153,7 +112,7 @@
       </Setter>
     </Style>
     <Style x:Key="LibraryFilter" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
-      <Setter Property="Background" Value="{DynamicResource ThemeSurface}"/>
+      <Setter Property="Background" Value="{DynamicResource ThemeControl}"/>
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="FocusVisualStyle" Value="{DynamicResource KeyboardFocus}"/>
     </Style>
@@ -162,72 +121,76 @@
       <Setter Property="Margin" Value="1"/>
     </Style>
 
-    <!-- Modern CheckBox -->
-    <Style TargetType="{x:Type CheckBox}">
+    <!-- Single-layer card: the only framed surface level in the details pane. -->
+    <Style x:Key="Card" TargetType="Border">
+      <Setter Property="Background" Value="{DynamicResource ThemeCardBg}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource ThemeHairline}"/>
+      <Setter Property="BorderThickness" Value="{DynamicResource ThemeCardBorderThickness}"/>
+      <Setter Property="CornerRadius" Value="8"/>
+      <Setter Property="Padding" Value="16,14"/>
+    </Style>
+    <Style x:Key="Surface" TargetType="Border" BasedOn="{StaticResource Card}"/>
+    <!-- Informational strip inside a card (lock notices, import prompts). -->
+    <Style x:Key="InfoBar" TargetType="Border">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource ThemeHairline}"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="CornerRadius" Value="8"/>
+      <Setter Property="Padding" Value="14,10"/>
+    </Style>
+    <Style x:Key="SectionHeader" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="14"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
       <Setter Property="Foreground" Value="{DynamicResource ThemeInk}"/>
-      <Setter Property="FontSize" Value="13"/>
-      <Setter Property="Cursor" Value="Hand"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="{x:Type CheckBox}">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-              <Border x:Name="Box" Width="18" Height="18" CornerRadius="4" Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1.5" VerticalAlignment="Center" Margin="0,0,8,0">
-                <Path x:Name="Check" Data="M 3 8 L 7 12 L 14 4" Stroke="{DynamicResource ThemeOnAccent}" StrokeThickness="2" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-              </Border>
-              <ContentPresenter VerticalAlignment="Center"/>
-            </StackPanel>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsChecked" Value="true">
-                <Setter TargetName="Box" Property="Background" Value="{DynamicResource ThemeAccent}"/>
-                <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource ThemeAccent}"/>
-                <Setter TargetName="Check" Property="Visibility" Value="Visible"/>
-              </Trigger>
-              <Trigger Property="IsMouseOver" Value="true">
-                <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource ThemeMuted}"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+    </Style>
+    <Style x:Key="Caption" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Foreground" Value="{DynamicResource ThemeMuted}"/>
+      <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+    <!-- Low-saturation status badge. -->
+    <Style x:Key="Badge" TargetType="Border">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource ThemeHairline}"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="CornerRadius" Value="4"/>
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
 
-    <!-- Card Surface Style -->
-    <Style x:Key="Surface" TargetType="Border">
-      <Setter Property="Background" Value="{DynamicResource ThemeSurface}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorder}"/>
-      <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="CornerRadius" Value="14"/>
-    </Style>
-
-    <!-- Status Pill RadioButton Style -->
+    <!-- Proxy / API chips. -->
     <Style x:Key="PillRadio" TargetType="{x:Type RadioButton}">
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="Foreground" Value="{DynamicResource ThemeInk}"/>
       <Setter Property="FontSize" Value="12"/>
-      <Setter Property="FontWeight" Value="Medium"/>
       <Setter Property="Margin" Value="0,0,8,8"/>
-      <Setter Property="FontFamily" Value="Consolas"/>
-      <Setter Property="FocusVisualStyle" Value="{DynamicResource KeyboardFocus}"/>
+      <Setter Property="FontFamily" Value="Cascadia Mono, Consolas"/>
+      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="{x:Type RadioButton}">
             <Grid x:Name="Body">
-              <Border x:Name="PillBorder" CornerRadius="15" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" Background="{DynamicResource ThemeSubtle}"/>
-              <Border CornerRadius="15" IsHitTestVisible="False"><Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#10FFFFFF" Offset="0"/><GradientStop Color="#00000000" Offset="1"/></LinearGradientBrush></Border.Background></Border>
-              <StackPanel x:Name="Label" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,6">
-                <Ellipse x:Name="Indicator" Width="6" Height="6" Fill="{DynamicResource ThemeMuted}" Margin="0,0,7,0" VerticalAlignment="Center"/>
+              <Border x:Name="PillBorder" CornerRadius="15" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" Background="{DynamicResource ThemeControl}"/>
+              <Border x:Name="Hover" CornerRadius="15" Background="{DynamicResource ThemeInk}" Opacity="0" IsHitTestVisible="False"/>
+              <StackPanel x:Name="Label" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,6,14,6">
+                <Ellipse x:Name="Indicator" Width="6" Height="6" Fill="{DynamicResource ThemeFaint}" Margin="0,0,8,0" VerticalAlignment="Center"/>
                 <ContentPresenter VerticalAlignment="Center" TextElement.FontFamily="{TemplateBinding FontFamily}" TextElement.FontSize="{TemplateBinding FontSize}"/>
               </StackPanel>
-              <Border x:Name="KeyboardRing" Margin="-3" CornerRadius="18" BorderThickness="1.5" BorderBrush="{DynamicResource ThemeMuted}" Visibility="Collapsed" IsHitTestVisible="False"/>
+              <Border x:Name="KeyboardRing" Margin="-3" CornerRadius="18" BorderThickness="2" BorderBrush="{DynamicResource ThemeInk}" Visibility="Collapsed" IsHitTestVisible="False"/>
             </Grid>
             <ControlTemplate.Triggers>
               <Trigger Property="local:DialogTheme.KeyboardFocusVisible" Value="True"><Setter TargetName="KeyboardRing" Property="Visibility" Value="Visible"/></Trigger>
-              <Trigger Property="IsMouseOver" Value="true"><Setter TargetName="PillBorder" Property="Background" Value="{DynamicResource ThemeHover}"/></Trigger>
+              <Trigger Property="IsMouseOver" Value="true">
+                <Trigger.EnterActions><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetName="Hover" Storyboard.TargetProperty="Opacity" To="0.05" Duration="0:0:0.12"/></Storyboard></BeginStoryboard></Trigger.EnterActions>
+                <Trigger.ExitActions><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetName="Hover" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.15"/></Storyboard></BeginStoryboard></Trigger.ExitActions>
+              </Trigger>
               <Trigger Property="IsChecked" Value="true">
-                <Setter TargetName="PillBorder" Property="BorderBrush" Value="#202938"/>
-                <Setter TargetName="PillBorder" Property="Background"><Setter.Value><LinearGradientBrush StartPoint="0,0" EndPoint="0,1"><GradientStop Color="#252D3E" Offset="0"/><GradientStop Color="#111725" Offset="1"/></LinearGradientBrush></Setter.Value></Setter>
+                <Setter TargetName="PillBorder" Property="BorderBrush" Value="{DynamicResource ThemeAccentBorder}"/>
+                <Setter TargetName="PillBorder" Property="Background" Value="{DynamicResource ThemeAccentSoft}"/>
                 <Setter TargetName="Indicator" Property="Fill" Value="{DynamicResource ThemeAccent}"/>
-                <Setter Property="Foreground" Value="White"/>
+                <Setter Property="Foreground" Value="{DynamicResource ThemeAccentText}"/>
               </Trigger>
               <Trigger Property="IsPressed" Value="True"><Setter TargetName="Label" Property="Opacity" Value="0.75"/></Trigger>
               <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Body" Property="Opacity" Value="0.45"/></Trigger>
@@ -237,29 +200,35 @@
       </Setter>
     </Style>
 
-    <!-- Mode Selector Card RadioButton Style -->
+    <!-- Installation mode card: soft accent fill + thin border + 3px left indicator when selected. -->
     <Style x:Key="ModeCardRadio" TargetType="{x:Type RadioButton}">
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="Foreground" Value="{DynamicResource ThemeInk}"/>
       <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
       <Setter Property="VerticalContentAlignment" Value="Stretch"/>
-      <Setter Property="FocusVisualStyle" Value="{DynamicResource KeyboardFocus}"/>
+      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="{x:Type RadioButton}">
-            <Grid x:Name="CardRoot" Margin="0,0,0,0">
-              <Border x:Name="CardBorder" Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1.5" CornerRadius="12" Padding="12,10" SnapsToDevicePixels="True">
+            <Grid x:Name="CardRoot">
+              <Border x:Name="CardBorder" Background="{DynamicResource ThemeCardBg}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="1" CornerRadius="8" Padding="16,13,14,13" SnapsToDevicePixels="True">
                 <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
               </Border>
-              <Border x:Name="KeyboardRing" Margin="-2" CornerRadius="14" BorderThickness="1.5" BorderBrush="{DynamicResource ThemeMuted}" Visibility="Collapsed" IsHitTestVisible="False"/>
+              <Border x:Name="Hover" CornerRadius="8" Background="{DynamicResource ThemeInk}" Opacity="0" IsHitTestVisible="False"/>
+              <Border x:Name="Indicator" Width="3" CornerRadius="1.5" Margin="0,14" HorizontalAlignment="Left" Background="{DynamicResource ThemeAccent}" Opacity="0" IsHitTestVisible="False"/>
+              <Border x:Name="KeyboardRing" Margin="-3" CornerRadius="10" BorderThickness="2" BorderBrush="{DynamicResource ThemeInk}" Visibility="Collapsed" IsHitTestVisible="False"/>
             </Grid>
             <ControlTemplate.Triggers>
               <Trigger Property="local:DialogTheme.KeyboardFocusVisible" Value="True"><Setter TargetName="KeyboardRing" Property="Visibility" Value="Visible"/></Trigger>
-              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="CardBorder" Property="Background" Value="{DynamicResource ThemeHover}"/></Trigger>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Trigger.EnterActions><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetName="Hover" Storyboard.TargetProperty="Opacity" To="0.035" Duration="0:0:0.12"/></Storyboard></BeginStoryboard></Trigger.EnterActions>
+                <Trigger.ExitActions><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetName="Hover" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.15"/></Storyboard></BeginStoryboard></Trigger.ExitActions>
+              </Trigger>
               <Trigger Property="IsChecked" Value="True">
-                <Setter TargetName="CardBorder" Property="Background" Value="{DynamicResource ThemeSurface}"/>
-                <Setter TargetName="CardBorder" Property="BorderBrush" Value="{DynamicResource ThemeAccent}"/>
-                <Setter TargetName="CardBorder" Property="BorderThickness" Value="2"/>
+                <Setter TargetName="CardBorder" Property="Background" Value="{DynamicResource ThemeAccentSoft}"/>
+                <Setter TargetName="CardBorder" Property="BorderBrush" Value="{DynamicResource ThemeAccentBorder}"/>
+                <Trigger.EnterActions><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetName="Indicator" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.15"/></Storyboard></BeginStoryboard></Trigger.EnterActions>
+                <Trigger.ExitActions><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetName="Indicator" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.12"/></Storyboard></BeginStoryboard></Trigger.ExitActions>
               </Trigger>
               <Trigger Property="IsEnabled" Value="False"><Setter TargetName="CardRoot" Property="Opacity" Value="0.5"/></Trigger>
             </ControlTemplate.Triggers>
@@ -268,68 +237,62 @@
       </Setter>
     </Style>
 
-    <!-- Window Caption Buttons (Modern Fluent Integrated Chrome) -->
+    <!-- Win11 caption buttons: 46px wide, vector glyphs in a 10x10 box (local:DialogTheme.Icon). -->
     <Style x:Key="CaptionButton" TargetType="Button">
-      <Setter Property="Width" Value="32"/>
-      <Setter Property="Height" Value="32"/>
-      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Width" Value="46"/>
+      <Setter Property="Height" Value="48"/>
+      <Setter Property="VerticalAlignment" Value="Top"/>
       <Setter Property="Background" Value="Transparent"/>
       <Setter Property="Foreground" Value="{DynamicResource ThemeInk}"/>
       <Setter Property="BorderThickness" Value="0"/>
-      <Setter Property="FontSize" Value="12"/>
-      <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
-            <Grid>
-              <Border x:Name="Bd" Background="{TemplateBinding Background}">
-                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-              </Border>
-              <Border x:Name="KeyboardRing" Margin="2" BorderThickness="1.5" BorderBrush="{DynamicResource ThemeMuted}" Visibility="Collapsed" IsHitTestVisible="False"/>
+            <Grid Background="Transparent">
+              <Border x:Name="Bd" Background="{TemplateBinding Background}"/>
+              <Border x:Name="Hover" Background="{TemplateBinding Foreground}" Opacity="0"/>
+              <Path x:Name="Glyph" Width="10" Height="10" Stretch="None" HorizontalAlignment="Center" VerticalAlignment="Center" SnapsToDevicePixels="True"
+                    Data="{Binding Path=(local:DialogTheme.Icon), RelativeSource={RelativeSource TemplatedParent}}"
+                    Stroke="{TemplateBinding Foreground}" StrokeThickness="1"/>
+              <Border x:Name="KeyboardRing" Margin="2" BorderThickness="2" BorderBrush="{DynamicResource ThemeInk}" Visibility="Collapsed" IsHitTestVisible="False"/>
             </Grid>
             <ControlTemplate.Triggers>
               <Trigger Property="local:DialogTheme.KeyboardFocusVisible" Value="True"><Setter TargetName="KeyboardRing" Property="Visibility" Value="Visible"/></Trigger>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ThemeSubtle}"/>
-                <Setter Property="Foreground" Value="{DynamicResource ThemeInk}"/>
-              </Trigger>
-              <Trigger Property="IsPressed" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ThemeSubtle}"/>
-              </Trigger>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Hover" Property="Opacity" Value="0.07"/></Trigger>
+              <Trigger Property="IsPressed" Value="True"><Setter TargetName="Hover" Property="Opacity" Value="0.04"/><Setter TargetName="Glyph" Property="Opacity" Value="0.7"/></Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
     </Style>
-
     <Style x:Key="CloseCaptionButton" TargetType="Button">
-      <Setter Property="Width" Value="32"/>
-      <Setter Property="Height" Value="32"/>
-      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Width" Value="46"/>
+      <Setter Property="Height" Value="48"/>
+      <Setter Property="VerticalAlignment" Value="Top"/>
       <Setter Property="Background" Value="Transparent"/>
       <Setter Property="Foreground" Value="{DynamicResource ThemeInk}"/>
       <Setter Property="BorderThickness" Value="0"/>
-      <Setter Property="FontSize" Value="12"/>
-      <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
-            <Grid>
-              <Border x:Name="Bd" Background="{TemplateBinding Background}">
-                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-              </Border>
-              <Border x:Name="KeyboardRing" Margin="2" BorderThickness="1.5" BorderBrush="{DynamicResource ThemeMuted}" Visibility="Collapsed" IsHitTestVisible="False"/>
+            <Grid Background="Transparent">
+              <Border x:Name="Bd" Background="{TemplateBinding Background}"/>
+              <Path x:Name="Glyph" Width="10" Height="10" Stretch="None" HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Data="{Binding Path=(local:DialogTheme.Icon), RelativeSource={RelativeSource TemplatedParent}}"
+                    Stroke="{TemplateBinding Foreground}" StrokeThickness="1"/>
+              <Border x:Name="KeyboardRing" Margin="2" BorderThickness="2" BorderBrush="{DynamicResource ThemeInk}" Visibility="Collapsed" IsHitTestVisible="False"/>
             </Grid>
             <ControlTemplate.Triggers>
               <Trigger Property="local:DialogTheme.KeyboardFocusVisible" Value="True"><Setter TargetName="KeyboardRing" Property="Visibility" Value="Visible"/></Trigger>
               <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="#FFE81123"/>
-                <Setter Property="Foreground" Value="{DynamicResource ThemeOnAccent}"/>
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ThemeCloseHover}"/>
+                <Setter TargetName="Glyph" Property="Stroke" Value="{DynamicResource ThemeOnAccent}"/>
               </Trigger>
               <Trigger Property="IsPressed" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="#FFF1707A"/>
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ThemeClosePressed}"/>
+                <Setter TargetName="Glyph" Property="Stroke" Value="{DynamicResource ThemeOnAccent}"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -338,16 +301,18 @@
     </Style>
 
     <Style x:Key="GameContextMenu" TargetType="ContextMenu">
-      <Setter Property="Background" Value="{DynamicResource ThemeSubtle}"/>
+      <Setter Property="Background" Value="{DynamicResource ThemeCardBg}"/>
       <Setter Property="Foreground" Value="{DynamicResource ThemeInk}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorder}"/>
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="Padding" Value="4"/>
+      <Setter Property="HasDropShadow" Value="False"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="ContextMenu">
             <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="{TemplateBinding Padding}" Margin="6,2,6,10">
+              <Border.Effect><DropShadowEffect BlurRadius="14" ShadowDepth="3" Direction="270" Opacity="0.16"/></Border.Effect>
               <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/>
             </Border>
           </ControlTemplate>
@@ -356,12 +321,13 @@
     </Style>
     <Style x:Key="GameContextMenuItem" TargetType="MenuItem">
       <Setter Property="Foreground" Value="{DynamicResource ThemeInk}"/>
-      <Setter Property="Padding" Value="12,8"/>
-      <Setter Property="MinWidth" Value="160"/>
+      <Setter Property="Padding" Value="12,7"/>
+      <Setter Property="MinWidth" Value="180"/>
+      <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="MenuItem">
-            <Border x:Name="MenuItemBorder" Background="Transparent" CornerRadius="4" Padding="{TemplateBinding Padding}">
+            <Border x:Name="MenuItemBorder" Background="Transparent" CornerRadius="5" Padding="{TemplateBinding Padding}" Margin="0,1">
               <ContentPresenter ContentSource="Header" RecognizesAccessKey="True"/>
             </Border>
             <ControlTemplate.Triggers>
@@ -369,7 +335,7 @@
                 <Setter TargetName="MenuItemBorder" Property="Background" Value="{DynamicResource ThemeHover}"/>
               </Trigger>
               <Trigger Property="IsEnabled" Value="False">
-                <Setter Property="Foreground" Value="{DynamicResource ThemeMuted}"/>
+                <Setter Property="Foreground" Value="{DynamicResource ThemeFaint}"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -381,36 +347,39 @@
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Separator">
-            <Border Height="1" Background="{DynamicResource ThemeBorder}" SnapsToDevicePixels="True"/>
+            <Border Height="1" Background="{DynamicResource ThemeHairline}" SnapsToDevicePixels="True"/>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
     </Style>
 
-    <!-- Game List Item Style with Crimson Selection Accent -->
+    <!-- Game library rows: subtle fill + 3px accent pill on the selected row (NavigationView style). -->
     <Style TargetType="ListBoxItem">
       <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
       <Setter Property="Background" Value="Transparent"/>
       <Setter Property="Foreground" Value="{DynamicResource ThemeInk}"/>
       <Setter Property="Padding" Value="0"/>
-      <Setter Property="Margin" Value="0,2"/>
+      <Setter Property="Margin" Value="0,1"/>
       <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="ListBoxItem">
             <Grid>
-              <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderThickness="1" BorderBrush="Transparent" CornerRadius="12" SnapsToDevicePixels="True"/>
-              <Border x:Name="Accent" Background="{DynamicResource ThemeAccent}" Width="3" Height="22" CornerRadius="1.5" HorizontalAlignment="Left" Visibility="Collapsed"/>
-              <ContentPresenter Margin="9,7"/>
+              <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="6" SnapsToDevicePixels="True"/>
+              <Border x:Name="Hover" Background="{DynamicResource ThemeInk}" CornerRadius="6" Opacity="0" IsHitTestVisible="False"/>
+              <Border x:Name="Accent" Background="{DynamicResource ThemeAccent}" Width="3" Height="18" CornerRadius="1.5" HorizontalAlignment="Left" Visibility="Collapsed"/>
+              <ContentPresenter Margin="10,7,8,7"/>
+              <Border x:Name="KeyboardRing" CornerRadius="6" BorderThickness="2" BorderBrush="{DynamicResource ThemeInk}" Visibility="Collapsed" IsHitTestVisible="False"/>
             </Grid>
             <ControlTemplate.Triggers>
+              <Trigger Property="local:DialogTheme.KeyboardFocusVisible" Value="True"><Setter TargetName="KeyboardRing" Property="Visibility" Value="Visible"/></Trigger>
               <Trigger Property="IsMouseOver" Value="true">
-                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ThemeSubtle}"/>
+                <Trigger.EnterActions><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetName="Hover" Storyboard.TargetProperty="Opacity" To="0.045" Duration="0:0:0.12"/></Storyboard></BeginStoryboard></Trigger.EnterActions>
+                <Trigger.ExitActions><BeginStoryboard><Storyboard><DoubleAnimation Storyboard.TargetName="Hover" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.15"/></Storyboard></BeginStoryboard></Trigger.ExitActions>
               </Trigger>
               <Trigger Property="IsSelected" Value="true">
-                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ThemeSubtle}"/>
-                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource ThemeBorder}"/>
-                <Setter TargetName="Bd" Property="Effect"><Setter.Value><DropShadowEffect BlurRadius="5" ShadowDepth="1" Opacity="0.08"/></Setter.Value></Setter>
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ThemeSelected}"/>
                 <Setter TargetName="Accent" Property="Visibility" Value="Visible"/>
               </Trigger>
             </ControlTemplate.Triggers>
@@ -420,418 +389,715 @@
     </Style>
   </Window.Resources>
 
-  <DockPanel Background="{DynamicResource ThemeBackground}">
-    <Border DockPanel.Dock="Top" Height="60" Background="{DynamicResource ThemeSurface}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="0,0,0,1">
-      <Grid Margin="16,0,0,0">
-        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-          <Border Width="26" Height="26" CornerRadius="8" Margin="0,0,9,0"><Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#FF4D4D" Offset="0"/><GradientStop Color="#C40E1E" Offset="1"/></LinearGradientBrush></Border.Background><TextBlock Text="N" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
-          <TextBlock Text="OptiScaler NR" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
-          <Border x:Name="VersionBadge" Width="90" Height="26" VerticalAlignment="Center" Background="{DynamicResource ThemeSubtle}" CornerRadius="13" Padding="8,0" Margin="7,0,0,0"><TextBlock x:Name="VersionTag" FontSize="10" Foreground="{DynamicResource ThemeMuted}" Text="2.0.0" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"/></Border>
-          <Border x:Name="TopWarning" Width="220" Height="26" VerticalAlignment="Center" Background="{DynamicResource ThemeWarningBg}" CornerRadius="13" Padding="9,0" Margin="8,0,0,0"><TextBlock x:Name="RefundWarning" FontSize="10" Foreground="{DynamicResource ThemeWarning}" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
-          <TextBlock x:Name="PageTitle" Visibility="Collapsed"/>
-        </StackPanel>
-        <Border Grid.Column="1" Background="{DynamicResource ThemeSubtle}" CornerRadius="16" Height="32" MinWidth="112" MaxWidth="190" HorizontalAlignment="Stretch" Margin="8,0" WindowChrome.IsHitTestVisibleInChrome="True">
-          <DockPanel Margin="10,0"><TextBlock Text="⌕" FontSize="18" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center"/><TextBox x:Name="SearchBox" Background="Transparent" Foreground="{DynamicResource ThemeInk}" CaretBrush="{DynamicResource ThemeInk}" BorderThickness="0" VerticalContentAlignment="Center" Margin="5,0,0,0" WindowChrome.IsHitTestVisibleInChrome="True"/></DockPanel>
+  <Grid x:Name="RootLayout" Background="{DynamicResource ThemeCanvas}">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="48"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="32"/>
+    </Grid.RowDefinitions>
+
+    <!-- ===== Title bar ===== -->
+    <Grid Grid.Row="0">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,12,0">
+        <Border Width="22" Height="22" CornerRadius="6" Margin="0,0,10,0" SnapsToDevicePixels="True">
+          <Border.Background><SolidColorBrush Color="{Binding Color, Source={StaticResource ThemeAccent}}"/></Border.Background>
+          <Path Data="M 0.75 9.25 V 0.75 L 6.25 9.25 V 0.75" Width="7" Height="10" Stretch="None" Stroke="{DynamicResource ThemeOnAccent}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
-        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-          <Button x:Name="AddMenuButton" Style="{DynamicResource GhostButton}" Background="#0D1220" Foreground="White" Padding="12,0" Margin="0,0,5,0" WindowChrome.IsHitTestVisibleInChrome="True"/>
-          <Popup x:Name="AddMenuPopup" PlacementTarget="{Binding ElementName=AddMenuButton}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
-            <Border Background="{DynamicResource ThemeSurface}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="12" Padding="6" Margin="0,5,0,0"><StackPanel>
-              <Button x:Name="AddButton" Style="{DynamicResource GhostButton}" BorderThickness="0" HorizontalContentAlignment="Left" Margin="0,0,0,4"/>
-              <Button x:Name="AddFolderButton" Style="{DynamicResource GhostButton}" BorderThickness="0" HorizontalContentAlignment="Left" Margin="0,0,0,4"/>
-              <Button x:Name="AddRtxRemixMcButton" Style="{DynamicResource GhostButton}" BorderThickness="0" HorizontalContentAlignment="Left"/>
-            </StackPanel></Border>
-          </Popup>
-          <Button x:Name="RefreshButton" Content="↻" Style="{DynamicResource GhostButton}" Width="32" Padding="0" FontSize="18" Margin="0,0,5,0" WindowChrome.IsHitTestVisibleInChrome="True"/>
-          <Border Background="{DynamicResource ThemeSubtle}" CornerRadius="16" Padding="2" Margin="0,0,5,0"><StackPanel Orientation="Horizontal"><Button x:Name="LangZh" Style="{DynamicResource GhostButton}" Width="30" Height="28" Padding="0" WindowChrome.IsHitTestVisibleInChrome="True"/><Button x:Name="LangEn" Content="EN" Style="{DynamicResource GhostButton}" Width="30" Height="28" Padding="0" WindowChrome.IsHitTestVisibleInChrome="True"/></StackPanel></Border>
-          <Button x:Name="LangToggle" Visibility="Collapsed" WindowChrome.IsHitTestVisibleInChrome="True"/>
-          <Button x:Name="ThemeToggle" Style="{DynamicResource GhostButton}" Width="36" Padding="0" Margin="0,0,5,0" WindowChrome.IsHitTestVisibleInChrome="True"/>
-          <Button x:Name="SettingsTab" Style="{DynamicResource GhostButton}" Width="76" Padding="9,0" Margin="0,0,5,0" WindowChrome.IsHitTestVisibleInChrome="True"/>
-          <Button x:Name="LibraryTab" Visibility="Collapsed" WindowChrome.IsHitTestVisibleInChrome="True"/>
-        </StackPanel>
-        <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center"><Button x:Name="MinBtn" Style="{StaticResource CaptionButton}" Content="—" WindowChrome.IsHitTestVisibleInChrome="True"/><Button x:Name="MaxBtn" Style="{StaticResource CaptionButton}" Content="▢" WindowChrome.IsHitTestVisibleInChrome="True"/><Button x:Name="CloseBtn" Style="{StaticResource CloseCaptionButton}" Content="✕" WindowChrome.IsHitTestVisibleInChrome="True"/></StackPanel>
-      </Grid>
-    </Border>
-    <Border DockPanel.Dock="Bottom" Height="44" Background="{DynamicResource ThemeSurface}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="0,1,0,0">
-      <DockPanel Margin="18,0">
-        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center"><TextBlock x:Name="DiagnosticModeIndicator" Foreground="#E3122B" FontWeight="SemiBold" FontSize="11" VerticalAlignment="Center" Margin="0,0,8,0" Visibility="Collapsed"/><Button x:Name="QuickLogButton" Style="{DynamicResource GhostButton}" BorderThickness="0" Background="Transparent" Padding="9,0" VerticalAlignment="Center"/></StackPanel>
-        <Grid Height="26" VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-          <StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Ellipse x:Name="StatusLed" Width="6" Height="6" VerticalAlignment="Center" Fill="{DynamicResource ThemeSuccess}" Margin="0,0,8,0"/><TextBlock x:Name="StatusText" VerticalAlignment="Center" Foreground="{DynamicResource ThemeMuted}" FontSize="11" MaxWidth="240" TextTrimming="CharacterEllipsis"/><Border Width="1" Height="14" Background="{DynamicResource ThemeBorder}" Margin="12,0" VerticalAlignment="Center"/></StackPanel>
-          <DockPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock DockPanel.Dock="Right" FontSize="11" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center"><Run x:Name="AuthorCaption"/><Hyperlink x:Name="AuthorLink" NavigateUri="https://github.com/TheAutomatic/dlss-5-amd-project" Cursor="Hand"><Hyperlink.Style><Style TargetType="Hyperlink"><Setter Property="Foreground" Value="{DynamicResource ThemeMuted}"/><Setter Property="TextDecorations" Value="{x:Null}"/><Style.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Foreground" Value="{DynamicResource ThemeAccent}"/><Setter Property="TextDecorations" Value="Underline"/></Trigger></Style.Triggers></Style></Hyperlink.Style>TheAutomatic</Hyperlink></TextBlock><TextBlock x:Name="HardwareInfo" VerticalAlignment="Center" Foreground="{DynamicResource ThemeMuted}" FontSize="11" TextTrimming="CharacterEllipsis"/></DockPanel>
+        <TextBlock Text="OptiScaler NR" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
+        <Border x:Name="VersionBadge" VerticalAlignment="Center" Background="Transparent" Margin="8,1,0,0">
+          <TextBlock x:Name="VersionTag" FontSize="11.5" Foreground="{DynamicResource ThemeFaint}" Text="2.0.0" VerticalAlignment="Center"/>
+        </Border>
+        <TextBlock x:Name="PageTitle" Visibility="Collapsed"/>
+      </StackPanel>
+
+      <!-- Search -->
+      <Border Grid.Column="1" Height="32" MinWidth="180" MaxWidth="420" HorizontalAlignment="Stretch" Margin="24,0" CornerRadius="6"
+              Background="{DynamicResource ThemeControl}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="1" WindowChrome.IsHitTestVisibleInChrome="True">
+        <Grid Margin="10,0,8,0">
+          <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+          <Path Width="16" Height="16" Stretch="None" VerticalAlignment="Center" Stroke="{DynamicResource ThemeMuted}" StrokeThickness="1.25" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                Data="M 2.25 6.75 A 4.5 4.5 0 1 1 11.25 6.75 A 4.5 4.5 0 1 1 2.25 6.75 Z M 10.1 10.1 L 13.75 13.75"/>
+          <TextBlock x:Name="SearchPlaceholder" Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="12.5" Foreground="{DynamicResource ThemeFaint}" IsHitTestVisible="False" TextTrimming="CharacterEllipsis" Text="搜索游戏或程序路径">
+            <TextBlock.Style>
+              <Style TargetType="TextBlock">
+                <Setter Property="Visibility" Value="Collapsed"/>
+                <Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=SearchBox}" Value=""><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers>
+              </Style>
+            </TextBlock.Style>
+          </TextBlock>
+          <TextBox x:Name="SearchBox" Grid.Column="1" Margin="6,0,0,0" Background="Transparent" Foreground="{DynamicResource ThemeInk}" CaretBrush="{DynamicResource ThemeInk}"
+                   BorderThickness="0" VerticalContentAlignment="Center" FontSize="12.5" WindowChrome.IsHitTestVisibleInChrome="True">
+            <TextBox.Template>
+              <ControlTemplate TargetType="TextBox">
+                <ScrollViewer x:Name="PART_ContentHost" Focusable="False" VerticalAlignment="Center" Background="Transparent"/>
+              </ControlTemplate>
+            </TextBox.Template>
+          </TextBox>
         </Grid>
-        <TextBlock x:Name="CountText" Visibility="Collapsed"/><TextBlock x:Name="VersionText" Visibility="Collapsed"/>
-      </DockPanel>
-    </Border>
-    <Grid>
-      <Grid x:Name="LibraryPage" Margin="16,16,16,12">
-        <Grid.ColumnDefinitions><ColumnDefinition Width="296"/><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-        <Border Style="{StaticResource Surface}" Margin="0,0,0,0" Padding="10">
-          <DockPanel Background="Transparent">
-            <Grid DockPanel.Dock="Top" Margin="2,0,2,8">
-              <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-              <TextBlock x:Name="LocalGamesHeading" Text="游戏库" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
-              <Border x:Name="CountBadgeBorder" Grid.Column="1" Background="{DynamicResource ThemeSubtle}" CornerRadius="9" Padding="6,2" Margin="6,0,0,0" VerticalAlignment="Center"><TextBlock x:Name="CountBadge" FontSize="10" Foreground="{DynamicResource ThemeMuted}"/></Border>
-              <ComboBox x:Name="FilterCombo" Style="{StaticResource LibraryFilter}" ItemContainerStyle="{StaticResource LibraryFilterItem}" Grid.Column="2" HorizontalAlignment="Right" MaxWidth="130" MinWidth="62" Height="26" FontSize="11" Padding="9,0,25,0"/>
-            </Grid>
-            <ListBox x:Name="GameList" Background="Transparent" BorderThickness="0"
-                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-              <!-- Keep the dark surface when installation disables game selection. -->
-              <ListBox.Template>
-                <ControlTemplate TargetType="{x:Type ListBox}">
-                  <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                          BorderThickness="{TemplateBinding BorderThickness}" SnapsToDevicePixels="true">
-                    <ScrollViewer x:Name="PART_ScrollViewer" Focusable="false" Padding="{TemplateBinding Padding}">
-                      <ItemsPresenter SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
-                    </ScrollViewer>
-                  </Border>
-                </ControlTemplate>
-              </ListBox.Template>
-              <ListBox.ItemTemplate>
-                <DataTemplate>
-                  <Grid Margin="2,3">
-                    <Grid.ColumnDefinitions>
-                      <ColumnDefinition Width="42"/>
-                      <ColumnDefinition Width="*"/>
-                      <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
+      </Border>
 
-                    <!-- Poster Cover / Monogram Fallback -->
-                    <Border Width="42" Height="42" CornerRadius="9" Background="{DynamicResource ThemeHover}" HorizontalAlignment="Left" VerticalAlignment="Center">
-                      <Border.Clip><RectangleGeometry Rect="0,0,42,42" RadiusX="9" RadiusY="9"/></Border.Clip>
-                      <Grid>
-                        <!-- Stylized Initial Monogram -->
-                        <TextBlock Text="{Binding Initial}" Visibility="{Binding InitialVisibility}" Foreground="{DynamicResource ThemeInk}" FontWeight="Bold" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        <!-- Cover Poster Image or Extracted Icon -->
-                        <Image Source="{Binding DisplayImage}" Visibility="{Binding CoverVisibility}" Stretch="{Binding ImageStretch}"/>
-                      </Grid>
-                    </Border>
-
-                    <!-- Name and Source Details -->
-                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="8,0,8,0">
-                      <TextBlock Text="{Binding Name}" FontSize="12" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource ThemeInk}"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="FontWeight" Value="Normal"/><Style.Triggers><DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True"><Setter Property="FontWeight" Value="SemiBold"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
-                      <TextBlock Text="{Binding SourceText}" Margin="0,4,0,0" FontSize="10" Foreground="{DynamicResource ThemeMuted}"/>
-                    </StackPanel>
-
-                    <!-- Installation Dot / Status -->
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" ToolTip="{Binding StatusExplanation}"><Ellipse Width="4" Height="4" Fill="{Binding StatusBrush}" Margin="0,0,4,0" VerticalAlignment="Center"/><TextBlock Text="{Binding StatusText}" FontSize="10" Foreground="{Binding StatusBrush}"/></StackPanel>
-                  </Grid>
-                </DataTemplate>
-              </ListBox.ItemTemplate>
-            </ListBox>
-          </DockPanel>
+      <!-- Tools -->
+      <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
+        <Button x:Name="RefreshButton" Style="{DynamicResource IconButton}" local:DialogTheme.Icon="M 13.25 8 A 5.25 5.25 0 1 1 11.71 4.29 M 12.25 1.75 V 4.75 H 9.25" Margin="0,0,2,0" WindowChrome.IsHitTestVisibleInChrome="True"/>
+        <Border Visibility="Collapsed">
+          <StackPanel Orientation="Horizontal">
+            <Button x:Name="LangZh" Style="{DynamicResource SubtleButton}" Width="32" Height="24" MinHeight="24" Padding="0" FontSize="12" WindowChrome.IsHitTestVisibleInChrome="True"/>
+            <Button x:Name="LangEn" Content="EN" Style="{DynamicResource SubtleButton}" Width="32" Height="24" MinHeight="24" Padding="0" FontSize="12" WindowChrome.IsHitTestVisibleInChrome="True"/>
+          </StackPanel>
         </Border>
-        <ScrollViewer x:Name="DetailsScroll" Grid.Column="2" Focusable="False" IsTabStop="False" FocusVisualStyle="{x:Null}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-          <StackPanel>
-            <Border x:Name="HeroCard" Background="#101522" CornerRadius="18" Height="166" ClipToBounds="True">
+        <Button x:Name="LangToggle" Visibility="Collapsed" WindowChrome.IsHitTestVisibleInChrome="True"/>
+        <Button x:Name="ThemeToggle" Style="{DynamicResource IconButton}" Margin="2,0,0,0" WindowChrome.IsHitTestVisibleInChrome="True"/>
+        <Button x:Name="SettingsTab" Style="{DynamicResource IconButton}" Margin="2,0,0,0" WindowChrome.IsHitTestVisibleInChrome="True"
+                local:DialogTheme.Icon="M 2.5 4.5 H 5.5 M 9.5 4.5 H 13.5 M 7.5 2.75 A 1.75 1.75 0 1 1 7.5 6.25 A 1.75 1.75 0 1 1 7.5 2.75 Z M 2.5 11.5 H 7.5 M 11.5 11.5 H 13.5 M 9.5 9.75 A 1.75 1.75 0 1 1 9.5 13.25 A 1.75 1.75 0 1 1 9.5 9.75 Z"/>
+        <Button x:Name="LibraryTab" Visibility="Collapsed" WindowChrome.IsHitTestVisibleInChrome="True"/>
+      </StackPanel>
+
+      <!-- Caption -->
+      <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Top">
+        <Button x:Name="MinBtn" Style="{StaticResource CaptionButton}" local:DialogTheme.Icon="M 0 5.5 H 10" WindowChrome.IsHitTestVisibleInChrome="True"/>
+        <Button x:Name="MaxBtn" Style="{StaticResource CaptionButton}" local:DialogTheme.Icon="M 1.5 0.5 H 8.5 A 1 1 0 0 1 9.5 1.5 V 8.5 A 1 1 0 0 1 8.5 9.5 H 1.5 A 1 1 0 0 1 0.5 8.5 V 1.5 A 1 1 0 0 1 1.5 0.5 Z" WindowChrome.IsHitTestVisibleInChrome="True"/>
+        <Button x:Name="CloseBtn" Style="{StaticResource CloseCaptionButton}" local:DialogTheme.Icon="M 0.5 0.5 L 9.5 9.5 M 9.5 0.5 L 0.5 9.5" WindowChrome.IsHitTestVisibleInChrome="True"/>
+      </StackPanel>
+    </Grid>
+
+    <!-- ===== Body: library sidebar + details layer ===== -->
+    <Grid x:Name="LibraryPage" Grid.Row="1">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="292"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+
+      <DockPanel Background="{DynamicResource ThemeSidebar}">
+        <Grid DockPanel.Dock="Top" Margin="18,6,10,8">
+          <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <TextBlock x:Name="LocalGamesHeading" Text="游戏库" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
+          <Border x:Name="CountBadgeBorder" Grid.Column="1" Background="Transparent" Margin="8,1,0,0" VerticalAlignment="Center">
+            <TextBlock x:Name="CountBadge" FontSize="12" Foreground="{DynamicResource ThemeFaint}"/>
+          </Border>
+          <Button x:Name="AddMenuButton" Grid.Column="3" Style="{DynamicResource SubtleButton}" Height="30" Padding="8,0,10,0" FontSize="12.5"
+                  local:DialogTheme.Icon="M 8 3 V 13 M 3 8 H 13"/>
+          <Popup x:Name="AddMenuPopup" PlacementTarget="{Binding ElementName=AddMenuButton}" Placement="Bottom" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
+            <Border Background="{DynamicResource ThemeCardBg}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="8" Padding="4" Margin="6,4,10,12" MinWidth="250">
+              <Border.Effect><DropShadowEffect BlurRadius="16" ShadowDepth="4" Direction="270" Opacity="0.18"/></Border.Effect>
+              <StackPanel>
+                <Button x:Name="AddButton" Style="{DynamicResource SubtleButton}" HorizontalContentAlignment="Left" Height="34" Padding="10,0" FontSize="12.5" Margin="0,0,0,2"
+                        local:DialogTheme.Icon="M 4 1.75 H 9.5 L 12.5 4.75 V 14.25 H 4 Z M 9.5 1.75 V 4.75 H 12.5 M 8.25 7.5 V 12 M 6 9.75 H 10.5"/>
+                <Button x:Name="AddFolderButton" Style="{DynamicResource SubtleButton}" HorizontalContentAlignment="Left" Height="34" Padding="10,0" FontSize="12.5" Margin="0,0,0,2"
+                        local:DialogTheme.Icon="M 1.75 4.25 A 1 1 0 0 1 2.75 3.25 H 6 L 7.5 4.75 H 13.25 A 1 1 0 0 1 14.25 5.75 V 12 A 1 1 0 0 1 13.25 13 H 2.75 A 1 1 0 0 1 1.75 12 Z"/>
+                <Button x:Name="AddRtxRemixMcButton" Style="{DynamicResource SubtleButton}" HorizontalContentAlignment="Left" Height="34" Padding="10,0" FontSize="12.5"
+                        local:DialogTheme.Icon="M 2.5 4.75 L 8 2.25 L 13.5 4.75 V 11.25 L 8 13.75 L 2.5 11.25 Z M 2.5 4.75 L 8 7.25 L 13.5 4.75 M 8 7.25 V 13.75"/>
+              </StackPanel>
+            </Border>
+          </Popup>
+        </Grid>
+        <ComboBox x:Name="FilterCombo" DockPanel.Dock="Top" Style="{StaticResource LibraryFilter}" ItemContainerStyle="{StaticResource LibraryFilterItem}" Margin="14,0,14,8" Height="30" FontSize="12"/>
+        <ListBox x:Name="GameList" Background="Transparent" BorderThickness="0" Margin="8,0,6,8" Padding="0,0,4,0"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+          <!-- Keep the sidebar surface when installation disables game selection. -->
+          <ListBox.Template>
+            <ControlTemplate TargetType="{x:Type ListBox}">
+              <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                      BorderThickness="{TemplateBinding BorderThickness}" SnapsToDevicePixels="true">
+                <ScrollViewer x:Name="PART_ScrollViewer" Focusable="false" Padding="{TemplateBinding Padding}">
+                  <ItemsPresenter SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
+                </ScrollViewer>
+              </Border>
+            </ControlTemplate>
+          </ListBox.Template>
+          <ListBox.ItemTemplate>
+            <DataTemplate>
               <Grid>
-                <TextBlock x:Name="HeroMonogram" Text="N" FontSize="190" FontWeight="Black" Foreground="#26394C" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,-50,40,-50"/>
-                <Image x:Name="HeroBgImage" Stretch="UniformToFill" Opacity="0.75" CacheMode="BitmapCache"/>
-                <Border><Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,0"><GradientStop Color="#F2101522" Offset="0"/><GradientStop Color="#B0101522" Offset="0.55"/><GradientStop Color="#50101522" Offset="1"/></LinearGradientBrush></Border.Background></Border>
-                <Border><Border.Background><LinearGradientBrush StartPoint="0,1" EndPoint="0,0"><GradientStop Color="#C0101522" Offset="0"/><GradientStop Color="#00101522" Offset="1"/></LinearGradientBrush></Border.Background></Border>
-                <Grid Margin="20,18"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="310"/></Grid.ColumnDefinitions>
-                  <StackPanel VerticalAlignment="Center" Margin="0,0,14,0">
-                    <TextBlock x:Name="HeroKicker" Foreground="#CCD5E4" FontSize="10" TextTrimming="CharacterEllipsis"/>
-                    <TextBlock x:Name="HeroTitle" FontSize="25" FontWeight="Bold" Foreground="White" Margin="0,5,0,4" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
-                    <TextBlock x:Name="HeroMeta" Foreground="#CCD5E4" FontSize="11" TextWrapping="Wrap"/>
-                    <TextBlock x:Name="HeroPath" Foreground="#9BA8BA" FontSize="10" TextTrimming="CharacterEllipsis" Margin="0,6,0,0" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
-                  </StackPanel>
-                  <Grid Grid.Column="1">
-                    <Button x:Name="PrimaryButton" Style="{DynamicResource PrimaryButton}" Height="42" VerticalAlignment="Center" Padding="8,0" IsEnabled="False"><Button.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#FF5A3C" Offset="0"/><GradientStop Color="#E3122B" Offset="1"/></LinearGradientBrush></Button.Background></Button>
-                    <WrapPanel VerticalAlignment="Bottom" HorizontalAlignment="Right"><Button x:Name="LaunchGameButton" Style="{DynamicResource HeroButton}" Height="27" Padding="8,0" IsEnabled="False"/><Button x:Name="ManageGameButton" Style="{DynamicResource HeroButton}" Height="27" Padding="8,0" Margin="5,0,0,0" IsEnabled="False"/><Button x:Name="OpenFolderButton" Style="{DynamicResource HeroButton}" Height="27" Padding="8,0" Margin="5,0,0,0"/><Button x:Name="UninstallButton" Style="{DynamicResource HeroButton}" Height="27" Padding="8,0" Margin="5,0,0,0" IsEnabled="False"/></WrapPanel>
-                  </Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="40"/>
+                  <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <!-- Cover / icon with a fine inner stroke; monogram fallback. -->
+                <Grid Width="40" Height="40" VerticalAlignment="Center">
+                  <Border CornerRadius="6" Background="{DynamicResource ThemeCardBg}">
+                    <Border.Clip><RectangleGeometry Rect="0,0,40,40" RadiusX="6" RadiusY="6"/></Border.Clip>
+                    <Grid>
+                      <TextBlock Text="{Binding Initial}" Visibility="{Binding InitialVisibility}" Foreground="{DynamicResource ThemeMuted}" FontWeight="SemiBold" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                      <Image Source="{Binding DisplayImage}" Visibility="{Binding CoverVisibility}" Stretch="{Binding ImageStretch}" RenderOptions.BitmapScalingMode="HighQuality"/>
+                    </Grid>
+                  </Border>
+                  <Border CornerRadius="6" BorderThickness="1" BorderBrush="{DynamicResource ThemeHairline}" IsHitTestVisible="False"/>
                 </Grid>
-                <ProgressBar x:Name="Progress" Height="3" VerticalAlignment="Bottom" Foreground="{DynamicResource ThemeAccent}" Background="#30405060" BorderThickness="0"/>
-                <Grid Visibility="Collapsed"><TextBlock x:Name="HeroPosterInitial"/><Image x:Name="HeroPosterImage"/></Grid>
+                <!-- Line 1: full-width name. Line 2: source tag + status dot. -->
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="12,0,2,0">
+                  <TextBlock Text="{Binding Name}" FontSize="13" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource ThemeInk}" ToolTip="{Binding Name}">
+                    <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="FontWeight" Value="Normal"/><Style.Triggers><DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True"><Setter Property="FontWeight" Value="SemiBold"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                  </TextBlock>
+                  <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                    <TextBlock Text="{Binding SourceText}" FontSize="10.5" Foreground="{DynamicResource ThemeMuted}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" MaxWidth="96"/>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0" ToolTip="{Binding StatusExplanation}">
+                      <Ellipse Width="6" Height="6" Fill="{Binding StatusBrush}" Margin="0,1,5,0" VerticalAlignment="Center"/>
+                      <TextBlock Text="{Binding StatusText}" FontSize="11" Foreground="{DynamicResource ThemeMuted}" TextTrimming="CharacterEllipsis" MaxWidth="120"/>
+                    </StackPanel>
+                  </StackPanel>
+                </StackPanel>
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+
+      <!-- Details layer: rounded top-left corner + hairline separates it from the sidebar (Win11 Settings). -->
+      <Border Grid.Column="1" Background="{DynamicResource ThemeLayer}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="1,1,0,0" CornerRadius="8,0,0,0" ClipToBounds="True">
+        <ScrollViewer x:Name="DetailsScroll" Focusable="False" IsTabStop="False" FocusVisualStyle="{x:Null}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Margin="24,20,20,28">
+
+            <!-- ===== Hero ===== -->
+            <Border x:Name="HeroCard" CornerRadius="8" Height="186" Background="{DynamicResource ThemeHeroBg}" BorderBrush="{DynamicResource ThemeHeroBg}" BorderThickness="1" ClipToBounds="True">
+              <Grid>
+                <Image x:Name="HeroBgImage" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center" CacheMode="BitmapCache" IsHitTestVisible="False">
+                  <Image.OpacityMask><LinearGradientBrush StartPoint="0,0" EndPoint="1,0"><GradientStop Color="#00000000" Offset="0.2"/><GradientStop Color="#B3000000" Offset="0.62"/><GradientStop Color="#FF000000" Offset="1"/></LinearGradientBrush></Image.OpacityMask>
+                </Image>
+                <!-- Theme-coloured scrim keeps title text readable over artwork in both light and dark. -->
+                <Border Background="{DynamicResource ThemeHeroBg}" IsHitTestVisible="False">
+                  <Border.OpacityMask><LinearGradientBrush StartPoint="0,0" EndPoint="1,0"><GradientStop Color="#F2000000" Offset="0"/><GradientStop Color="#B3000000" Offset="0.42"/><GradientStop Color="#00000000" Offset="0.85"/></LinearGradientBrush></Border.OpacityMask>
+                </Border>
+                <Grid Margin="24,20,20,16">
+                  <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                  <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                  <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                    <TextBlock x:Name="HeroKicker" Foreground="{DynamicResource ThemeHeroMuted}" FontSize="11.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="HeroTitle" FontSize="24" FontWeight="SemiBold" Foreground="{DynamicResource ThemeHeroInk}" Margin="0,4,0,4" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                    <TextBlock x:Name="HeroMeta" Foreground="{DynamicResource ThemeHeroMuted}" FontSize="12" TextWrapping="Wrap" MaxHeight="36" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="HeroPath" Foreground="{DynamicResource ThemeHeroMuted}" FontSize="11" TextTrimming="CharacterEllipsis" Margin="0,6,0,0" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                  </StackPanel>
+                  <Button x:Name="PrimaryButton" Grid.Column="1" Style="{DynamicResource PrimaryButton}" Height="40" MinWidth="196" MaxWidth="300" VerticalAlignment="Center" Padding="20,0" IsEnabled="False"/>
+                  <DockPanel Grid.Row="1" Grid.ColumnSpan="2" Margin="0,16,0,0" LastChildFill="False">
+                    <Button x:Name="LaunchGameButton" Style="{DynamicResource HeroButton}" Height="30" Padding="10,0,12,0" IsEnabled="False"
+                            local:DialogTheme.Icon="M 5 3.25 L 12.5 8 L 5 12.75 Z"/>
+                    <Button x:Name="ManageGameButton" Style="{DynamicResource HeroButton}" Height="30" Padding="10,0,12,0" Margin="8,0,0,0" IsEnabled="False"
+                            local:DialogTheme.Icon="M 10.5 2.5 L 13.5 5.5 L 5.5 13.5 H 2.5 V 10.5 Z M 9 4 L 12 7"/>
+                    <Button x:Name="OpenFolderButton" Style="{DynamicResource HeroButton}" Height="30" Padding="10,0,12,0" Margin="8,0,0,0"
+                            local:DialogTheme.Icon="M 1.75 4.25 A 1 1 0 0 1 2.75 3.25 H 6 L 7.5 4.75 H 13.25 A 1 1 0 0 1 14.25 5.75 V 12 A 1 1 0 0 1 13.25 13 H 2.75 A 1 1 0 0 1 1.75 12 Z"/>
+                    <Border Width="1" Height="18" Background="{DynamicResource ThemeHairline}" Margin="14,0,6,0" VerticalAlignment="Center"/>
+                    <Button x:Name="UninstallButton" Style="{DynamicResource HeroButton}" Height="30" Padding="8,0,10,0" IsEnabled="False"
+                            local:DialogTheme.Icon="M 2.5 4.25 H 13.5 M 6 4.25 V 2.75 H 10 V 4.25 M 4 4.25 L 4.75 13.5 H 11.25 L 12 4.25 M 6.75 6.75 V 11 M 9.25 6.75 V 11"/>
+                  </DockPanel>
+                </Grid>
+                <ProgressBar x:Name="Progress" Height="3" VerticalAlignment="Bottom" Foreground="{DynamicResource ThemeHeroMuted}" Background="Transparent" BorderThickness="0"/>
+                <Grid Visibility="Collapsed"><TextBlock x:Name="HeroPosterInitial"/><Image x:Name="HeroPosterImage"/><TextBlock x:Name="HeroMonogram"/></Grid>
               </Grid>
             </Border>
-            <Border x:Name="InstallModeSection" Style="{StaticResource Surface}" Padding="15,12" Margin="0,12,0,0">
+
+            <!-- ===== Installation mode ===== -->
+            <Border x:Name="InstallModeSection" Background="Transparent" Margin="0,28,0,0">
               <StackPanel>
-                <DockPanel Margin="0,0,0,9">
-                  <Border x:Name="ModeDetectBadge" DockPanel.Dock="Right" Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="10" Padding="9,2" VerticalAlignment="Center" Visibility="Collapsed">
-                    <TextBlock x:Name="ModeDetectText" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource ThemeMuted}"/>
+                <DockPanel Margin="2,0,0,10">
+                  <Border x:Name="ModeDetectBadge" DockPanel.Dock="Right" Style="{StaticResource Badge}" Visibility="Collapsed">
+                    <StackPanel Orientation="Horizontal"><Ellipse Width="6" Height="6" Margin="0,0,5,0" Fill="{Binding Foreground, ElementName=ModeDetectText}"/><TextBlock x:Name="ModeDetectText" FontSize="11" Foreground="{DynamicResource ThemeMuted}"/></StackPanel>
                   </Border>
-                  <TextBlock x:Name="InstallModeHeading" Text="安装模式" Foreground="{DynamicResource ThemeMuted}" FontSize="11.5" VerticalAlignment="Center"/>
+                  <TextBlock x:Name="InstallModeHeading" Text="安装模式" Style="{StaticResource SectionHeader}"/>
                 </DockPanel>
                 <UniformGrid x:Name="ModeCardsGrid" Columns="3">
-                  <RadioButton x:Name="ModeOptiScalerRadio" GroupName="InstallMode" Style="{StaticResource ModeCardRadio}" Margin="0,0,8,0" IsChecked="True">
+                  <RadioButton x:Name="ModeOptiScalerRadio" GroupName="InstallMode" Style="{StaticResource ModeCardRadio}" Margin="0,0,6,0" IsChecked="True">
                     <StackPanel>
-                      <DockPanel Margin="0,0,0,4">
-                        <Border DockPanel.Dock="Right" Background="{DynamicResource ThemeSuccessBg}" CornerRadius="8" Padding="6,1" VerticalAlignment="Center">
-                          <TextBlock x:Name="ModeOptiTag" Text="推荐" FontSize="9.5" FontWeight="SemiBold" Foreground="{DynamicResource ThemeSuccess}"/>
+                      <DockPanel Margin="0,0,0,5">
+                        <Border DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0">
+                          <TextBlock x:Name="ModeOptiTag" Text="推荐" FontSize="10.5" FontWeight="SemiBold" Foreground="{DynamicResource ThemeSuccess}"/>
                         </Border>
-                        <TextBlock x:Name="ModeOptiTitle" Text="OptiScaler（默认）" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource ThemeInk}" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="ModeOptiTitle" Text="OptiScaler（默认）" FontWeight="SemiBold" FontSize="13" Foreground="{DynamicResource ThemeInk}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                       </DockPanel>
-                      <TextBlock x:Name="ModeOptiDesc" Text="DLSS / FSR / XeSS 现代游戏 · 支持 OpenRR / OptiPatcher" FontSize="10" Foreground="{DynamicResource ThemeMuted}" TextWrapping="Wrap"/>
+                      <TextBlock x:Name="ModeOptiDesc" Text="DLSS / FSR / XeSS 现代游戏 · 支持 OpenRR / OptiPatcher" FontSize="11.5" Foreground="{DynamicResource ThemeMuted}" TextWrapping="Wrap" LineHeight="17"/>
                     </StackPanel>
                   </RadioButton>
-                  <RadioButton x:Name="ModeStandaloneRadio" GroupName="InstallMode" Style="{StaticResource ModeCardRadio}" Margin="4,0,4,0">
+                  <RadioButton x:Name="ModeStandaloneRadio" GroupName="InstallMode" Style="{StaticResource ModeCardRadio}" Margin="3,0,3,0">
                     <StackPanel>
-                      <DockPanel Margin="0,0,0,4">
-                        <Border DockPanel.Dock="Right" Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="8" Padding="6,1" VerticalAlignment="Center">
-                          <TextBlock x:Name="ModeStandaloneTag" Text="直通" FontSize="9.5" FontWeight="SemiBold" Foreground="{DynamicResource ThemeMuted}"/>
+                      <DockPanel Margin="0,0,0,5">
+                        <Border DockPanel.Dock="Right" Visibility="Collapsed">
+                          <TextBlock x:Name="ModeStandaloneTag" Text="直通" FontSize="10.5" FontWeight="SemiBold" Foreground="{DynamicResource ThemeMuted}"/>
                         </Border>
-                        <TextBlock x:Name="ModeStandaloneTitle" Text="独立直通（Standalone）" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource ThemeInk}" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="ModeStandaloneTitle" Text="独立直通（Standalone）" FontWeight="SemiBold" FontSize="13" Foreground="{DynamicResource ThemeInk}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                       </DockPanel>
-                      <TextBlock x:Name="ModeStandaloneDesc" Text="DX11/12 / Vulkan · 视频 / OBS / 任意程序 · 免超分接管" FontSize="10" Foreground="{DynamicResource ThemeMuted}" TextWrapping="Wrap"/>
+                      <TextBlock x:Name="ModeStandaloneDesc" Text="DX11/12 / Vulkan · 视频 / OBS / 任意程序 · 免超分接管" FontSize="11.5" Foreground="{DynamicResource ThemeMuted}" TextWrapping="Wrap" LineHeight="17"/>
                     </StackPanel>
                   </RadioButton>
-                  <RadioButton x:Name="ModeReShadeRadio" GroupName="InstallMode" Style="{StaticResource ModeCardRadio}" Margin="8,0,0,0">
+                  <RadioButton x:Name="ModeReShadeRadio" GroupName="InstallMode" Style="{StaticResource ModeCardRadio}" Margin="6,0,0,0">
                     <StackPanel>
-                      <DockPanel Margin="0,0,0,4">
-                        <Border DockPanel.Dock="Right" Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="8" Padding="6,1" VerticalAlignment="Center">
-                          <TextBlock x:Name="ModeReShadeTag" Text="经典兼容" FontSize="9.5" FontWeight="SemiBold" Foreground="{DynamicResource ThemeMuted}"/>
+                      <DockPanel Margin="0,0,0,5">
+                        <Border DockPanel.Dock="Right" Visibility="Collapsed">
+                          <TextBlock x:Name="ModeReShadeTag" Text="经典兼容" FontSize="10.5" FontWeight="SemiBold" Foreground="{DynamicResource ThemeMuted}"/>
                         </Border>
-                        <TextBlock x:Name="ModeReShadeTitle" Text="ReShade 兼容模式" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource ThemeInk}" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="ModeReShadeTitle" Text="ReShade 兼容模式" FontWeight="SemiBold" FontSize="13" Foreground="{DynamicResource ThemeInk}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                       </DockPanel>
-                      <TextBlock x:Name="ModeReShadeDesc" Text="DX9 (DXVK) / DX10-12 / Vulkan 老游戏 · 支持 LumeniteFX" FontSize="10" Foreground="{DynamicResource ThemeMuted}" TextWrapping="Wrap"/>
+                      <TextBlock x:Name="ModeReShadeDesc" Text="DX9 (DXVK) / DX10-12 / Vulkan 老游戏 · 支持 LumeniteFX" FontSize="11.5" Foreground="{DynamicResource ThemeMuted}" TextWrapping="Wrap" LineHeight="17"/>
                     </StackPanel>
                   </RadioButton>
                 </UniformGrid>
-                <Border x:Name="RtxRemixMcModeCard" Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeAccent}" BorderThickness="1.5" CornerRadius="12" Padding="13,10" Visibility="Collapsed">
-                  <StackPanel>
-                    <DockPanel Margin="0,0,0,5">
-                      <Border DockPanel.Dock="Right" Background="{DynamicResource ThemeSuccessBg}" CornerRadius="8" Padding="7,2" VerticalAlignment="Center">
-                        <TextBlock x:Name="RtxRemixMcTag" Text="专用模式" FontSize="9.5" FontWeight="SemiBold" Foreground="{DynamicResource ThemeSuccess}"/>
-                      </Border>
-                      <TextBlock x:Name="RtxRemixMcTitle" Text="RTX Remix for Minecraft（Java 版）" FontWeight="SemiBold" FontSize="13" Foreground="{DynamicResource ThemeInk}" VerticalAlignment="Center"/>
-                    </DockPanel>
-                    <TextBlock x:Name="RtxRemixMcDesc" Text="自动向 remix-sdk\ 原名部署 OptiScaler.dll 与 AMD 兼容版 remixbridge.dll（自动备份 NVIDIA 原版，完整卸载可无损还原），并自动启用 VulkanExtensionSpoofing = true。建议使用 OpenRR 光线重建；Mochizuki 神经渲染默认锁定且不建议用于 MC。" FontSize="10.5" Foreground="{DynamicResource ThemeMuted}" TextWrapping="Wrap" LineHeight="17"/>
-                  </StackPanel>
+                <TextBlock x:Name="GameBitnessRestriction" Style="{StaticResource Caption}" Margin="2,8,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+                <!-- RTX Remix MC instances only have one mode: shown as the (selected) card, without a red frame. -->
+                <Border x:Name="RtxRemixMcModeCard" Background="{DynamicResource ThemeAccentSoft}" BorderBrush="{DynamicResource ThemeAccentBorder}" BorderThickness="1" CornerRadius="8" Visibility="Collapsed">
+                  <Grid>
+                    <Border Width="3" CornerRadius="1.5" Margin="0,14" HorizontalAlignment="Left" Background="{DynamicResource ThemeAccent}"/>
+                    <StackPanel Margin="16,13,14,13">
+                      <DockPanel Margin="0,0,0,6">
+                        <Border DockPanel.Dock="Right" VerticalAlignment="Center" Margin="6,0,0,0">
+                          <TextBlock x:Name="RtxRemixMcTag" Text="专用模式" FontSize="10.5" FontWeight="SemiBold" Foreground="{DynamicResource ThemeSuccess}"/>
+                        </Border>
+                        <TextBlock x:Name="RtxRemixMcTitle" Text="RTX Remix for Minecraft（Java 版）" FontWeight="SemiBold" FontSize="13.5" Foreground="{DynamicResource ThemeInk}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                      </DockPanel>
+                      <TextBlock x:Name="RtxRemixMcDesc" Text="自动向 remix-sdk\ 原名部署 OptiScaler.dll 与 AMD 兼容版 remixbridge.dll（自动备份 NVIDIA 原版，完整卸载可无损还原），并自动启用 VulkanExtensionSpoofing = true。建议使用 OpenRR 光线重建；Mochizuki 神经渲染默认锁定且不建议用于 MC。" FontSize="12" Foreground="{DynamicResource ThemeMuted}" TextWrapping="Wrap" LineHeight="18"/>
+                    </StackPanel>
+                  </Grid>
                 </Border>
-                <Border x:Name="ModeSwitchNotice" Background="{DynamicResource ThemeWarningBg}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="9" Padding="10,7" Margin="0,9,0,0" Visibility="Collapsed">
-                  <TextBlock x:Name="ModeSwitchNoticeText" Foreground="{DynamicResource ThemeWarning}" FontSize="10.5" TextWrapping="Wrap"/>
+                <Border x:Name="ModeSwitchNotice" Margin="2,10,0,0" Visibility="Collapsed">
+                  <DockPanel><TextBlock Text="ℹ" Foreground="{DynamicResource ThemeMuted}" Margin="0,0,8,0"/><TextBlock x:Name="ModeSwitchNoticeText" Foreground="{DynamicResource ThemeMuted}" FontSize="12" TextWrapping="Wrap"/></DockPanel>
                 </Border>
               </StackPanel>
             </Border>
-            <Border x:Name="BackendSection" Style="{StaticResource Surface}" Padding="15,12" Margin="0,12,0,0">
+
+            <!-- ===== ASI plugins ===== -->
+            <Border x:Name="BackendSection" Background="Transparent" Margin="0,28,0,0">
               <StackPanel>
-                <Grid Margin="0,0,0,6"><TextBlock x:Name="BackendsHeading" Foreground="{DynamicResource ThemeMuted}" FontSize="11.5" VerticalAlignment="Center"/><Button x:Name="RefreshBackendsButton" Style="{DynamicResource GhostButton}" Width="26" Height="26" Padding="0" Background="Transparent" BorderThickness="0" HorizontalAlignment="Right"><Path Width="13" Height="13" Stretch="Uniform" Stroke="{DynamicResource ThemeMuted}" StrokeThickness="1.5" Data="M 12 5 A 5 5 0 1 0 12 9 M 12 1 L 12 5 L 8 5"/></Button></Grid>
+                <DockPanel Margin="2,0,0,10">
+                  <Button x:Name="RefreshBackendsButton" DockPanel.Dock="Right" Style="{DynamicResource IconButton}" Width="30" Height="28" Foreground="{DynamicResource ThemeMuted}"
+                          local:DialogTheme.Icon="M 13.25 8 A 5.25 5.25 0 1 1 11.71 4.29 M 12.25 1.75 V 4.75 H 9.25"/>
+                  <TextBlock x:Name="BackendsHeading" Style="{StaticResource SectionHeader}"/>
+                </DockPanel>
                 <Grid>
-                  <Border x:Name="MochiCard" Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="12" Padding="12,10" MinHeight="82">
-                    <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                  <Border x:Name="MochiCard" Style="{StaticResource Card}">
+                    <Grid>
+                      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                       <DockPanel>
-                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top" Margin="6,0,0,0">
-                          <Border x:Name="MochiRequiredBadge" Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="9" Padding="7,1" Margin="0,0,6,0" VerticalAlignment="Center" Visibility="Collapsed">
-                            <TextBlock x:Name="MochiRequiredText" Text="当前模式必选" FontSize="9.5" Foreground="{DynamicResource ThemeMuted}"/>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top" Margin="8,0,0,0">
+                          <Border x:Name="MochiRequiredBadge" Style="{StaticResource Badge}" Margin="0,0,8,0" Visibility="Collapsed">
+                            <StackPanel Orientation="Horizontal"><Ellipse Width="6" Height="6" Margin="0,0,5,0" Fill="{Binding Foreground, ElementName=MochiRequiredText}"/><TextBlock x:Name="MochiRequiredText" Text="当前模式必选" FontSize="11" Foreground="{DynamicResource ThemeMuted}"/></StackPanel>
                           </Border>
-                          <Border x:Name="MochiMcWarningBadge" Background="{DynamicResource ThemeWarningBg}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="9" Padding="7,1" Margin="0,0,6,0" VerticalAlignment="Center" Visibility="Collapsed">
-                            <TextBlock x:Name="MochiMcWarningBadgeText" Text="不建议用于 MC" FontSize="9.5" FontWeight="SemiBold" Foreground="{DynamicResource ThemeWarning}"/>
+                          <Border x:Name="MochiMcWarningBadge" Style="{StaticResource Badge}" Margin="0,0,8,0" Visibility="Collapsed">
+                            <TextBlock x:Name="MochiMcWarningBadgeText" Text="不建议用于 MC" FontSize="11" Foreground="{DynamicResource ThemeMuted}"/>
                           </Border>
-                          <Button x:Name="RelockMochiMcBtn" Style="{DynamicResource GhostButton}" Height="22" FontSize="10" Padding="8,0" Margin="0,0,6,0" VerticalAlignment="Center" Content="重新锁定" Visibility="Collapsed"/>
-                          <Button x:Name="MochiHotkeysButton" Style="{DynamicResource GhostButton}" Height="22" FontSize="10" Padding="8,0" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                          <Button x:Name="MochiShareCodeButton" Style="{DynamicResource GhostButton}" Height="22" FontSize="10" Padding="8,0" VerticalAlignment="Center"/>
+                          <Button x:Name="RelockMochiMcBtn" Style="{DynamicResource CardAction}" Margin="0,0,8,0" Content="重新锁定" Visibility="Collapsed"
+                                  local:DialogTheme.Icon="M 3.75 7.25 H 12.25 V 13.75 H 3.75 Z M 5.5 7.25 V 5 A 2.5 2.5 0 0 1 10.5 5 V 7.25"/>
+                          <Button x:Name="MochiHotkeysButton" Style="{DynamicResource CardAction}" Margin="0,0,8,0"/>
+                          <Button x:Name="MochiShareCodeButton" Style="{DynamicResource CardAction}"/>
                         </StackPanel>
-                        <CheckBox x:Name="MochiCheck" Content="mochizuki 0.0.9 (M3)" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Top" IsChecked="True" IsEnabled="True"/>
+                        <CheckBox x:Name="MochiCheck" Style="{DynamicResource ToggleSwitch}" Content="mochizuki 0.0.9 M7" FontWeight="SemiBold" FontSize="13.5" VerticalAlignment="Center" IsChecked="True" IsEnabled="True"/>
                       </DockPanel>
-                      <TextBlock x:Name="MochiDescription" Grid.Row="1" FontSize="10" Foreground="{DynamicResource ThemeMuted}" Margin="0,4,0,0" TextWrapping="Wrap"/>
-                      <TextBlock x:Name="MochiMcWarningText" Grid.Row="2" FontSize="10" Foreground="{DynamicResource ThemeWarning}" Margin="0,4,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
-                      <Grid Grid.Row="3" Margin="0,5,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                        <Border x:Name="MochiBadge" Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="10" Padding="7,2" HorizontalAlignment="Left" VerticalAlignment="Center"><TextBlock x:Name="MochiReason" FontSize="10" Foreground="{DynamicResource ThemeMuted}"/></Border>
-                      </Grid>
+                      <TextBlock x:Name="MochiDescription" Grid.Row="1" Style="{StaticResource Caption}" Margin="52,6,0,0"/>
+                      <TextBlock x:Name="MochiMcWarningText" Grid.Row="2" FontSize="12" Foreground="{DynamicResource ThemeMuted}" Margin="52,6,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+                      <Border x:Name="MochiBadge" Grid.Row="3" Style="{StaticResource Badge}" Margin="52,10,0,0" HorizontalAlignment="Left">
+                        <StackPanel Orientation="Horizontal"><Ellipse Width="6" Height="6" Margin="0,0,5,0" Fill="{Binding Foreground, ElementName=MochiReason}"/><TextBlock x:Name="MochiReason" FontSize="11" Foreground="{DynamicResource ThemeMuted}"/></StackPanel>
+                      </Border>
                     </Grid>
                   </Border>
                 </Grid>
-                <Border x:Name="MochiCollapsedBar" Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="10" Padding="11,7" Visibility="Collapsed">
+                <Border x:Name="MochiCollapsedBar" Style="{StaticResource InfoBar}" Visibility="Collapsed">
                   <DockPanel>
-                    <Button x:Name="UnlockMochiMcBtn" DockPanel.Dock="Right" Style="{DynamicResource GhostButton}" Height="24" FontSize="10.5" Padding="10,0" Margin="10,0,0,0" VerticalAlignment="Center" Content="仍要解锁"/>
-                    <DockPanel VerticalAlignment="Center">
-                      <TextBlock DockPanel.Dock="Left" Text="🔒" FontSize="11" Foreground="{DynamicResource ThemeMuted}" Margin="0,0,7,0" VerticalAlignment="Center"/>
-                      <TextBlock x:Name="MochiCollapsedText" Text="RTX Remix Minecraft 不推荐使用神经渲染（Mochizuki NR），已默认锁定" FontSize="10.5" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center" TextWrapping="Wrap"/>
-                    </DockPanel>
+                    <Button x:Name="UnlockMochiMcBtn" DockPanel.Dock="Right" Style="{DynamicResource CardAction}" Margin="12,0,0,0" VerticalAlignment="Center" Content="仍要解锁"/>
+                    <Path DockPanel.Dock="Left" Width="16" Height="16" Stretch="None" Stroke="{DynamicResource ThemeMuted}" StrokeThickness="1.2" Margin="0,0,10,0" VerticalAlignment="Center"
+                          Data="M 3.75 7.25 H 12.25 V 13.75 H 3.75 Z M 5.5 7.25 V 5 A 2.5 2.5 0 0 1 10.5 5 V 7.25"/>
+                    <TextBlock x:Name="MochiCollapsedText" Text="RTX Remix Minecraft 不推荐使用神经渲染（Mochizuki NR），已默认锁定" FontSize="12" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center" TextWrapping="Wrap"/>
                   </DockPanel>
                 </Border>
-                <Border x:Name="OpenRrCard" Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="12" Padding="11,9" Margin="0,9,0,0">
+                <Border x:Name="OpenRrCard" Style="{StaticResource Card}" Margin="0,8,0,0">
                   <StackPanel>
                     <DockPanel>
                       <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0">
-                        <Border x:Name="OpenRrNoDlssdWarningBadge" Background="{DynamicResource ThemeWarningBg}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="9" Padding="7,1" Margin="0,0,6,0" VerticalAlignment="Center" Visibility="Collapsed">
-                          <TextBlock x:Name="OpenRrNoDlssdWarningBadgeText" Text="未检测到原生 DLSSD" FontSize="9.5" FontWeight="SemiBold" Foreground="{DynamicResource ThemeWarning}"/>
+                        <Border x:Name="OpenRrNoDlssdWarningBadge" Style="{StaticResource Badge}" Margin="0,0,8,0" Visibility="Collapsed">
+                          <TextBlock x:Name="OpenRrNoDlssdWarningBadgeText" Text="未检测到原生 DLSSD" FontSize="11" Foreground="{DynamicResource ThemeMuted}"/>
                         </Border>
-                        <Button x:Name="RelockOpenRrBtn" Style="{DynamicResource GhostButton}" Height="22" FontSize="10" Padding="8,0" Margin="0,0,6,0" VerticalAlignment="Center" Content="重新锁定" Visibility="Collapsed"/>
-                        <Border x:Name="OpenRrBadge" Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="10" Padding="8,2" VerticalAlignment="Center">
-                          <TextBlock x:Name="OpenRrStatusText" FontSize="10" Foreground="{DynamicResource ThemeMuted}"/>
+                        <Button x:Name="RelockOpenRrBtn" Style="{DynamicResource CardAction}" Margin="0,0,8,0" Content="重新锁定" Visibility="Collapsed"
+                                local:DialogTheme.Icon="M 3.75 7.25 H 12.25 V 13.75 H 3.75 Z M 5.5 7.25 V 5 A 2.5 2.5 0 0 1 10.5 5 V 7.25"/>
+                        <Border x:Name="OpenRrBadge" Style="{StaticResource Badge}">
+                          <StackPanel Orientation="Horizontal"><Ellipse Width="6" Height="6" Margin="0,0,5,0" Fill="{Binding Foreground, ElementName=OpenRrStatusText}"/><TextBlock x:Name="OpenRrStatusText" FontSize="11" Foreground="{DynamicResource ThemeMuted}"/></StackPanel>
                         </Border>
-                        <Button x:Name="OpenRrImportButton" Style="{DynamicResource GhostButton}" Height="24" FontSize="10.5" Padding="9,0" Margin="7,0,0,0" VerticalAlignment="Center"/>
                       </StackPanel>
-                      <CheckBox x:Name="OpenRrToggle" IsChecked="False" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"/>
+                      <CheckBox x:Name="OpenRrToggle" Style="{DynamicResource ToggleSwitch}" IsChecked="False" FontWeight="SemiBold" FontSize="13.5" VerticalAlignment="Center"/>
                     </DockPanel>
-                    <TextBlock x:Name="OpenRrDescription" FontSize="10.5" Foreground="{DynamicResource ThemeMuted}" Margin="0,5,0,0" TextWrapping="Wrap"/>
-                    <TextBlock x:Name="OpenRrNoDlssdWarningText" FontSize="10" Foreground="{DynamicResource ThemeWarning}" Margin="0,4,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
-                    <CheckBox x:Name="OpenRrAutoSpoofToggle" IsChecked="False" FontSize="11" Margin="0,7,0,0" Visibility="Collapsed" ToolTipService.ShowOnDisabled="True"/>
+                    <TextBlock x:Name="OpenRrDescription" Style="{StaticResource Caption}" Margin="52,6,0,0"/>
+                    <TextBlock x:Name="OpenRrNoDlssdWarningText" FontSize="12" Foreground="{DynamicResource ThemeMuted}" Margin="52,6,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+                    <CheckBox x:Name="OpenRrAutoSpoofToggle" Style="{DynamicResource ToggleSwitch}" IsChecked="False" FontSize="12" Foreground="{DynamicResource ThemeMuted}" Margin="52,12,0,0" Visibility="Collapsed" ToolTipService.ShowOnDisabled="True"/>
                   </StackPanel>
                 </Border>
-                <Border x:Name="OpenRrUnsupportedBar" Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeWarning}" BorderThickness="1" CornerRadius="10" Padding="11,7" Margin="0,9,0,0" Visibility="Collapsed">
+                <Border x:Name="OpenRrCollapsedBar" Style="{StaticResource InfoBar}" Margin="0,8,0,0" Visibility="Collapsed">
                   <DockPanel>
-                    <Button x:Name="UnlockOpenRrBtn" DockPanel.Dock="Right" Style="{DynamicResource GhostButton}" Height="24" FontSize="10.5" Padding="10,0" Margin="10,0,0,0" VerticalAlignment="Center" Content="强制解锁"/>
-                    <DockPanel VerticalAlignment="Center">
-                      <TextBlock DockPanel.Dock="Left" Text="🔒" FontSize="11" Foreground="{DynamicResource ThemeWarning}" Margin="0,0,7,0" VerticalAlignment="Center"/>
-                      <TextBlock x:Name="OpenRrUnsupportedText" Text="当前游戏未检测到原生 nvngx_dlssd.dll（可能不支持 DLSS 光线重建），OpenRR 已默认锁定" FontSize="10.5" Foreground="{DynamicResource ThemeWarning}" VerticalAlignment="Center" TextWrapping="Wrap"/>
-                    </DockPanel>
+                    <Button x:Name="SwitchToOptiScalerBtn" DockPanel.Dock="Right" Style="{DynamicResource CardAction}" Margin="12,0,0,0" VerticalAlignment="Center" Content="切回 OptiScaler"/>
+                    <Path DockPanel.Dock="Left" Width="16" Height="16" Stretch="None" Stroke="{DynamicResource ThemeMuted}" StrokeThickness="1.2" Margin="0,0,10,0" VerticalAlignment="Center"
+                          Data="M 3.75 7.25 H 12.25 V 13.75 H 3.75 Z M 5.5 7.25 V 5 A 2.5 2.5 0 0 1 10.5 5 V 7.25"/>
+                    <TextBlock x:Name="OpenRrCollapsedText" Text="当前模式仅适用 DLSSNR-AMD；OpenRR / OptiPatcher 已自动屏蔽" FontSize="12" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center" TextWrapping="Wrap"/>
                   </DockPanel>
                 </Border>
-                <Border x:Name="OpenRrCollapsedBar" Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="10" Padding="11,7" Margin="0,9,0,0" Visibility="Collapsed">
+                <Border x:Name="OpenRrUnsupportedBar" Style="{StaticResource InfoBar}" Margin="0,8,0,0" Visibility="Collapsed">
                   <DockPanel>
-                    <Button x:Name="SwitchToOptiScalerBtn" DockPanel.Dock="Right" Style="{DynamicResource GhostButton}" Height="24" FontSize="10.5" Padding="10,0" Margin="10,0,0,0" Content="切回 OptiScaler"/>
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                      <TextBlock Text="🔒" FontSize="11" Foreground="{DynamicResource ThemeMuted}" Margin="0,0,7,0" VerticalAlignment="Center"/>
-                      <TextBlock x:Name="OpenRrCollapsedText" Text="当前模式仅适用 DLSSNR-AMD；OpenRR / OptiPatcher 已自动屏蔽" FontSize="10.5" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center" TextWrapping="Wrap"/>
-                    </StackPanel>
+                    <Button x:Name="UnlockOpenRrBtn" DockPanel.Dock="Right" Style="{DynamicResource CardAction}" Margin="12,0,0,0" Content="强制解锁"/>
+                    <Path Width="16" Height="16" Stretch="None" Stroke="{DynamicResource ThemeMuted}" StrokeThickness="1.2" Margin="0,0,10,0" VerticalAlignment="Center"
+                          Data="M 3.75 7.25 H 12.25 V 13.75 H 3.75 Z M 5.5 7.25 V 5 A 2.5 2.5 0 0 1 10.5 5 V 7.25"/>
+                    <TextBlock x:Name="OpenRrUnsupportedText" FontSize="12" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center" TextWrapping="Wrap"/>
                   </DockPanel>
                 </Border>
-                <Border x:Name="ModelImportBar" Background="#26E3122B" BorderBrush="#E3122B" BorderThickness="1" CornerRadius="10" Padding="12,9" Margin="0,10,0,0" Visibility="Collapsed">
-                  <DockPanel>
-                    <Button x:Name="ModelImportButton" DockPanel.Dock="Right" Style="{DynamicResource GhostButton}" Background="#E3122B" Foreground="White" BorderBrush="#E3122B" Height="30" FontSize="11.5" FontWeight="SemiBold" Padding="14,0" Margin="12,0,0,0" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="ModelImportText" Foreground="{DynamicResource ThemeInk}" FontSize="11" TextWrapping="Wrap" VerticalAlignment="Center"/>
-                  </DockPanel>
+                <Border x:Name="BeforeInstallChecklist" Margin="0,24,0,0" Visibility="Collapsed">
+                  <StackPanel>
+                    <TextBlock x:Name="BeforeInstallHeading" Style="{StaticResource SectionHeader}" Margin="2,0,0,10"/>
+                    <Border x:Name="PendingActionsCard" Style="{StaticResource Card}">
+                      <StackPanel>
+                        <StackPanel x:Name="MissingPackageItems"/>
+                        <Border x:Name="ModelImportBar" Margin="0,4,0,4" Visibility="Collapsed">
+                          <DockPanel>
+                            <Button x:Name="ModelImportButton" DockPanel.Dock="Right" Style="{DynamicResource GhostButton}" Height="30" FontSize="12" Padding="10,0,12,0" Margin="12,0,0,0" VerticalAlignment="Center"
+                                    local:DialogTheme.Icon="M 8 2.5 V 10 M 5 7 L 8 10 L 11 7 M 3 8.5 V 13.5 H 13 V 8.5"/>
+                            <StackPanel VerticalAlignment="Center">
+                              <TextBlock x:Name="ModelImportText" Foreground="{DynamicResource ThemeInk}" FontSize="12" TextWrapping="Wrap"/>
+                              <TextBlock x:Name="ModelImportRequirement" Foreground="{DynamicResource ThemeMuted}" FontSize="11" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                            </StackPanel>
+                          </DockPanel>
+                        </Border>
+                        <DockPanel x:Name="OpenRrModelImportRow" Margin="0,4,0,4" Visibility="Collapsed">
+                          <Button x:Name="OpenRrImportButton" DockPanel.Dock="Right" Style="{DynamicResource GhostButton}" Height="30" FontSize="12" Margin="12,0,0,0"/>
+                          <TextBlock x:Name="OpenRrModelImportText" FontSize="12" Foreground="{DynamicResource ThemeInk}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                        </DockPanel>
+                      </StackPanel>
+                    </Border>
+                  </StackPanel>
                 </Border>
-                <TextBlock x:Name="BackendPackagePath" Foreground="{DynamicResource ThemeMuted}" FontSize="10" Margin="0,8,0,0" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" Visibility="Collapsed"/>
-                <TextBlock x:Name="MochiHint" TextWrapping="Wrap" Foreground="{DynamicResource ThemeMuted}" FontSize="10.5" Margin="0,6,0,0" Visibility="Collapsed"/>
-                <Expander x:Name="BackendDetails" Margin="0,6,0,0" Foreground="{DynamicResource ThemeMuted}" FontSize="10.5" Visibility="Collapsed"><StackPanel><TextBlock x:Name="BackendDetailsHeading"/><TextBlock x:Name="BackendDetailsText" TextWrapping="Wrap" Margin="0,5,0,0"/></StackPanel></Expander>
+                <TextBlock x:Name="BackendPackagePath" Foreground="{DynamicResource ThemeFaint}" FontSize="11" Margin="2,8,0,0" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" Visibility="Collapsed"/>
+                <TextBlock x:Name="MochiHint" TextWrapping="Wrap" Foreground="{DynamicResource ThemeMuted}" FontSize="12" Margin="2,8,0,0" Visibility="Collapsed"/>
+                <Expander x:Name="BackendDetails" Margin="2,6,0,0" Foreground="{DynamicResource ThemeMuted}" FontSize="12" Visibility="Collapsed"><StackPanel><TextBlock x:Name="BackendDetailsHeading"/><TextBlock x:Name="BackendDetailsText" TextWrapping="Wrap" Margin="0,5,0,0"/></StackPanel></Expander>
               </StackPanel>
             </Border>
-            <Border x:Name="ProxyCard" Style="{StaticResource Surface}" Padding="15,12" Margin="0,12,0,0">
+
+            <!-- ===== Injection proxy ===== -->
+            <Button x:Name="ProxyRequiredButton" Style="{DynamicResource SubtleButton}" Foreground="{DynamicResource ThemeWarning}" HorizontalAlignment="Left" Margin="0,16,0,0" Visibility="Collapsed"/>
+            <StackPanel x:Name="AdvancedProxySection">
+            <Border x:Name="ProxyCard" Style="{StaticResource Card}" Padding="16,14,16,12" Margin="0,28,0,0">
               <StackPanel>
-                <DockPanel Margin="0,0,0,6">
-                  <TextBlock x:Name="ProxyHeading" Text="注入代理" FontSize="11.5" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center"/>
+                <DockPanel Margin="2,0,0,10">
+                  <TextBlock x:Name="ProxyHeading" Text="注入代理" Style="{StaticResource SectionHeader}"/>
                   <!-- Hidden legacy ComboBox for protocol compatibility -->
                   <ComboBox x:Name="ProxyCombo" Visibility="Collapsed" Width="0" Height="0"/>
                 </DockPanel>
-
-                <TextBlock x:Name="InjectText" Visibility="Collapsed" TextWrapping="Wrap" Foreground="{DynamicResource ThemeMuted}" FontSize="12" Margin="0,0,0,10"
-                           Text="请从下方选择游戏启动时所加载的拦截代理 DLL："/>
-
-                <!-- Horizontal Interactive Status Pills -->
-                <WrapPanel x:Name="ProxyPillPanel">
-                  <RadioButton x:Name="PillDxgi" Content="dxgi.dll" GroupName="ProxyPills" Style="{StaticResource PillRadio}"/>
-                  <RadioButton x:Name="PillD3d12" Content="d3d12.dll" GroupName="ProxyPills" Style="{StaticResource PillRadio}"/>
-                  <RadioButton x:Name="PillWinmm" Content="winmm.dll" GroupName="ProxyPills" Style="{StaticResource PillRadio}"/>
-                  <RadioButton x:Name="PillWinhttp" Content="winhttp.dll" GroupName="ProxyPills" Style="{StaticResource PillRadio}"/>
-                  <RadioButton x:Name="PillWininet" Content="wininet.dll" GroupName="ProxyPills" Style="{StaticResource PillRadio}"/>
-                  <RadioButton x:Name="PillDbghelp" Content="dbghelp.dll" GroupName="ProxyPills" Style="{StaticResource PillRadio}"/>
-                  <RadioButton x:Name="PillVersion" Content="version.dll" GroupName="ProxyPills" Style="{StaticResource PillRadio}"/>
-                </WrapPanel>
-
-                <!-- Recommendation Banner -->
-                <Border x:Name="InjectBanner" Background="Transparent" Padding="0,2" Margin="0,4,0,0">
-                  <DockPanel VerticalAlignment="Center">
-                    <TextBlock DockPanel.Dock="Left" x:Name="InjectIcon" Text="ℹ" Foreground="{DynamicResource ThemeSuccess}" FontWeight="Bold" Margin="0,0,8,0" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="InjectRecommendation" TextWrapping="Wrap" Text="选择游戏后将分析 PE 导入表并自动匹配推荐代理。" Foreground="{DynamicResource ThemeInk}" FontSize="10.5" VerticalAlignment="Center"/>
-                  </DockPanel>
-                </Border>
-                <WrapPanel Margin="0,10,0,0">
-                  <Button x:Name="UseRecommendationButton" Content="使用推荐" Style="{DynamicResource GhostButton}" Width="112" Height="30" Padding="0" Margin="0,0,8,0"/>
-                  <Button x:Name="RefreshProfilesButton" Content="更新推荐资料" Style="{DynamicResource GhostButton}" Width="164" Height="30" Padding="0"/>
-                  <TextBlock x:Name="ProfileStatus" FontSize="11" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center" Margin="10,0,0,0"/>
-                </WrapPanel>
+                  <StackPanel>
+                    <DockPanel>
+                      <Button x:Name="ProxyChangeButton" Visibility="Collapsed" DockPanel.Dock="Right" Style="{DynamicResource SubtleButton}" Margin="12,0,0,0"/>
+                      <TextBlock x:Name="ProxySummary" Foreground="{DynamicResource ThemeInk}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                    </DockPanel>
+                    <StackPanel x:Name="ProxyDetails" Margin="0,12,0,0">
+                    <TextBlock x:Name="InjectText" Visibility="Collapsed" TextWrapping="Wrap" Foreground="{DynamicResource ThemeMuted}" FontSize="12" Margin="0,0,0,10"
+                               Text="请从下方选择游戏启动时所加载的拦截代理 DLL："/>
+                    <WrapPanel x:Name="ProxyPillPanel">
+                      <RadioButton x:Name="PillDxgi" Content="dxgi.dll" GroupName="ProxyPills" Style="{StaticResource PillRadio}"/>
+                      <RadioButton x:Name="PillD3d12" Content="d3d12.dll" GroupName="ProxyPills" Style="{StaticResource PillRadio}"/>
+                      <RadioButton x:Name="PillWinmm" Content="winmm.dll" GroupName="ProxyPills" Style="{StaticResource PillRadio}"/>
+                      <RadioButton x:Name="PillWinhttp" Content="winhttp.dll" GroupName="ProxyPills" Style="{StaticResource PillRadio}"/>
+                      <RadioButton x:Name="PillWininet" Content="wininet.dll" GroupName="ProxyPills" Style="{StaticResource PillRadio}"/>
+                      <RadioButton x:Name="PillDbghelp" Content="dbghelp.dll" GroupName="ProxyPills" Style="{StaticResource PillRadio}"/>
+                      <RadioButton x:Name="PillVersion" Content="version.dll" GroupName="ProxyPills" Style="{StaticResource PillRadio}"/>
+                    </WrapPanel>
+                    <Border x:Name="InjectBanner" Background="Transparent" Padding="0,2" Margin="0,2,0,0">
+                      <DockPanel VerticalAlignment="Center">
+                        <TextBlock DockPanel.Dock="Left" x:Name="InjectIcon" Text="ℹ" Foreground="{DynamicResource ThemeSuccess}" FontWeight="Bold" Margin="0,0,8,0" VerticalAlignment="Top"/>
+                        <TextBlock x:Name="WikiDetailsText" DockPanel.Dock="Right" Margin="12,0,0,0" VerticalAlignment="Center" FontSize="12"><Hyperlink x:Name="WikiDetailsLink" Foreground="{DynamicResource ThemeInk}"/></TextBlock>
+                        <TextBlock x:Name="InjectRecommendation" TextWrapping="Wrap" Text="选择游戏后将分析 PE 导入表并自动匹配推荐代理。" Foreground="{DynamicResource ThemeInk}" FontSize="12" LineHeight="18" VerticalAlignment="Center"/>
+                      </DockPanel>
+                    </Border>
+                    <WrapPanel Margin="0,12,0,0">
+                      <Button x:Name="UseRecommendationButton" Content="使用推荐" Style="{DynamicResource CardAction}" Margin="0,0,8,0"
+                              local:DialogTheme.Icon="M 3.5 8.5 L 6.5 11.5 L 12.5 4.5"/>
+                      <Button x:Name="RefreshProfilesButton" Content="更新推荐资料" Style="{DynamicResource CardAction}"
+                              local:DialogTheme.Icon="M 13.25 8 A 5.25 5.25 0 1 1 11.71 4.29 M 12.25 1.75 V 4.75 H 9.25"/>
+                      <TextBlock x:Name="ProfileStatus" FontSize="11.5" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                    </WrapPanel>
+                    </StackPanel>
+                  </StackPanel>
               </StackPanel>
             </Border>
-            <Border x:Name="StandaloneModeCard" Style="{StaticResource Surface}" Padding="15,12" Margin="0,12,0,0" Visibility="Collapsed">
+            </StackPanel>
+
+            <!-- ===== Standalone ===== -->
+            <Border x:Name="StandaloneModeCard" Background="Transparent" Margin="0,28,0,0" Visibility="Collapsed">
               <StackPanel>
-                <TextBlock x:Name="StandaloneCardHeading" Text="独立直通配置（Standalone）" FontSize="11.5" Foreground="{DynamicResource ThemeMuted}" Margin="0,0,0,6"/>
-                <TextBlock x:Name="StandaloneCardDesc" Text="直接部署 dxgi.dll + dlssnr-amd.asi + vulkan-1.dll 与 Vulkan 隐式层（vk-override），在 Present 阶段以无向导 RenoDX 模式运行。无需游戏内置 DLSS/FSR/XeSS，适合视频播放器（mpv/PotPlayer/VLC）、OBS、Magpie 或各类 DirectX 11/12/Vulkan 程序。" FontSize="11" Foreground="{DynamicResource ThemeInk}" TextWrapping="Wrap" LineHeight="18"/>
-                <Border Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="10" Padding="10,8" Margin="0,9,0,0">
+                <TextBlock x:Name="StandaloneCardHeading" Text="独立直通配置（Standalone）" Style="{StaticResource SectionHeader}" Margin="2,0,0,10"/>
+                <Border Style="{StaticResource Card}">
                   <StackPanel>
-                    <TextBlock x:Name="StandaloneHotkeysText" Text="快捷键：End 打开 NR Control 面板 · F6 开关 NR · F5 截图保存至 NR Screenshots · Ctrl+F11 切换网络" FontSize="10.5" Foreground="{DynamicResource ThemeInk}" TextWrapping="Wrap"/>
-                    <TextBlock x:Name="StandaloneProtectedNote" Text="注：若安装到 Program Files 等受保护目录，应用数据与日志将自动写入 %LOCALAPPDATA%\DLSSNR-AMD\。" FontSize="10" Foreground="{DynamicResource ThemeMuted}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                    <TextBlock x:Name="StandaloneCardDesc" Text="直接部署 dxgi.dll + dlssnr-amd.asi + vulkan-1.dll 与 Vulkan 隐式层（vk-override），在 Present 阶段以无向导 RenoDX 模式运行。无需游戏内置 DLSS/FSR/XeSS，适合视频播放器（mpv/PotPlayer/VLC）、OBS、Magpie 或各类 DirectX 11/12/Vulkan 程序。" FontSize="12" Foreground="{DynamicResource ThemeInk}" TextWrapping="Wrap" LineHeight="19"/>
+                    <Border Height="1" Background="{DynamicResource ThemeHairline}" Margin="0,12"/>
+                    <TextBlock x:Name="StandaloneHotkeysText" Text="快捷键：End 打开 NR Control 面板 · F6 开关 NR · F5 截图保存至 NR Screenshots · Ctrl+F11 切换网络" FontSize="12" Foreground="{DynamicResource ThemeInk}" TextWrapping="Wrap"/>
+                    <TextBlock x:Name="StandaloneProtectedNote" Text="注：若安装到 Program Files 等受保护目录，应用数据与日志将自动写入 %LOCALAPPDATA%\DLSSNR-AMD\。" Style="{StaticResource Caption}" FontSize="11.5" Margin="0,6,0,0"/>
                   </StackPanel>
                 </Border>
               </StackPanel>
             </Border>
-            <Border x:Name="ReShadeModeCard" Style="{StaticResource Surface}" Padding="15,12" Margin="0,12,0,0" Visibility="Collapsed">
+
+            <!-- ===== ReShade ===== -->
+            <Border x:Name="ReShadeModeCard" Background="Transparent" Margin="0,28,0,0" Visibility="Collapsed">
               <StackPanel>
-                <TextBlock x:Name="ReShadeCardHeading" Text="ReShade 兼容配置" FontSize="11.5" Foreground="{DynamicResource ThemeMuted}" Margin="0,0,0,8"/>
-                <TextBlock x:Name="ReshadeApiLabel" Text="图形接口路线（API）" FontSize="11" Foreground="{DynamicResource ThemeMuted}" Margin="0,0,0,5"/>
-                <WrapPanel Margin="0,0,0,4">
-                  <RadioButton x:Name="ReshadeApiDxRadio" Content="DX10 / DX11 / DX12" GroupName="ReShadeApi" Style="{StaticResource PillRadio}" IsChecked="True" FontFamily="Segoe UI, Microsoft YaHei UI"/>
-                  <RadioButton x:Name="ReshadeApiDx9Radio" Content="DX9（经 DXVK 转换）" GroupName="ReShadeApi" Style="{StaticResource PillRadio}" FontFamily="Segoe UI, Microsoft YaHei UI"/>
-                  <RadioButton x:Name="ReshadeApiVulkanRadio" Content="Vulkan" GroupName="ReShadeApi" Style="{StaticResource PillRadio}" FontFamily="Segoe UI, Microsoft YaHei UI"/>
-                </WrapPanel>
-                <TextBlock x:Name="ReshadeStyleLabel" Text="前后处理风格" FontSize="11" Foreground="{DynamicResource ThemeMuted}" Margin="0,2,0,5"/>
-                <WrapPanel Margin="0,0,0,4">
-                  <RadioButton x:Name="ReshadeStyleRenoDxRadio" Content="RenoDX 风格（默认）" GroupName="ReShadeStyle" Style="{StaticResource PillRadio}" IsChecked="True" FontFamily="Segoe UI, Microsoft YaHei UI"/>
-                  <RadioButton x:Name="ReshadeStyleWilsjo2Radio" Content="wilsjo2 经典风格" GroupName="ReShadeStyle" Style="{StaticResource PillRadio}" FontFamily="Segoe UI, Microsoft YaHei UI"/>
-                </WrapPanel>
-                <Border Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="10" Padding="10,8" Margin="0,4,0,0">
+                <TextBlock x:Name="ReShadeCardHeading" Text="ReShade 兼容配置" Style="{StaticResource SectionHeader}" Margin="2,0,0,10"/>
+                <Border Style="{StaticResource Card}">
                   <StackPanel>
-                    <CheckBox x:Name="LumeniteCheck" Content="启用 LumeniteFX 运动矢量（替代内置 VORT）" FontSize="12" IsChecked="False"/>
-                    <TextBlock x:Name="LumeniteHintText" Text="留空本地 ZIP 时，安装将自动从 GitHub 下载并校验兼容版本 f80e98d。" FontSize="10" Foreground="{DynamicResource ThemeMuted}" TextWrapping="Wrap" Margin="26,3,0,0"/>
-                    <Grid x:Name="LumeniteZipRow" Margin="26,7,0,0" Visibility="Collapsed">
+                    <TextBlock x:Name="GameBitnessText" Style="{StaticResource Caption}" Margin="0,0,0,8"/>
+                    <WrapPanel Margin="0,0,0,10">
+                      <RadioButton x:Name="GameBitnessAutoRadio" Content="自动" GroupName="GameBitness" Style="{StaticResource PillRadio}" IsChecked="True"/>
+                      <RadioButton x:Name="GameBitness32Radio" Content="32 位" GroupName="GameBitness" Style="{StaticResource PillRadio}"/>
+                      <RadioButton x:Name="GameBitness64Radio" Content="64 位" GroupName="GameBitness" Style="{StaticResource PillRadio}"/>
+                    </WrapPanel>
+                    <TextBlock x:Name="ReshadeApiLabel" Text="图形接口路线（API）" FontSize="12" Foreground="{DynamicResource ThemeMuted}" Margin="0,0,0,8"/>
+                    <WrapPanel Margin="0,0,0,4">
+                      <RadioButton x:Name="ReshadeApiDxRadio" Content="DX10 / DX11 / DX12" GroupName="ReShadeApi" Style="{StaticResource PillRadio}" IsChecked="True" FontFamily="Segoe UI, Microsoft YaHei UI"/>
+                      <RadioButton x:Name="ReshadeApiDx9Radio" Content="DX9（经 DXVK 转换）" GroupName="ReShadeApi" Style="{StaticResource PillRadio}" FontFamily="Segoe UI, Microsoft YaHei UI"/>
+                      <RadioButton x:Name="ReshadeApiVulkanRadio" Content="Vulkan" GroupName="ReShadeApi" Style="{StaticResource PillRadio}" FontFamily="Segoe UI, Microsoft YaHei UI"/>
+                    </WrapPanel>
+                    <TextBlock x:Name="ReshadeStyleLabel" Text="前后处理风格" FontSize="12" Foreground="{DynamicResource ThemeMuted}" Margin="0,4,0,8"/>
+                    <WrapPanel Margin="0,0,0,4">
+                      <RadioButton x:Name="ReshadeStyleRenoDxRadio" Content="RenoDX 风格（默认）" GroupName="ReShadeStyle" Style="{StaticResource PillRadio}" IsChecked="True" FontFamily="Segoe UI, Microsoft YaHei UI"/>
+                      <RadioButton x:Name="ReshadeStyleWilsjo2Radio" Content="wilsjo2 经典风格" GroupName="ReShadeStyle" Style="{StaticResource PillRadio}" FontFamily="Segoe UI, Microsoft YaHei UI"/>
+                    </WrapPanel>
+                    <Border Height="1" Background="{DynamicResource ThemeHairline}" Margin="0,6,0,14"/>
+                    <CheckBox x:Name="LumeniteCheck" Style="{DynamicResource ToggleSwitch}" Content="启用 LumeniteFX 运动矢量（替代内置 VORT）" FontSize="13" IsChecked="False"/>
+                    <TextBlock x:Name="LumeniteHintText" Text="留空本地 ZIP 时，安装将自动从 GitHub 下载并校验兼容版本 f80e98d。" Style="{StaticResource Caption}" FontSize="11.5" Margin="52,4,0,0"/>
+                    <Grid x:Name="LumeniteZipRow" Margin="52,10,0,0" Visibility="Collapsed">
                       <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                      <TextBox x:Name="LumeniteZipText" Height="28" VerticalContentAlignment="Center" Background="{DynamicResource ThemeSurface}" Foreground="{DynamicResource ThemeInk}" BorderBrush="{DynamicResource ThemeBorder}" Padding="8,0" FontSize="11" IsReadOnly="True"/>
-                      <Button x:Name="LumeniteZipBrowseBtn" Grid.Column="1" Content="选择本地 ZIP" Style="{DynamicResource GhostButton}" Height="28" Padding="10,0" FontSize="10.5" Margin="6,0,0,0"/>
-                      <Button x:Name="LumeniteZipClearBtn" Grid.Column="2" Content="清除" Style="{DynamicResource GhostButton}" Height="28" Padding="8,0" FontSize="10.5" Margin="6,0,0,0"/>
+                      <TextBox x:Name="LumeniteZipText" Height="30" VerticalContentAlignment="Center" Padding="8,0" FontSize="12" IsReadOnly="True"/>
+                      <Button x:Name="LumeniteZipBrowseBtn" Grid.Column="1" Content="选择本地 ZIP" Style="{DynamicResource CardAction}" Height="30" Margin="8,0,0,0"
+                              local:DialogTheme.Icon="M 1.75 4.25 A 1 1 0 0 1 2.75 3.25 H 6 L 7.5 4.75 H 13.25 A 1 1 0 0 1 14.25 5.75 V 12 A 1 1 0 0 1 13.25 13 H 2.75 A 1 1 0 0 1 1.75 12 Z"/>
+                      <Button x:Name="LumeniteZipClearBtn" Grid.Column="2" Content="清除" Style="{DynamicResource CardAction}" Height="30" Margin="8,0,0,0"/>
                     </Grid>
                   </StackPanel>
                 </Border>
               </StackPanel>
             </Border>
-            <Border Style="{StaticResource Surface}" Padding="15,12" Margin="0,12,0,16">
-              <StackPanel>
-                <DockPanel Margin="0,0,0,10"><Button x:Name="PackLogButton" DockPanel.Dock="Right" Style="{DynamicResource GhostButton}" Height="25" FontSize="10.5" Padding="8,0" VerticalAlignment="Center"/><TextBlock x:Name="DiagnosticsHeading" Foreground="{DynamicResource ThemeMuted}" FontSize="11.5" VerticalAlignment="Center"/></DockPanel>
-                <StackPanel x:Name="CompatPanel">
-                  <TextBlock x:Name="CompatSummary" TextWrapping="Wrap" Foreground="{DynamicResource ThemeMuted}" FontSize="10.5" Margin="0,0,0,9"/>
-                  <WrapPanel Margin="0,0,0,12"><Button x:Name="CompatButton" Style="{DynamicResource GhostButton}" Height="27" FontSize="11" IsEnabled="False"/><Button x:Name="RestoreCompatButton" Style="{DynamicResource GhostButton}" Height="27" FontSize="11" Margin="8,0,0,0" IsEnabled="False"/><Button x:Name="CompatHelpButton" Content="?" Style="{DynamicResource GhostButton}" Width="27" Height="27" Padding="0" Margin="8,0,0,0"/></WrapPanel>
-                  <Border Height="1" Background="{DynamicResource ThemeBorder}" Margin="0,0,0,12"/>
-                </StackPanel>
-                <TextBlock x:Name="InstallOptionsHeading" Foreground="{DynamicResource ThemeMuted}" FontSize="11" Margin="0,0,0,6"/>
-                <CheckBox x:Name="ReplaceIni" IsChecked="True" FontSize="11" Margin="0,0,0,8"/>
-                <StackPanel x:Name="OptiScalerInstallExtras">
-                  <CheckBox x:Name="OptiPatcherToggle" FontSize="11" Margin="0,0,0,12"/>
-                  <DockPanel Margin="0,0,0,12"><WrapPanel VerticalAlignment="Center"><TextBlock x:Name="PluginHeading" Foreground="{DynamicResource ThemeMuted}" FontSize="11" VerticalAlignment="Center"/><Button x:Name="UnlockerImportButton" Style="{DynamicResource GhostButton}" Height="27" Padding="8,0" FontSize="11" Margin="12,0,8,0" Visibility="Collapsed"/><Button x:Name="OpenPluginsFolderButton" Style="{DynamicResource GhostButton}" Height="27" Padding="8,0" FontSize="11" Margin="4,0,8,0" Visibility="Collapsed" IsEnabled="False"/></WrapPanel></DockPanel>
-                </StackPanel>
-                <Border Height="1" Background="{DynamicResource ThemeBorder}" Margin="0,0,0,12"/>
-                <Border Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="12" Padding="10">
-                  <StackPanel>
-                    <DockPanel Margin="0,0,0,8">
-                      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                        <StackPanel x:Name="OptiScalerIniButtonsLeft" Orientation="Horizontal">
-                          <Button x:Name="IniFolderButton" Style="{DynamicResource GhostButton}" Height="25" FontSize="10.5" Padding="8,0"/>
-                          <Button x:Name="IniSaveButton" Style="{DynamicResource GhostButton}" Height="25" FontSize="10.5" Padding="8,0" Margin="5,0,0,0"/>
-                          <Button x:Name="IniImportButton" Style="{DynamicResource GhostButton}" Height="25" FontSize="10.5" Padding="8,0" Margin="5,0,5,0"/>
-                        </StackPanel>
-                        <Button x:Name="IniAsiExportButton" Style="{DynamicResource GhostButton}" Height="25" FontSize="10.5" Padding="8,0"/>
-                        <Button x:Name="IniAsiImportButton" Style="{DynamicResource GhostButton}" Height="25" FontSize="10.5" Padding="8,0" Margin="5,0,0,0"/>
-                        <Button x:Name="IniApplyButton" Style="{DynamicResource GhostButton}" Height="25" FontSize="10.5" Padding="12,0" Margin="5,0,0,0"/>
-                      </StackPanel>
-                      <TextBlock x:Name="IniHeading" Foreground="{DynamicResource ThemeMuted}" FontSize="11" VerticalAlignment="Center"/>
-                    </DockPanel>
-                    <StackPanel x:Name="OptiScalerIniProfileGroup">
-                      <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="160"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><ComboBox x:Name="IniProfileCombo" Height="30"/><TextBox x:Name="IniSearchBox" Grid.Column="1" Height="30" Margin="6,0,0,0" Background="{DynamicResource ThemeSurface}" Foreground="{DynamicResource ThemeInk}" BorderBrush="{DynamicResource ThemeBorder}" Padding="8,5"/><Button x:Name="IniRenameButton" Grid.Column="2" Style="{DynamicResource GhostButton}" Height="30" Padding="8,0" FontSize="10.5" Margin="6,0,0,0"/><Button x:Name="IniDeleteButton" Grid.Column="3" Style="{DynamicResource GhostButton}" Height="30" Padding="8,0" FontSize="10.5" Margin="6,0,0,0"/></Grid>
-                      <DockPanel Margin="0,8,0,0"><Button x:Name="IniQuickSaveButton" Style="{DynamicResource GhostButton}" Height="25" FontSize="10.5" Padding="8,0" Margin="0,0,10,0"/><TextBlock x:Name="IniSelectHint" Foreground="{DynamicResource ThemeMuted}" FontSize="10" VerticalAlignment="Center" TextWrapping="Wrap"/></DockPanel>
+
+            <!-- ===== Group A: install options & compatibility repair ===== -->
+            <StackPanel x:Name="AdvancedInstallSection" Margin="0,28,0,0">
+              <Border Style="{StaticResource Card}">
+                <StackPanel>
+                  <TextBlock x:Name="DiagnosticsHeading" Style="{StaticResource SectionHeader}" Margin="0,0,0,10"/>
+                  <TextBlock x:Name="InstallOptionsHeading" Visibility="Collapsed"/>
+                  <CheckBox x:Name="ReplaceIni" Style="{DynamicResource ToggleSwitch}" IsChecked="True" FontSize="13"/>
+                  <StackPanel x:Name="OptiScalerInstallExtras">
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                      <CheckBox x:Name="OptiPatcherToggle" Style="{DynamicResource ToggleSwitch}" FontSize="13"/>
+                      <TextBlock x:Name="OptiPatcherWikiTag" FontSize="11" Foreground="{DynamicResource ThemeMuted}" Margin="10,0,0,0" VerticalAlignment="Center" Visibility="Collapsed"/>
                     </StackPanel>
-                    <Border x:Name="StyleShareBar" Background="{DynamicResource ThemeSubtle}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="10" Padding="12,9" Margin="0,10,0,0">
-                      <DockPanel>
-                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                          <Button x:Name="StyleOutButton" Style="{DynamicResource GhostButton}" Height="30" FontSize="11.5" Padding="12,0" Margin="6,0,0,0"/>
-                          <Button x:Name="StyleInButton" Style="{DynamicResource GhostButton}" Background="{DynamicResource ThemeAccent}" BorderThickness="0" Foreground="White" Height="30" FontSize="11.5" FontWeight="SemiBold" Padding="12,0" Margin="6,0,0,0"/>
-                        </StackPanel>
-                        <StackPanel VerticalAlignment="Center">
-                          <TextBlock x:Name="StyleShareTitle" FontWeight="SemiBold" FontSize="11.5" Foreground="{DynamicResource ThemeInk}"/>
-                          <TextBlock x:Name="StyleShareSub" FontSize="10" Foreground="{DynamicResource ThemeMuted}" TextWrapping="Wrap" Margin="0,2,8,0"/>
-                        </StackPanel>
-                      </DockPanel>
-                    </Border>
-                    <TextBlock x:Name="IniProfileStatus" Foreground="{DynamicResource ThemeMuted}" FontSize="10.5" TextWrapping="Wrap" Margin="0,5,0,0"/>
+                    <DockPanel Margin="0,12,0,0">
+                      <WrapPanel VerticalAlignment="Center">
+                        <TextBlock x:Name="PluginHeading" Foreground="{DynamicResource ThemeMuted}" FontSize="12" VerticalAlignment="Center"/>
+                        <Button x:Name="UnlockerImportButton" Style="{DynamicResource CardAction}" Margin="12,0,8,0" Visibility="Collapsed"
+                                local:DialogTheme.Icon="M 8 2.5 V 10 M 5 7 L 8 10 L 11 7 M 3 8.5 V 13.5 H 13 V 8.5"/>
+                        <Button x:Name="OpenPluginsFolderButton" Style="{DynamicResource CardAction}" Margin="4,0,8,0" Visibility="Collapsed" IsEnabled="False"
+                                local:DialogTheme.Icon="M 1.75 4.25 A 1 1 0 0 1 2.75 3.25 H 6 L 7.5 4.75 H 13.25 A 1 1 0 0 1 14.25 5.75 V 12 A 1 1 0 0 1 13.25 13 H 2.75 A 1 1 0 0 1 1.75 12 Z"/>
+                      </WrapPanel>
+                    </DockPanel>
                   </StackPanel>
-                </Border>
-                <Expander Foreground="{DynamicResource ThemeMuted}" FontSize="10.5" Margin="0,10,0,0"><Expander.Header><TextBlock x:Name="LogHeading"/></Expander.Header><StackPanel><Button x:Name="OpenLogButton" Style="{DynamicResource GhostButton}" HorizontalAlignment="Right" Margin="0,8"/><TextBox x:Name="LogView" Height="100" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Background="{DynamicResource ThemeSubtle}" Foreground="{DynamicResource ThemeMuted}" BorderBrush="{DynamicResource ThemeBorder}" Padding="6" FontSize="11" FontFamily="Consolas, Segoe UI"/></StackPanel></Expander>
-              </StackPanel>
-            </Border>
+                  <StackPanel x:Name="CompatPanel">
+                    <Border Height="1" Background="{DynamicResource ThemeHairline}" Margin="0,14,0,12"/>
+                    <TextBlock x:Name="CompatSummary" Style="{StaticResource Caption}" Margin="0,0,0,10"/>
+                    <WrapPanel>
+                      <Button x:Name="CompatButton" Style="{DynamicResource CardAction}" IsEnabled="False"
+                              local:DialogTheme.Icon="M 10.25 2 A 3.5 3.5 0 0 0 7 6.75 L 2.25 11.5 A 1.6 1.6 0 0 0 4.5 13.75 L 9.25 9 A 3.5 3.5 0 0 0 14 5.75 L 12 7.75 L 10.25 7.25 L 9.75 5.5 L 11.75 3.5 A 3.5 3.5 0 0 0 10.25 2 Z"/>
+                      <Button x:Name="RestoreCompatButton" Style="{DynamicResource CardAction}" Margin="8,0,0,0" IsEnabled="False"
+                              local:DialogTheme.Icon="M 3 6 H 10 A 3.5 3.5 0 0 1 10 13 H 6 M 6 3 L 3 6 L 6 9"/>
+                      <Button x:Name="CompatHelpButton" Style="{DynamicResource IconButton}" Width="30" Height="28" Margin="6,0,0,0" Foreground="{DynamicResource ThemeMuted}"
+                              local:DialogTheme.Icon="M 2 8 A 6 6 0 1 1 14 8 A 6 6 0 1 1 2 8 Z M 6.25 6.25 A 1.75 1.75 0 1 1 8.75 7.85 C 8.2 8.15 8 8.5 8 9.25 M 8 11.25 V 11.5"/>
+                    </WrapPanel>
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+            </StackPanel>
+
+            <!-- ===== Group B: configuration files & style codes ===== -->
+            <StackPanel x:Name="AdvancedProfilesSection" Margin="0,28,0,0">
+              <Border Style="{StaticResource Card}">
+                <StackPanel Grid.IsSharedSizeScope="True">
+                  <TextBlock x:Name="IniHeading" Style="{StaticResource SectionHeader}" Margin="0,0,0,12"/>
+                  <Border x:Name="StyleShareBar" Padding="0,0,0,12">
+                    <StackPanel>
+                      <TextBlock x:Name="StyleShareTitle" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource ThemeInk}"/>
+                      <TextBlock x:Name="StyleShareSub" Style="{StaticResource Caption}" FontSize="11.5" Margin="0,4,0,6" TextWrapping="Wrap"/>
+                      <WrapPanel>
+                        <Button x:Name="StyleOutButton" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,8,0"
+                                local:DialogTheme.Icon="M 8 10 V 2.5 M 5 5.5 L 8 2.5 L 11 5.5 M 3 8.5 V 13.5 H 13 V 8.5"/>
+                        <Button x:Name="StyleInButton" Style="{DynamicResource CardAction}" Height="30" FontWeight="SemiBold"
+                                local:DialogTheme.Icon="M 8 2.5 V 10 M 5 7 L 8 10 L 11 7 M 3 8.5 V 13.5 H 13 V 8.5"/>
+                      </WrapPanel>
+                    </StackPanel>
+                  </Border>
+                  <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="ProfileLabel"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto" SharedSizeGroup="ProfileApply"/><ColumnDefinition Width="Auto" SharedSizeGroup="ProfileSave"/><ColumnDefinition Width="Auto" SharedSizeGroup="ProfileMore"/><ColumnDefinition Width="24"/></Grid.ColumnDefinitions>
+                    <TextBlock x:Name="AsiProfilesHeading" Foreground="{DynamicResource ThemeInk}" FontSize="12" Margin="0,0,16,0" VerticalAlignment="Center"/>
+                    <ComboBox x:Name="AsiProfileCombo" Grid.Column="1" Height="32"/>
+                    <Button x:Name="AsiProfileApplyButton" Grid.Column="2" Style="{DynamicResource CardAction}" Height="32" Margin="8,0,0,0"/>
+                    <Button x:Name="AsiProfileSaveButton" Grid.Column="3" Style="{DynamicResource CardAction}" Height="32" Margin="8,0,0,0"/>
+                    <Button x:Name="AsiProfileMoreButton" Grid.Column="4" Content="⋯" Style="{DynamicResource CardAction}" Height="32" Margin="8,0,0,0" FontSize="18"/>
+                  </Grid>
+                  <Popup x:Name="AsiProfileMorePopup" PlacementTarget="{Binding ElementName=AsiProfileMoreButton}" Placement="Custom" StaysOpen="False" AllowsTransparency="True">
+                    <Border Background="{DynamicResource ThemeCardBg}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="8" Padding="6">
+                      <StackPanel x:Name="AsiProfileOverflowActions">
+                        <Button x:Name="IniAsiImportButton" Style="{DynamicResource SubtleButton}" HorizontalContentAlignment="Left"/>
+                        <Button x:Name="IniAsiExportButton" Style="{DynamicResource SubtleButton}" HorizontalContentAlignment="Left"/>
+                        <Button x:Name="AsiProfileRenameButton" Style="{DynamicResource SubtleButton}" HorizontalContentAlignment="Left"/>
+                        <Button x:Name="AsiProfileDeleteButton" Style="{DynamicResource SubtleButton}" HorizontalContentAlignment="Left"/>
+                        <Button x:Name="AsiProfileQuickSaveButton" Style="{DynamicResource SubtleButton}" HorizontalContentAlignment="Left"/>
+                        <Button x:Name="AsiProfileFolderButton" Style="{DynamicResource SubtleButton}" HorizontalContentAlignment="Left"/>
+                      </StackPanel>
+                    </Border>
+                  </Popup>
+                  <TextBlock x:Name="IniProfileStatus" Style="{StaticResource Caption}" FontSize="11.5" Margin="0,8,0,0"/>
+                  <Border Height="1" Background="{DynamicResource ThemeHairline}" Margin="0,8"/>
+                  <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" SharedSizeGroup="ProfileLabel"/><ColumnDefinition Width="*"/><ColumnDefinition Width="24"/></Grid.ColumnDefinitions>
+                  <TextBlock x:Name="OptiScalerConfigHeading" Foreground="{DynamicResource ThemeInk}" FontSize="12" Margin="0,0,16,0" VerticalAlignment="Center"/>
+                  <StackPanel x:Name="ProfilesCardBody" Grid.Column="1">
+                  <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto" SharedSizeGroup="ProfileApply"/><ColumnDefinition Width="Auto" SharedSizeGroup="ProfileSave"/><ColumnDefinition Width="Auto" SharedSizeGroup="ProfileMore"/></Grid.ColumnDefinitions>
+                    <StackPanel x:Name="OptiScalerIniProfileGroup"><ComboBox x:Name="IniProfileCombo" Height="32"/></StackPanel>
+                    <Button x:Name="IniApplyButton" Grid.Column="1" Style="{DynamicResource CardAction}" Height="32" Margin="8,0,0,0" FontWeight="SemiBold"/>
+                    <StackPanel x:Name="OptiScalerIniButtonsLeft" Grid.Column="2" Orientation="Horizontal">
+                      <Button x:Name="IniSaveButton" Style="{DynamicResource CardAction}" Height="32" Margin="8,0,0,0"/>
+                    </StackPanel>
+                    <Button x:Name="ProfileMoreButton" Grid.Column="3" Content="⋯" Style="{DynamicResource CardAction}" Height="32" Margin="8,0,0,0" FontSize="18"/>
+                  </Grid>
+                  <Popup x:Name="ProfileMorePopup" PlacementTarget="{Binding ElementName=ProfileMoreButton}" Placement="Custom" StaysOpen="False" AllowsTransparency="True">
+                    <Border Background="{DynamicResource ThemeCardBg}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="8" Padding="6" Margin="0,4,0,0">
+                      <StackPanel x:Name="ProfileOverflowActions">
+                        <Button x:Name="IniImportButton" Style="{DynamicResource SubtleButton}" HorizontalContentAlignment="Left"/>
+                        <Button x:Name="IniExportButton" Style="{DynamicResource SubtleButton}" HorizontalContentAlignment="Left"/>
+                        <Button x:Name="IniRenameButton" Style="{DynamicResource SubtleButton}" HorizontalContentAlignment="Left"/>
+                        <Button x:Name="IniDeleteButton" Style="{DynamicResource SubtleButton}" HorizontalContentAlignment="Left"/>
+                        <Button x:Name="IniFolderButton" Style="{DynamicResource SubtleButton}" HorizontalContentAlignment="Left"/>
+                        <Button x:Name="IniQuickSaveButton" Style="{DynamicResource SubtleButton}" HorizontalContentAlignment="Left"/>
+                      </StackPanel>
+                    </Border>
+                  </Popup>
+                  <Grid Visibility="Collapsed"><TextBox x:Name="IniSearchBox"/><TextBlock x:Name="IniSelectHint"/></Grid>
+                  </StackPanel>
+                  </Grid>
+                </StackPanel>
+              </Border>
+            </StackPanel>
+
+            <!-- ===== Group C: runtime diagnostic log ===== -->
+            <StackPanel x:Name="AdvancedLogSection" Margin="0,28,0,0">
+              <Border Style="{StaticResource Card}">
+                <StackPanel>
+                  <Button x:Name="InstallLogExpandButton" Style="{DynamicResource CardAction}" HorizontalContentAlignment="Stretch" Padding="0">
+                    <Grid Width="{Binding ActualWidth, ElementName=InstallLogExpandButton}">
+                      <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                      <TextBlock x:Name="LogHeading" Style="{StaticResource SectionHeader}" VerticalAlignment="Center"/>
+                      <TextBlock x:Name="LogPreviewHeading" Grid.Column="1" Foreground="{DynamicResource ThemeMuted}" Margin="16,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                      <Path x:Name="InstallLogChevron" Grid.Column="2" Data="M 4 2 L 10 8 L 4 14" Stroke="{DynamicResource ThemeMuted}" StrokeThickness="1.5" Width="10" Height="12" Stretch="Uniform" RenderTransformOrigin="0.5,0.5"/>
+                    </Grid>
+                  </Button>
+                  <StackPanel x:Name="InstallLogCardBody" Visibility="Collapsed" Margin="0,14,0,0">
+              <DockPanel Margin="2,0,0,10">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                  <Button x:Name="PackLogButton" Style="{DynamicResource CardAction}" Margin="0,0,8,0"
+                          local:DialogTheme.Icon="M 2.5 4.75 L 8 2.25 L 13.5 4.75 V 11.25 L 8 13.75 L 2.5 11.25 Z M 2.5 4.75 L 8 7.25 L 13.5 4.75 M 8 7.25 V 13.75"/>
+                  <Button x:Name="OpenLogButton" Style="{DynamicResource CardAction}"
+                          local:DialogTheme.Icon="M 4 1.75 H 9.5 L 12.5 4.75 V 14.25 H 4 Z M 9.5 1.75 V 4.75 H 12.5 M 6 8 H 10.5 M 6 10.5 H 10.5"/>
+                </StackPanel>
+              </DockPanel>
+                  <TextBox x:Name="LogView" Height="150" Margin="0,4,0,10" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Background="{DynamicResource ThemeLayer}" Foreground="{DynamicResource ThemeMuted}" Padding="8,6" FontSize="11.5" FontFamily="Cascadia Mono, Consolas, Segoe UI"/>
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+            </StackPanel>
           </StackPanel>
         </ScrollViewer>
-      </Grid>
-      <Border x:Name="SettingsPage" VerticalAlignment="Bottom" MaxHeight="330" Visibility="Collapsed" Background="{DynamicResource ThemeSurface}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="0,1,0,0" Padding="22,14" Panel.ZIndex="5">
-        <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel>
-          <DockPanel Margin="0,0,0,12"><Button x:Name="SettingsCloseButton" DockPanel.Dock="Right" Style="{DynamicResource GhostButton}" Height="25" Padding="10,0"/><TextBlock x:Name="SettingsHeading" Foreground="{DynamicResource ThemeMuted}" FontSize="12" VerticalAlignment="Center"/></DockPanel>
-          <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><Grid.ColumnDefinitions><ColumnDefinition Width="180"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-            <TextBlock x:Name="LanguageHeading" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center"/><WrapPanel Grid.Column="1"><ComboBox x:Name="LangCombo" Width="150" Height="30"/><TextBlock x:Name="ThemeHeading" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center" Margin="24,0,12,0"/><ComboBox x:Name="ThemeCombo" Width="150" Height="30"/></WrapPanel>
-            <WrapPanel Grid.Row="1" Grid.ColumnSpan="2" Margin="0,15" VerticalAlignment="Center"><CheckBox x:Name="ScanOnStartup" FontSize="12" VerticalAlignment="Center"/><Button x:Name="DiagnosticModeButton" Style="{DynamicResource GhostButton}" Height="28" FontSize="11" Margin="18,0,0,0"/></WrapPanel>
-            <Grid x:Name="DiagnosticPackagePanel" Grid.Row="2" Grid.ColumnSpan="2" Visibility="Collapsed"><Grid.ColumnDefinitions><ColumnDefinition Width="180"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><TextBlock x:Name="PackageHeading" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center"/><DockPanel Grid.Column="1"><Button x:Name="PackageBrowse" DockPanel.Dock="Right" Style="{DynamicResource GhostButton}" Width="85" Margin="8,0,0,0"/><TextBox x:Name="PackageRootBox" Height="32" VerticalContentAlignment="Center" Background="{DynamicResource ThemeSurface}" Foreground="{DynamicResource ThemeInk}" BorderBrush="{DynamicResource ThemeBorder}" Padding="8,0"/></DockPanel><TextBlock x:Name="PackageDesc" Grid.Row="1" Grid.Column="1" Foreground="{DynamicResource ThemeMuted}" FontSize="10.5" Margin="0,6,0,0" TextWrapping="Wrap"/></Grid>
-          </Grid>
-          <Grid Margin="0,12,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="180"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock x:Name="CommunityHeading" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Top" Margin="0,6,0,0"/><StackPanel Grid.Column="1"><WrapPanel><Button x:Name="GithubButton" Style="{DynamicResource GhostButton}" Height="27" FontSize="11" Margin="0,0,8,0" ToolTip="https://github.com/TheAutomatic/dlss-5-amd-project"/><Button x:Name="BilibiliButton" Style="{DynamicResource GhostButton}" Height="27" FontSize="11" ToolTip="https://space.bilibili.com/291088"/></WrapPanel><WrapPanel Margin="0,8,0,0"><Button x:Name="MochizukiAuthorButton" Content="mochizuki0323 ↗" Style="{DynamicResource GhostButton}" Height="27" FontSize="11" Margin="0,0,8,6" ToolTip="https://gitlab.com/mochizuki0323/DLSSNR-AMD"/><Button x:Name="OpenRrAuthorButton" Content="Storm / OpenRR ↗" Style="{DynamicResource GhostButton}" Height="27" FontSize="11" Margin="0,0,0,6" ToolTip="https://github.com/Storm-2026/OpenNR-RR"/></WrapPanel></StackPanel></Grid>
-        </StackPanel></ScrollViewer>
       </Border>
     </Grid>
-  </DockPanel>
+
+    <!-- ===== Status bar ===== -->
+    <Grid Grid.Row="2" Margin="16,0,8,0">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="Auto"/>
+      </Grid.ColumnDefinitions>
+      <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+        <Ellipse x:Name="StatusLed" Visibility="{Binding Visibility, ElementName=StatusText}" Width="7" Height="7" VerticalAlignment="Center" Fill="{DynamicResource ThemeSuccess}" Margin="0,0,8,0"/>
+        <TextBlock x:Name="StatusText" VerticalAlignment="Center" Foreground="{DynamicResource ThemeMuted}" FontSize="11.5" MaxWidth="420" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}">
+          <TextBlock.Style>
+            <Style TargetType="TextBlock"><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger></Style.Triggers></Style>
+          </TextBlock.Style>
+        </TextBlock>
+      </StackPanel>
+      <DockPanel Grid.Column="1" VerticalAlignment="Center" Margin="12,0,12,0">
+        <Border Width="1" Height="12" Background="{DynamicResource ThemeHairline}" Margin="0,0,12,0" VerticalAlignment="Center"/>
+        <TextBlock x:Name="HardwareInfo" VerticalAlignment="Center" Foreground="{DynamicResource ThemeFaint}" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+      </DockPanel>
+      <!-- Anti-resale notice: always visible, low-key, out of the title bar. -->
+      <Border x:Name="TopWarning" Grid.Column="2" Background="Transparent" VerticalAlignment="Center" Margin="0,0,14,0">
+        <StackPanel Orientation="Horizontal">
+          <Path Width="16" Height="16" Stretch="None" Stroke="{DynamicResource ThemeWarning}" StrokeThickness="1.2" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Margin="0,0,5,0" VerticalAlignment="Center"
+                Data="M 8 1.75 L 13.25 3.75 V 7.75 C 13.25 10.75 11 13 8 14.25 C 5 13 2.75 10.75 2.75 7.75 V 3.75 Z M 5.75 8 L 7.25 9.5 L 10.25 6.5"/>
+          <TextBlock x:Name="RefundWarning" FontSize="11.5" Foreground="{DynamicResource ThemeWarning}" VerticalAlignment="Center"/>
+        </StackPanel>
+      </Border>
+      <TextBlock Grid.Column="3" FontSize="11.5" Foreground="{DynamicResource ThemeFaint}" VerticalAlignment="Center" Margin="0,0,8,0"><Run x:Name="AuthorCaption"/><Hyperlink x:Name="AuthorLink" NavigateUri="https://github.com/TheAutomatic/dlss-5-amd-project" Cursor="Hand"><Hyperlink.Style><Style TargetType="Hyperlink"><Setter Property="Foreground" Value="{DynamicResource ThemeMuted}"/><Setter Property="TextDecorations" Value="{x:Null}"/><Style.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Foreground" Value="{DynamicResource ThemeAccentText}"/><Setter Property="TextDecorations" Value="Underline"/></Trigger></Style.Triggers></Style></Hyperlink.Style>TheAutomatic</Hyperlink></TextBlock>
+      <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
+        <TextBlock x:Name="DiagnosticModeIndicator" Foreground="{DynamicResource ThemeAccentText}" FontWeight="SemiBold" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,8,0" Visibility="Collapsed"/>
+        <Button x:Name="QuickLogButton" Style="{DynamicResource SubtleButton}" Height="26" MinHeight="26" Padding="6,0,8,0" FontSize="11.5" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center"
+                local:DialogTheme.Icon="M 4 1.75 H 9.5 L 12.5 4.75 V 14.25 H 4 Z M 9.5 1.75 V 4.75 H 12.5 M 6 8 H 10.5 M 6 10.5 H 10.5"/>
+      </StackPanel>
+      <TextBlock x:Name="CountText" Visibility="Collapsed"/><TextBlock x:Name="VersionText" Visibility="Collapsed"/>
+    </Grid>
+
+    <!-- ===== Settings: centred floating card over a scrim (click outside / Esc closes) ===== -->
+    <Border x:Name="SettingsPage" Grid.Row="1" Grid.RowSpan="2" Panel.ZIndex="20" Visibility="Collapsed" Background="{DynamicResource ThemeScrim}">
+      <Border x:Name="SettingsCard" Width="640" MaxHeight="580" Margin="24" HorizontalAlignment="Center" VerticalAlignment="Center"
+              Background="{DynamicResource ThemeSurface}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="8">
+        <Border.Effect><DropShadowEffect BlurRadius="36" ShadowDepth="10" Direction="270" Opacity="0.28"/></Border.Effect>
+        <DockPanel>
+          <Border DockPanel.Dock="Bottom" Background="{DynamicResource ThemeLayer}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="0,1,0,0" CornerRadius="0,0,8,8" Padding="24,12">
+            <Button x:Name="SettingsCloseButton" Style="{DynamicResource GhostButton}" HorizontalAlignment="Right" MinWidth="96" Height="32"/>
+          </Border>
+          <TextBlock x:Name="SettingsHeading" DockPanel.Dock="Top" FontSize="20" FontWeight="SemiBold" Foreground="{DynamicResource ThemeInk}" Margin="24,20,24,14"/>
+          <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="24,0,20,18">
+            <StackPanel>
+              <Border x:Name="SettingsOptionsPanel" Style="{StaticResource Card}" Padding="0">
+              <StackPanel>
+              <Border Padding="16,10">
+                <DockPanel>
+                  <ComboBox x:Name="LangCombo" DockPanel.Dock="Right" Width="180" Height="32"/>
+                  <TextBlock x:Name="LanguageHeading" Foreground="{DynamicResource ThemeInk}" VerticalAlignment="Center"/>
+                </DockPanel>
+              </Border>
+              <Border Background="{DynamicResource ThemeBorder}" Height="1" Margin="16,0"/>
+              <Border Padding="16,10">
+                <DockPanel>
+                  <ComboBox x:Name="ThemeCombo" DockPanel.Dock="Right" Width="180" Height="32"/>
+                  <TextBlock x:Name="ThemeHeading" Foreground="{DynamicResource ThemeInk}" VerticalAlignment="Center"/>
+                </DockPanel>
+              </Border>
+              <Border Background="{DynamicResource ThemeBorder}" Height="1" Margin="16,0"/>
+              <Border Padding="16,12">
+                <DockPanel>
+                  <Button x:Name="DiagnosticModeButton" DockPanel.Dock="Right" Style="{DynamicResource CardAction}" Height="30" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                  <CheckBox x:Name="ScanOnStartup" Style="{DynamicResource ToggleSwitch}" FontSize="13" VerticalAlignment="Center"/>
+                </DockPanel>
+              </Border>
+              <Grid x:Name="DiagnosticPackagePanel" Visibility="Collapsed">
+                <Border Background="{DynamicResource ThemeBorder}" Height="1" Margin="16,0" VerticalAlignment="Top"/>
+                <StackPanel Margin="16,12">
+                  <TextBlock x:Name="PackageHeading" Foreground="{DynamicResource ThemeInk}" Margin="0,0,0,8"/>
+                  <DockPanel>
+                    <Button x:Name="PackageBrowse" DockPanel.Dock="Right" Style="{DynamicResource CardAction}" Height="32" Width="92" Margin="8,0,0,0"/>
+                    <TextBox x:Name="PackageRootBox" Height="32" VerticalContentAlignment="Center" Padding="8,0"/>
+                  </DockPanel>
+                  <TextBlock x:Name="PackageDesc" Style="{StaticResource Caption}" FontSize="11.5" Margin="0,8,0,0"/>
+                </StackPanel>
+              </Grid>
+              </StackPanel>
+              </Border>
+              <TextBlock x:Name="CommunityHeading" Style="{StaticResource SectionHeader}" FontSize="13" Margin="2,18,0,8"/>
+              <WrapPanel>
+                <Button x:Name="GithubButton" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,8,8" ToolTip="https://github.com/TheAutomatic/dlss-5-amd-project"
+                        local:DialogTheme.Icon="M 9 2.5 H 13.5 V 7 M 13.5 2.5 L 7.5 8.5 M 11.5 9.5 V 13.5 H 2.5 V 4.5 H 6.5"/>
+                <Button x:Name="MochizukiAuthorButton" Content="mochizuki0323" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,8,8" ToolTip="https://gitlab.com/mochizuki0323/DLSSNR-AMD"
+                        local:DialogTheme.Icon="M 9 2.5 H 13.5 V 7 M 13.5 2.5 L 7.5 8.5 M 11.5 9.5 V 13.5 H 2.5 V 4.5 H 6.5"/>
+                <Button x:Name="OpenRrAsiButton" Content="OpenRR-ASI" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,8,8" ToolTip="https://github.com/TheAutomatic/OpenRR-ASI"
+                        local:DialogTheme.Icon="M 9 2.5 H 13.5 V 7 M 13.5 2.5 L 7.5 8.5 M 11.5 9.5 V 13.5 H 2.5 V 4.5 H 6.5"/>
+                <Button x:Name="RtxRemixMcPatchButton" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,8,8" ToolTip="https://github.com/TheAutomatic/rtx-remix-minecraft-amd-patch"
+                        local:DialogTheme.Icon="M 9 2.5 H 13.5 V 7 M 13.5 2.5 L 7.5 8.5 M 11.5 9.5 V 13.5 H 2.5 V 4.5 H 6.5"/>
+                <Button x:Name="BilibiliButton" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,8,8" ToolTip="https://space.bilibili.com/291088"
+                        local:DialogTheme.Icon="M 9 2.5 H 13.5 V 7 M 13.5 2.5 L 7.5 8.5 M 11.5 9.5 V 13.5 H 2.5 V 4.5 H 6.5"/>
+              </WrapPanel>
+            </StackPanel>
+          </ScrollViewer>
+        </DockPanel>
+      </Border>
+    </Border>
+  </Grid>
 </Window>

@@ -1,13 +1,13 @@
-# Mochizuki NR ASI payload (0.0.9m3)
+# Mochizuki NR ASI payload (0.0.9m7)
 
 Vendored payload for `dlssnr-amd.asi` and Standalone / ReShade / DXVK routes:
 
-- Base resources & build: built from `DLSSNR-AMD` (`feat/d3d12-zero-heap`, release `v0.0.9m3` on `TheAutomatic/DLSSNR-AMD` (commit `3713979`, upstream `v0.0.9` `9503f6b` base)), preserving the CJK language pack.
+- Base resources & build: built from `DLSSNR-AMD` (release `v0.0.9m7` on `TheAutomatic/DLSSNR-AMD` (commit `64070f5`, upstream `v0.0.9` base)), preserving the CJK language pack.
 - Plugin path: `OptiScaler/plugins/dlssnr-amd.asi` (also reused for Standalone route)
 - Probe path in the release: `dlssnr-amd/nr_present_probe.exe`
 - Resources: `dlssnr-amd/` (SPIR-V shaders, ACO records/shaders, pre-captured D3D12 outer ACO archives `aco/d3d12_outer.nra` & `aco/rdna3/d3d12_outer.nra`, INT4 / performance / ultra data, language files; retired D3D12 HLSL shader sources removed)
 - Standalone route: `standalone/dxgi.dll`, `standalone/vk-override/`
-- ReShade / DXVK / Vulkan routes: `reshade/` (`ReShade64.dll`, `dlssnr_amd.addon64`, shaders, presets, `vk-override/`), `dxvk/` (`d3d9.dll`, `dxgi.dll`), `vulkan/vulkan-1.dll`
+- ReShade / DXVK / Vulkan routes: `reshade/` (`ReShade64.dll`, `ReShade32.dll`, `dlssnr_amd.addon64`, `dlssnr_amd.addon32`, shaders, presets, `vk-override/`), `dxvk/` (`d3d9.dll`, `dxgi.dll`, `x86/`), `vulkan/` (`vulkan-1.dll`, `x86/`)
 - Extraction tools: `model-tools/dlssnr_extract_model.exe`, `model-tools/dlssnr-int4-weights.exe`
 - Weight deltas: `experimental/dlssnr-small-experimental.delta`, `optimized/dlssnr-optimized.delta`
 - ASI config templates: `ini/dlssnr-amd-optiscaler.ini`, `ini/dlssnr-amd-optiscaler-renodx.ini`, `ini/dlssnr-amd-standalone.ini`, `ini/dlssnr-amd-addon.ini`

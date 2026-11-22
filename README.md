@@ -10,7 +10,7 @@
 
 **特别感谢**：各位用户的测试与反馈意见。
 
-本项目提供图形化启动器（**`OptiScalerNRLauncher.exe`**），支持自动扫描 Steam / Epic / GOG / Xbox 游戏库、结合 PE 导入表与 OptiScaler Wiki 智能推荐注入代理、一键离线提取/合成模型权重，按需勾选并部署 **官方原版 OptiScaler** 与两大 AMD 神经网络插件——**DLSS 神经渲染 (`dlssnr-amd.asi`)** 和 **DLSS 光线重建 (`openrr-amd.asi`)**，同时内置 INI 配置预设与 `MZ5` 画风分享码管理，让 **AMD 显卡** 在各类 DX11 / DX12 / Vulkan 游戏中原生运行 DLSS 神经渲染与 DLSS 光线重建（Ray Reconstruction）。
+本项目提供图形化启动器（**`OptiScalerNRLauncher.exe`**），支持自动扫描 Steam / Epic / GOG / XBOX 游戏库、结合 PE 导入表与 OptiScaler Wiki 智能推荐注入代理、一键离线提取/合成模型权重，按需勾选并部署 **官方原版 OptiScaler** 与两大 AMD 神经网络插件——**DLSS 神经渲染 (`dlssnr-amd.asi`)** 和 **DLSS 光线重建 (`openrr-amd.asi`)**，同时内置 INI 配置预设与 `MZ5` 画风分享码管理，让 **AMD 显卡** 在各类 DX11 / DX12 / Vulkan 游戏中原生运行 DLSS 神经渲染与 DLSS 光线重建（Ray Reconstruction）。
 
 **项目主页：[github.com/TheAutomatic/dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)**
 
@@ -45,7 +45,7 @@
 
 ### Windows 图形化启动器安装（推荐）
 
-1. **下载解压**：从 [Release 页](https://github.com/TheAutomatic/dlss-5-amd-project/releases) 下载最新压缩包并完整解压。
+1. **下载解压**：从 [Release 页](https://github.com/TheAutomatic/dlss-5-amd-project/releases) 下载 `OptiScaler-NR-Win-<版本>.zip` 并完整解压。
 2. **启动安装器**：双击运行解压目录下的 **`OptiScalerNRLauncher.exe`**，自动打开 **`OptiScaler NR` 图形化启动器**。
 3. **选择游戏与注入代理**：
    - 在左侧游戏库中选择目标游戏（也可点击右上角 **`+`** 手动选择游戏的实际渲染 `.exe`，注意虚幻引擎游戏通常位于 `<Game>\Binaries\Win64\*-Shipping.exe`）；
@@ -60,22 +60,22 @@
 
 ---
 
-### Linux / SteamOS (Proton) 脚本安装
+### Linux / SteamOS (Proton) 图形启动器（新）
 
-包内已附带专为 Linux / Steam Deck (Proton) 编写的 [`install.sh`](install.sh) 脚本：
+从 [Release 页](https://github.com/TheAutomatic/dlss-5-amd-project/releases) 下载 Linux 包（基于 Mochizuki 上游 [DLSSNR-AMD Linux 版](https://gitlab.com/mochizuki0323/DLSSNR-AMD/-/releases)，与上游一样分为两个版本）：
+
+| 包 | 适用 | 安装路线 |
+| --- | --- | --- |
+| `OptiScaler-NR-Linux-x86_64-<版本>.tar.gz` | 64 位游戏 | OptiScaler（含 Mochizuki NR + OpenRR 0.1.7plus + OptiPatcher）+ 三条 ReShade Feeder 路线 |
+| `OptiScaler-NR-Linux-i686-<版本>.tar.gz` | 32 位游戏 | 仅 ReShade Feeder 路线（OptiScaler 与 OpenRR 只有 64 位） |
 
 ```bash
-# 交互式安装（自动扫描游戏 EXE 推荐代理，依次询问是否安装 dlssnr-amd.asi、openrr-amd.asi、OptiPatcher.asi）
-bash install.sh "/path/to/game/folder"
-
-# 或使用命令行参数一键非交互安装
-bash install.sh "/path/to/game/folder" install --proxy dxgi.dll --nr on --openrr on --dll /path/to/nvngx_dlssnr.dll --dlssd /path/to/nvngx_dlssd.dll
-
-# 卸载 / 打包诊断日志
-bash install.sh "/path/to/game/folder" remove
-bash install.sh "/path/to/game/folder" logs
+tar -xzf OptiScaler-NR-Linux-x86_64-<版本>.tar.gz && cd OptiScaler-NR-Linux-x86_64-<版本>
+./OptiScalerNR-Launcher.sh                 # 图形启动器（需要 python3 ≥ 3.8；自动扫描 Steam / Heroic / Lutris）
+./OptiScalerNR-Launcher.sh --install-desktop   # 添加到应用菜单
+bash uninstall.sh "/path/to/game/folder"   # 卸载（--all 卸载启动器记录的全部游戏）
 ```
-安装完成后，按终端提示在 Steam 游戏属性的**启动选项（Launch Options）**中填入：
+上游 `install.sh` 原样保留，也可不经启动器直接使用（见包内 `README-Linux.md` / `README.txt`）。安装完成后，把启动器显示的**启动选项**复制到 Steam › 游戏属性 › 通用 › 启动选项，例如：
 ```text
 WINEDLLOVERRIDES="dxgi=n,b" %command%
 ```

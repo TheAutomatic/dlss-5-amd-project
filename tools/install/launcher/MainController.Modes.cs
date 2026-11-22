@@ -11,6 +11,7 @@ namespace OptScalerNR.Launcher
     {
         readonly Dictionary<string, string> _gameModes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string, string> _gameReshadeApis = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<string, int> _gameBitnessOverrides = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string, string> _gameRenoDx = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string, string> _gameLumenite = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string, string> _gameLumeniteZips = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -24,6 +25,9 @@ namespace OptScalerNR.Launcher
         FrameworkElement _compatPanel, _optiScalerInstallExtras, _optiScalerIniButtonsLeft, _optiScalerIniProfileGroup;
         Button _switchToOptiScalerBtn, _unlockMochiMcBtn, _relockMochiMcBtn, _unlockOpenRrBtn, _relockOpenRrBtn, _lumeniteZipBrowseBtn, _lumeniteZipClearBtn;
         RadioButton _reshadeApiDxRadio, _reshadeApiDx9Radio, _reshadeApiVulkanRadio;
+        RadioButton _gameBitnessAutoRadio, _gameBitness32Radio, _gameBitness64Radio;
+        TextBlock _gameBitnessText, _gameBitnessRestriction;
+        int _detectedGameBitness;
         RadioButton _reshadeStyleRenoDxRadio, _reshadeStyleWilsjo2Radio;
         CheckBox _lumeniteCheck;
         FrameworkElement _lumeniteZipRow;
@@ -75,6 +79,11 @@ namespace OptScalerNR.Launcher
             _reshadeApiDxRadio = (RadioButton)_window.FindName("ReshadeApiDxRadio");
             _reshadeApiDx9Radio = (RadioButton)_window.FindName("ReshadeApiDx9Radio");
             _reshadeApiVulkanRadio = (RadioButton)_window.FindName("ReshadeApiVulkanRadio");
+            _gameBitnessAutoRadio = (RadioButton)_window.FindName("GameBitnessAutoRadio");
+            _gameBitness32Radio = (RadioButton)_window.FindName("GameBitness32Radio");
+            _gameBitness64Radio = (RadioButton)_window.FindName("GameBitness64Radio");
+            _gameBitnessText = (TextBlock)_window.FindName("GameBitnessText");
+            _gameBitnessRestriction = (TextBlock)_window.FindName("GameBitnessRestriction");
             _reshadeStyleRenoDxRadio = (RadioButton)_window.FindName("ReshadeStyleRenoDxRadio");
             _reshadeStyleWilsjo2Radio = (RadioButton)_window.FindName("ReshadeStyleWilsjo2Radio");
 
@@ -98,6 +107,9 @@ namespace OptScalerNR.Launcher
             if (_reshadeApiVulkanRadio != null) _reshadeApiVulkanRadio.Checked += modeChanged;
             if (_reshadeStyleRenoDxRadio != null) _reshadeStyleRenoDxRadio.Checked += modeChanged;
             if (_reshadeStyleWilsjo2Radio != null) _reshadeStyleWilsjo2Radio.Checked += modeChanged;
+            _gameBitnessAutoRadio.Checked += (s, e) => SetGameBitnessOverride(0);
+            _gameBitness32Radio.Checked += (s, e) => SetGameBitnessOverride(32);
+            _gameBitness64Radio.Checked += (s, e) => SetGameBitnessOverride(64);
 
             if (_lumeniteCheck != null)
             {
@@ -108,7 +120,7 @@ namespace OptScalerNR.Launcher
             {
                 _switchToOptiScalerBtn.Click += (s, e) =>
                 {
-                    if (_modeOptiScalerRadio != null) _modeOptiScalerRadio.IsChecked = true;
+                    if (_modeOptiScalerRadio.IsEnabled) _modeOptiScalerRadio.IsChecked = true;
                 };
             }
             if (_unlockMochiMcBtn != null)
@@ -148,6 +160,40 @@ namespace OptScalerNR.Launcher
         {
             if (_selectedGame == null) return null;
             return !string.IsNullOrEmpty(_selectedGame.Id) ? _selectedGame.Id : _selectedGame.Exe;
+        }
+
+        int GameBitnessOverride()
+        {
+            var key = ModeKey();
+            int bits;
+            return key != null && !IsRtxRemixMinecraftSelected() && _gameBitnessOverrides.TryGetValue(key, out bits) ? bits : 0;
+        }
+
+        int EffectiveGameBitness()
+        {
+            var bits = GameBitnessOverride();
+            return bits == 0 ? _detectedGameBitness : bits;
+        }
+
+        void SetGameBitnessOverride(int bits)
+        {
+            var key = ModeKey();
+            if (_selectingMode || _loadingSettings || key == null || !_selectedGame.HasExecutable) return;
+            if (bits == 0) _gameBitnessOverrides.Remove(key);
+            else _gameBitnessOverrides[key] = bits;
+            SaveSettings();
+            ApplyModeVisibility();
+        }
+
+        void RefreshGameBitnessText()
+        {
+            int bits = EffectiveGameBitness();
+            bool manual = GameBitnessOverride() != 0;
+            _gameBitnessText.Text = bits == 0 ? L("未能识别游戏位数", "Game bitness not detected")
+                : bits == 32 ? L("32 位游戏", "32-bit game") : L("64 位游戏", "64-bit game");
+            if (bits != 0) _gameBitnessText.Text += manual ? L(" · 手动设置", " · Manual") : L(" · 自动识别", " · Auto-detected");
+            _gameBitnessRestriction.Text = L("32 位游戏仅支持 ReShade，不能使用 OptiScaler 或独立直通。",
+                "32-bit games support ReShade only, not OptiScaler or Standalone.");
         }
 
         public bool IsRtxRemixMinecraftSelected()
@@ -465,6 +511,24 @@ namespace OptScalerNR.Launcher
         void ApplyModeVisibility()
         {
             bool isRtxMc = IsRtxRemixMinecraftSelected();
+            bool hasExe = _selectedGame != null && _selectedGame.HasExecutable;
+            bool reshadeOnly = hasExe && !isRtxMc && EffectiveGameBitness() == 32;
+            _modeOptiScalerRadio.IsEnabled = !reshadeOnly;
+            _modeStandaloneRadio.IsEnabled = !reshadeOnly;
+            if (_switchToOptiScalerBtn != null) _switchToOptiScalerBtn.IsEnabled = !reshadeOnly;
+            _gameBitnessRestriction.Visibility = reshadeOnly ? Visibility.Visible : Visibility.Collapsed;
+            _gameBitnessAutoRadio.IsEnabled = _gameBitness32Radio.IsEnabled = _gameBitness64Radio.IsEnabled = hasExe;
+            _selectingMode = true;
+            try
+            {
+                var bits = GameBitnessOverride();
+                if (bits == 32) _gameBitness32Radio.IsChecked = true;
+                else if (bits == 64) _gameBitness64Radio.IsChecked = true;
+                else _gameBitnessAutoRadio.IsChecked = true;
+                if (reshadeOnly) _modeReShadeRadio.IsChecked = true;
+            }
+            finally { _selectingMode = false; }
+            RefreshGameBitnessText();
             var baseMode = GetSelectedBaseMode();
             var isOpti = (baseMode == "optiscaler");
             bool mcMochiLocked = isRtxMc && !IsMcMochiUnlocked();
@@ -593,6 +657,7 @@ namespace OptScalerNR.Launcher
             RefreshModelImportBar();
             UpdatePrimaryActionText();
             UpdatePrimaryButtonState();
+            RefreshProxySummary();
         }
 
         void UpdateModeBanners()
@@ -680,22 +745,22 @@ namespace OptScalerNR.Launcher
         void RefreshModesLanguage()
         {
             SetLabel("InstallModeHeading", "安装模式", "Installation Mode");
-            SetLabel("ModeOptiTitle", "OptiScaler（默认）", "OptiScaler (Default)");
+            SetLabel("ModeOptiTitle", "OptiScaler", "OptiScaler");
             SetLabel("ModeOptiTag", "推荐", "Default");
-            SetLabel("ModeOptiDesc", "DLSS / FSR / XeSS 现代游戏 · 支持 OpenRR / OptiPatcher", "Modern DLSS / FSR / XeSS games · OpenRR & OptiPatcher");
-            SetLabel("ModeStandaloneTitle", "独立直通（Standalone）", "Standalone");
+            SetCardDescription("ModeOptiDesc", "大多数场景选这个", "Best for most cases", "DLSS / FSR / XeSS 现代游戏 · 支持 OpenRR / OptiPatcher", "Modern DLSS / FSR / XeSS games · OpenRR & OptiPatcher");
+            SetLabel("ModeStandaloneTitle", "独立直通", "Standalone");
             SetLabel("ModeStandaloneTag", "直通", "Direct");
-            SetLabel("ModeStandaloneDesc", "DX11/12 / Vulkan · 视频 / OBS / 任意程序 · 免超分接管", "DX11/12 / Vulkan · video players, OBS, generic apps");
+            SetCardDescription("ModeStandaloneDesc", "视频播放器、OBS 等非游戏程序", "Video players, OBS and other apps", "DX11/12 / Vulkan · 视频 / OBS / 任意程序 · 免超分接管", "DX11/12 / Vulkan · video players, OBS, generic apps");
             SetLabel("ModeReShadeTitle", "ReShade 兼容模式", "ReShade Compatible");
             SetLabel("ModeReShadeTag", "经典兼容", "Legacy");
-            SetLabel("ModeReShadeDesc", "DX9 (DXVK) / DX10-12 / Vulkan 老游戏 · 支持 LumeniteFX", "DX9 (DXVK) / DX10-12 / Vulkan legacy games · LumeniteFX");
-            SetLabel("RtxRemixMcTitle", "RTX Remix for Minecraft（Java 版）", "RTX Remix for Minecraft (Java Edition)");
+            SetCardDescription("ModeReShadeDesc", "推荐老游戏和 DX9 游戏", "Best for older and DX9 games", "DX9 (DXVK) / DX10-12 / Vulkan 老游戏 · 支持 LumeniteFX", "DX9 (DXVK) / DX10-12 / Vulkan legacy games · LumeniteFX");
+            SetLabel("RtxRemixMcTitle", "RTX Remix for Minecraft Java", "RTX Remix for Minecraft Java");
             SetLabel("RtxRemixMcTag", "专用模式", "Dedicated");
-            SetLabel("RtxRemixMcDesc",
+            SetCardDescription("RtxRemixMcDesc", "自动部署并备份原文件，卸载可还原。建议只开 OpenRR。", "Auto-deploys with backups. Uninstall restores originals. Use OpenRR only.",
                 "自动向 remix-sdk\\ 原名部署 OptiScaler.dll 与 AMD 兼容版 remixbridge.dll（自动备份 NVIDIA 原版，完整卸载可无损还原），并自动启用 VulkanExtensionSpoofing = true。建议使用 OpenRR 光线重建；Mochizuki 神经渲染默认锁定且不建议用于 MC。",
                 "Deploys unrenamed OptiScaler.dll + AMD-patched remixbridge.dll into remix-sdk\\ (backs up original NVIDIA remixbridge.dll for clean uninstall) and automatically sets VulkanExtensionSpoofing = true. OpenRR is recommended; Mochizuki NR is locked and not recommended for MC by default.");
             SetLabel("MochiRequiredText", "当前模式必选", "Required");
-            SetLabel("MochiCollapsedText",
+            SetCardDescription("MochiCollapsedText", "Minecraft 默认关闭 Mochizuki", "Mochizuki is off by default for Minecraft",
                 "RTX Remix Minecraft 不推荐使用神经渲染（Mochizuki NR），已默认锁定",
                 "Neural Rendering (Mochizuki NR) is not recommended for RTX Remix Minecraft and is locked by default");
             SetLabel("UnlockMochiMcBtn", "仍要解锁", "Unlock anyway");
@@ -707,9 +772,6 @@ namespace OptScalerNR.Launcher
             SetLabel("OpenRrCollapsedText",
                 "当前模式仅适用 DLSSNR-AMD；OpenRR 与 OptiPatcher 已自动禁用",
                 "Current mode runs DLSSNR-AMD only; OpenRR & OptiPatcher are disabled.");
-            SetLabel("OpenRrUnsupportedText",
-                "当前游戏未检测到原生 nvngx_dlssd.dll（可能不支持 DLSS 光线重建），OpenRR 已默认锁定",
-                "No native nvngx_dlssd.dll detected in this game (may not support DLSS Ray Reconstruction); OpenRR is locked by default");
             SetLabel("UnlockOpenRrBtn", "强制解锁", "Force unlock");
             SetLabel("RelockOpenRrBtn", "重新锁定", "Lock again");
             SetLabel("OpenRrNoDlssdWarningBadgeText", "未检测到原生 DLSSD", "No native DLSSD");
@@ -718,32 +780,39 @@ namespace OptScalerNR.Launcher
                 "⚠ No native nvngx_dlssd.dll detected in this game (may not support DLSS Ray Reconstruction): forcing OpenRR usually has no effect; for advanced testing only.");
             SetLabel("SwitchToOptiScalerBtn", "切回 OptiScaler", "Switch to OptiScaler");
 
-            SetLabel("StandaloneCardHeading", "独立直通配置（Standalone）", "Standalone Configuration");
-            SetLabel("StandaloneCardDesc",
+            SetLabel("StandaloneCardHeading", "独立直通配置", "Standalone Configuration");
+            SetCardDescription("StandaloneCardDesc", "无需游戏内置超分支持", "No in-game upscaler required",
                 "直接部署 dxgi.dll + dlssnr-amd.asi + vulkan-1.dll 与 Vulkan 隐式层（vk-override），在 Present 阶段以无向导 RenoDX 模式运行。无需游戏内置 DLSS/FSR/XeSS，适合视频播放器（mpv/PotPlayer/VLC）、OBS、Magpie 或各类 DirectX 11/12/Vulkan 程序。",
                 "Deploys dxgi.dll + dlssnr-amd.asi + vulkan-1.dll and the Vulkan implicit layer (vk-override), running guide-less RenoDX at Present. No in-game DLSS/FSR/XeSS required; ideal for video players, OBS, Magpie, or DirectX 11/12/Vulkan apps.");
             SetLabel("StandaloneHotkeysText",
-                "快捷键：End 打开 NR Control 面板 · F6 开关 NR · F5 截图保存至 NR Screenshots · Ctrl+F11 切换网络",
-                "Hotkeys: End opens NR Control · F6 toggles NR · F5 saves screenshots to NR Screenshots · Ctrl+F11 cycles network");
-            SetLabel("StandaloneProtectedNote",
-                "注：若安装到 Program Files 等受保护目录，应用数据与日志将自动写入 %LOCALAPPDATA%\\DLSSNR-AMD\\。",
-                "Note: When installed in protected folders such as Program Files, runtime data & logs use %LOCALAPPDATA%\\DLSSNR-AMD\\.");
+                "End 控制面板 · F6 开关 · F5 截图 · Ctrl+F11 切换网络",
+                "End: panel · F6: toggle · F5: screenshot · Ctrl+F11: network");
+            ((TextBlock)_window.FindName("StandaloneHotkeysText")).ToolTip = L("截图保存至 NR Screenshots", "Screenshots are saved to NR Screenshots");
+            ((TextBlock)_window.FindName("StandaloneCardHeading")).ToolTip = L("安装到受保护目录时，应用数据与日志写入 %LOCALAPPDATA%\\DLSSNR-AMD\\。", "In protected folders, runtime data and logs use %LOCALAPPDATA%\\DLSSNR-AMD\\.");
+            ((TextBlock)_window.FindName("StandaloneProtectedNote")).Visibility = Visibility.Collapsed;
 
             SetLabel("ReShadeCardHeading", "ReShade 兼容配置", "ReShade Compatibility Settings");
-            SetLabel("ReshadeApiLabel", "图形接口路线（API）", "Graphics API Route");
+            SetLabel("GameBitnessAutoRadio", "自动", "Auto");
+            SetLabel("GameBitness32Radio", "32 位", "32-bit");
+            SetLabel("GameBitness64Radio", "64 位", "64-bit");
+            RefreshGameBitnessText();
+            SetLabel("ReshadeApiLabel", "图形接口", "Graphics API");
             SetLabel("ReshadeApiDxRadio", "DX10 / DX11 / DX12", "DX10 / DX11 / DX12");
-            SetLabel("ReshadeApiDx9Radio", "DX9（经 DXVK 转换）", "DX9 (via DXVK)");
+            SetLabel("ReshadeApiDx9Radio", "DX9 · DXVK", "DX9 · DXVK");
             SetLabel("ReshadeApiVulkanRadio", "Vulkan", "Vulkan");
             SetLabel("ReshadeStyleLabel", "前后处理风格", "Processing Style");
-            SetLabel("ReshadeStyleRenoDxRadio", "RenoDX 风格（默认）", "RenoDX Style (Default)");
+            SetLabel("ReshadeStyleRenoDxRadio", "RenoDX", "RenoDX");
             SetLabel("ReshadeStyleWilsjo2Radio", "wilsjo2 经典风格", "wilsjo2 Classic Style");
-            SetLabel("LumeniteCheck", "启用 LumeniteFX 运动矢量（替代内置 VORT）", "Enable LumeniteFX motion vectors (replaces bundled VORT)");
+            SetLabel("LumeniteCheck", "启用 LumeniteFX 运动矢量", "Enable LumeniteFX motion vectors");
+            ((CheckBox)_window.FindName("LumeniteCheck")).ToolTip = L("替代内置 VORT", "Replaces bundled VORT");
             SetLabel("LumeniteHintText",
                 "留空本地 ZIP 时，安装将自动从 GitHub 下载并校验兼容版本 f80e98d。",
                 "Leave local ZIP empty to download & verify pinned LumeniteFX commit f80e98d from GitHub.");
             SetLabel("LumeniteZipBrowseBtn", "选择本地 ZIP", "Browse ZIP");
             SetLabel("LumeniteZipClearBtn", "清除", "Clear");
 
+            SetLabel("OpenRrUnsupportedText", "OpenRR 已锁定：未检测到原生 DLSSD", "OpenRR locked: no native DLSSD detected");
+            ((TextBlock)_window.FindName("OpenRrUnsupportedText")).ToolTip = L("游戏可能不支持 DLSS 光线重建；强制解锁仅供高级用户测试。", "This game may not support DLSS Ray Reconstruction. Force unlock is for advanced testing only.");
             UpdateModeBanners();
         }
     }

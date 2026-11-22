@@ -25,17 +25,25 @@ namespace OptScalerNR.Launcher
     {
         IniProfileMetadata _metadata;
         readonly string _settingsDirectory;
+        readonly string _fileName;
+        readonly bool _asi;
         public string RootDirectory { get; private set; }
         public string MetadataPath { get; private set; }
 
-        public IniProfiles(string settingsDirectory)
+        public IniProfiles(string settingsDirectory) : this(settingsDirectory, "OptiScaler.ini") { }
+
+        public IniProfiles(string settingsDirectory, string fileName)
         {
+            if (fileName != "OptiScaler.ini" && fileName != "dlssnr-amd.ini") throw new ArgumentException("fileName");
+            _fileName = fileName;
+            _asi = fileName == "dlssnr-amd.ini";
+            var storeName = _asi ? "dlssnr-profiles" : "ini-profiles";
             _settingsDirectory = Path.GetFullPath(settingsDirectory);
             var appRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OptScalerNR");
             var defaultSettings = Path.Combine(appRoot, "Launcher");
             RootDirectory = string.Equals(_settingsDirectory.TrimEnd('\\', '/'), Path.GetFullPath(defaultSettings).TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase)
-                ? Path.Combine(appRoot, "ini-profiles") : Path.Combine(_settingsDirectory, "ini-profiles");
-            MetadataPath = Path.Combine(_settingsDirectory, "ini-profiles.json");
+                ? Path.Combine(appRoot, storeName) : Path.Combine(_settingsDirectory, storeName);
+            MetadataPath = Path.Combine(_settingsDirectory, storeName + ".json");
             _metadata = File.Exists(MetadataPath) ? JsonUtil.Read<IniProfileMetadata>(File.ReadAllText(MetadataPath, Encoding.UTF8)) : new IniProfileMetadata();
             if (_metadata == null) throw new IniProfileException("metadata");
             _metadata.SelectedByGame = _metadata.SelectedByGame == null ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -98,7 +106,7 @@ namespace OptScalerNR.Launcher
 
         public string Save(string sourceIni, string name)
         {
-            if (!File.Exists(sourceIni)) throw new IniProfileException("noini");
+            if (!File.Exists(sourceIni)) throw new IniProfileException(_asi ? "noasi" : "noini");
             var bytes = File.ReadAllBytes(sourceIni);
             Validate(Document.Read(bytes).Text);
             return Add(bytes, name);
@@ -143,6 +151,11 @@ namespace OptScalerNR.Launcher
             try { Persist(updated); }
             catch { File.Move(destination, source); throw; }
         }
+
+        public void Export(string name, string destination)
+        {
+            File.WriteAllBytes(destination, File.ReadAllBytes(ExistingProfile(name)));
+        }
         public void Delete(string name)
         {
             var source = ExistingProfile(name);
@@ -159,15 +172,16 @@ namespace OptScalerNR.Launcher
         // The controller owns the target mutex and write-busy lifecycle. No game writes occur elsewhere.
         public string Apply(string gameDirectory, string profileName)
         {
-            var target = Path.Combine(gameDirectory, "OptiScaler.ini");
-            if (!File.Exists(target)) throw new IniProfileException("noini");
+            var target = Path.Combine(gameDirectory, _fileName);
+            if (!File.Exists(target)) throw new IniProfileException(_asi ? "noasi" : "noini");
             if ((File.GetAttributes(target) & FileAttributes.ReparsePoint) != 0) throw new IniProfileException("invalid");
             var source = string.IsNullOrEmpty(profileName) ? target : ExistingProfile(profileName);
-            var document = Document.Read(File.ReadAllBytes(source));
+            var sourceBytes = File.ReadAllBytes(source);
+            var document = Document.Read(sourceBytes);
             Validate(document.Text);
             // ASI plugins are on by default by design (this product ships an ASI component),
             // so applying a profile rewrites the flag to true even over an explicit false.
-            var bytes = document.WithPlugins(true);
+            var bytes = _asi ? sourceBytes : document.WithPlugins(true);
             var temporary = target + ".stage-" + Guid.NewGuid().ToString("N");
             var backup = target + ".bak-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture);
             for (var i = 2; File.Exists(backup); i++) backup = target + ".bak-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture) + "-" + i.ToString(CultureInfo.InvariantCulture);
@@ -182,8 +196,14 @@ namespace OptScalerNR.Launcher
             finally { if (File.Exists(temporary)) File.Delete(temporary); }
         }
 
-        static void Validate(string text)
+        void Validate(string text)
         {
+            if (_asi)
+            {
+                if (text.IndexOf('\0') >= 0 || !Regex.IsMatch(text, @"(?m)^\s*\[[^\]\r\n]+\]") || !Regex.IsMatch(text, @"(?m)^\s*[^;#\[\r\n=]+=[^\r\n]*\r?$"))
+                    throw new IniProfileException("invalid");
+                return;
+            }
             if (text.IndexOf('\0') >= 0 || !Regex.IsMatch(text, @"(?im)^\s*\[(OptiScaler|DlssNr|Upscalers|FrameGen|Plugins|Menu|Spoofing|NvApi|Fsr|XeSS|DLSS|CAS|Sharpness|OutputScaling|InitFlags|Hotkeys|Log|Overlay)\][ \t]*(?:[;#][^\r\n]*)?\r?$") || !Regex.IsMatch(text, @"(?m)^\s*[^;#\[\r\n=]+=[^\r\n]*\r?$"))
                 throw new IniProfileException("invalid");
         }

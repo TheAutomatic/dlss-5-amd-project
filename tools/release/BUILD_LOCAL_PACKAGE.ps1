@@ -20,7 +20,7 @@ if (-not $Version) {
     $Version = if (Test-Path -LiteralPath $vf) { ([IO.File]::ReadAllText($vf)).Trim() } else { '2.0.0' }
 }
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$name = "OptiScaler-NR-$Version-local-$stamp"
+$name = "OptiScaler-NR-Win-$Version-local-$stamp"
 & (Join-Path $PSScriptRoot 'PACKAGE_RELEASE.ps1') `
     -LocalTest `
     -Version $Version `
