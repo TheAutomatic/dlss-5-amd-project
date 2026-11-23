@@ -700,7 +700,7 @@ namespace OptScalerNR.Launcher
                 if (_replaceIni != null) _replaceIni.Content = isZh ? "覆盖现有配置" : "Replace existing configuration";
                 SetLabel("OptiPatcherToggle", "安装 OptiPatcher", "Install OptiPatcher");
                 ApplyOptiPatcherTooltip(IsOptiPatcherSupported(_selectedGame, (_selectedGame == null || _recommendations == null) ? null : _recommendations.Match(_selectedGame)));
-                SetLabel("OpenRrToggle", "OpenRR 0.1.7 Plus", "OpenRR 0.1.7 Plus");
+                SetLabel("OpenRrToggle", "OpenRR 0.1.7 Plus 3", "OpenRR 0.1.7 Plus 3");
                 SetLabel("OpenRrAutoSpoofToggle",
                     "实验性：减少全局显卡伪装（Dxgi=auto，配合 OptiPatcher 保持真实 A 卡身份）",
                     "Experimental: Reduce global GPU spoofing (Dxgi=auto, keeps native AMD adapter with OptiPatcher)");
@@ -711,7 +711,7 @@ namespace OptScalerNR.Launcher
                 SetLabel("LocalGamesHeading", "游戏库", "Library");
                 SetLabel("ProxyHeading", "注入代理", "Injection proxy");
                 SetLabel("BackendsHeading", "画质插件", "Quality plugins");
-                SetLabel("MochiCheck", "mochizuki 0.0.9 M7", "mochizuki 0.0.9 M7");
+                SetLabel("MochiCheck", "mochizuki 0.0.9 M9", "mochizuki 0.0.9 M9");
                 RefreshGpuHints();
                 SetLabel("DiagnosticsHeading", "安装选项", "Install options");
                 SetLabel("LogHeading", "安装日志", "Install log");

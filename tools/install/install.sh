@@ -337,22 +337,22 @@ if [[ -z "$proxy" ]]; then
     fi
 fi
 
-# 2. Ask whether to install dlssnr-amd.asi (Mochizuki 0.0.9m7)
+# 2. Ask whether to install dlssnr-amd.asi (Mochizuki 0.0.9m9)
 if [[ -z "$want_nr" ]]; then
     want_nr="on"
     if [[ -t 0 ]]; then
         echo
-        read -r -p "Install dlssnr-amd.asi (Mochizuki 0.0.9m7 DLSS Neural Rendering)? [Y/n]: " pick || pick=""
+        read -r -p "Install dlssnr-amd.asi (Mochizuki 0.0.9m9 DLSS Neural Rendering)? [Y/n]: " pick || pick=""
         [[ "$pick" == "n" || "$pick" == "N" ]] && want_nr="off"
     fi
 fi
 
-# 3. Ask whether to install openrr-amd.asi (OpenRR v0.1.7plus Ray Reconstruction)
+# 3. Ask whether to install openrr-amd.asi (OpenRR v0.1.7plus3 Ray Reconstruction)
 if [[ -z "$want_openrr" ]]; then
     want_openrr="on"
     if [[ -t 0 ]]; then
         echo
-        read -r -p "Install openrr-amd.asi (OpenRR v0.1.7plus DLSS Ray Reconstruction)? [Y/n]: " pick || pick=""
+        read -r -p "Install openrr-amd.asi (OpenRR v0.1.7plus3 DLSS Ray Reconstruction)? [Y/n]: " pick || pick=""
         [[ "$pick" == "n" || "$pick" == "N" ]] && want_openrr="off"
     fi
 fi

@@ -5,7 +5,7 @@
 
 ## 中文
 
-本包 = Mochizuki 的 DLSSNR-AMD Linux 版（`install.sh` 原样保留，为权威安装程序）+ 中日韩语言包 + **OpenRR（`v0.1.7plus`，光线重建，仅 x86_64）+ OptiPatcher（仅 x86_64）** + OptiScaler NR 图形启动器。
+本包 = Mochizuki 的 DLSSNR-AMD Linux 版（`install.sh` 原样保留，为权威安装程序）+ 中日韩语言包 + **OpenRR（`v0.1.7plus3`，光线重建，仅 x86_64）+ OptiPatcher（仅 x86_64）** + OptiScaler NR 图形启动器。
 适用于 Linux + Proton，AMD RX 9000（RDNA4）显卡（OpenRR 实验性支持 RX 7000 / RDNA3），Mesa 26.2+（RADV；OpenRR 需 Mesa RADV ≥ 26.3）。
 
 - **x86_64 包**：64 位游戏；支持 OptiScaler 路线（含 Mochizuki NR、OpenRR 光线重建与 OptiPatcher 插件）和三条 ReShade Feeder 路线。
@@ -26,7 +26,7 @@
 ## English
 
 This package = Mochizuki's DLSSNR-AMD for Linux (its `install.sh` shipped unmodified — the authoritative installer)
-+ the CJK language pack + **OpenRR (`v0.1.7plus`, Ray Reconstruction, x86_64 only) + OptiPatcher (x86_64 only)**
++ the CJK language pack + **OpenRR (`v0.1.7plus3`, Ray Reconstruction, x86_64 only) + OptiPatcher (x86_64 only)**
 + the OptiScaler NR graphical launcher. For Linux + Proton on AMD RX 9000 (RDNA4; OpenRR also has experimental RX 7000 / RDNA3 support), Mesa 26.2+ (RADV; OpenRR requires Mesa RADV >= 26.3).
 
 - **x86_64 package**: 64-bit games; OptiScaler route (with Mochizuki NR, OpenRR Ray Reconstruction, and OptiPatcher) and the three ReShade Feeder routes.
