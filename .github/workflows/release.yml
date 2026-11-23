@@ -26,7 +26,7 @@ jobs:
   build:
     if: (github.event_name == 'push' && github.ref_type == 'tag') || github.event_name == 'workflow_dispatch'
     permissions:
-      contents: write
+      contents: read
     runs-on: windows-latest
     timeout-minutes: 25
     steps:
@@ -152,81 +152,25 @@ jobs:
           path: dist/OptiScaler-NR-Win-${{ steps.ver.outputs.version }}.zip
           if-no-files-found: error
           retention-days: 14
+          compression-level: 0
 
-      - name: Prepare release notes
+      - name: Stage Windows release asset
         if: startsWith(github.ref, 'refs/tags/')
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
-          $tag = $env:GITHUB_REF_NAME
-          $ref = "refs/tags/$tag"
-          git fetch --force --no-tags origin "+${ref}:${ref}"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $objType = (& git cat-file -t $ref 2>$null | Out-String).Trim()
-          $notes = ''
-          if ($objType -eq 'tag') {
-            $raw = (& git for-each-ref $ref --format='%(contents)' | Out-String)
-            $raw = [regex]::Replace($raw, '(?s)\r?\n-----BEGIN (?:PGP|SSH) SIGNATURE-----.*$', '').Trim()
-            if (-not [string]::IsNullOrWhiteSpace($raw) -and $raw -cne $tag) {
-              $notes = $raw
-            }
-          }
-          if ([string]::IsNullOrWhiteSpace($notes)) {
-            $isShallow = (& git rev-parse --is-shallow-repository 2>$null | Out-String).Trim()
-            if ($isShallow -eq 'true') {
-              git fetch --tags --unshallow origin
-            } else {
-              git fetch --tags origin
-            }
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            & git rev-parse --verify --quiet "$env:GITHUB_SHA^" >$null 2>$null
-            $prevTag = if ($LASTEXITCODE -eq 0) { (& git describe --tags --abbrev=0 "$env:GITHUB_SHA^" 2>$null | Out-String).Trim() } else { '' }
-            $range = if ($LASTEXITCODE -eq 0 -and $prevTag) { "$prevTag..$env:GITHUB_SHA" } else { "$env:GITHUB_SHA -n 20" }
-            $logArgs = @('log', '--no-merges', '--pretty=format:- %s (%h)') + ($range -split ' ')
-            $lines = (& git @logArgs | Out-String).Trim()
-            $parts = @('## Changes', '')
-            $parts += if ($lines) { $lines } else { "- Release $tag" }
-            if ($prevTag) {
-              $parts += @('', "**Full Changelog**: https://github.com/$env:GITHUB_REPOSITORY/compare/$prevTag...$tag")
-            }
-            $notes = $parts -join "`n"
-          }
-          New-Item -ItemType Directory -Force exports | Out-Null
-          [IO.File]::WriteAllText((Join-Path $PWD 'exports/release-notes.md'), ($notes + "`n"), [Text.UTF8Encoding]::new($false))
-          $global:LASTEXITCODE = 0
-
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v3
+        uses: actions/upload-artifact@v6
         with:
-          prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
-          name: ${{ github.ref_name }}
-          target_commitish: ${{ github.sha }}
-          body_path: exports/release-notes.md
-          generate_release_notes: false
-
-      - name: Upload release asset with verified retries
-        if: startsWith(github.ref, 'refs/tags/')
-        timeout-minutes: 20
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
-          RELEASE_VERSION: ${{ steps.ver.outputs.version }}
-        run: |
-          python -B .github/scripts/publish_release_asset.py --tag "$env:RELEASE_TAG" --asset "dist/OptiScaler-NR-Win-$env:RELEASE_VERSION.zip"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          name: release-win-${{ github.run_id }}
+          path: dist/OptiScaler-NR-Win-${{ steps.ver.outputs.version }}.zip
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
 
   # Linux packages: Mochizuki's upstream DLSSNR-AMD Linux release (x86_64 + i686, SHA-256 pinned under
   # "mochizukiLinux" in tools/build/upstream-pins.json) + CJK lang pack + the stdlib-only Python launcher.
-  # Runs after `build` so the GitHub Release already exists when assets are attached on tag pushes.
+  # Runs in parallel with Windows `build`; both hand staged packages to `publish` on tag pushes.
   linux:
     if: (github.event_name == 'push' && github.ref_type == 'tag') || github.event_name == 'workflow_dispatch'
-    needs: build
     permissions:
-      contents: write
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -251,6 +195,15 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+
+      - name: Reject moved published tags
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 -B .github/scripts/publish_release_asset.py --tag "$RELEASE_TAG" --verify-source "$GITHUB_SHA"
 
       - name: Cache upstream Linux archives
         uses: actions/cache@v6
@@ -315,9 +268,130 @@ jobs:
             dist/OptiScaler-NR-Linux-*-${{ steps.ver.outputs.version }}.tar.gz.sha256
           if-no-files-found: error
           retention-days: 14
+          compression-level: 0
 
-      - name: Upload Linux release assets with verified retries
+      - name: Stage Linux release assets
         if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-linux-${{ github.run_id }}
+          path: |
+            dist/OptiScaler-NR-Linux-x86_64-${{ steps.ver.outputs.version }}.tar.gz
+            dist/OptiScaler-NR-Linux-i686-${{ steps.ver.outputs.version }}.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  publish:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [build, linux]
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          v="${GITHUB_REF_NAME#v}"
+          if ! printf '%s' "$v" | grep -Eq '^[0-9A-Za-z._-]+$'; then echo "Invalid version: $v" >&2; exit 1; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Reject moved published tags
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 -B .github/scripts/publish_release_asset.py --tag "$RELEASE_TAG" --verify-source "$GITHUB_SHA"
+
+      - name: Download staged Windows release asset
+        uses: actions/download-artifact@v6
+        with:
+          name: release-win-${{ github.run_id }}
+          path: dist
+
+      - name: Download staged Linux release assets
+        uses: actions/download-artifact@v6
+        with:
+          name: release-linux-${{ github.run_id }}
+          path: dist
+
+      - name: Prepare release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          ref="refs/tags/$tag"
+          git fetch --force --no-tags origin "+${ref}:${ref}"
+          obj_type="$(git cat-file -t "$ref" 2>/dev/null || true)"
+          notes=""
+          if [ "$obj_type" = "tag" ]; then
+            raw="$(git for-each-ref "$ref" --format='%(contents)')"
+            notes="$(python3 -B - "$raw" "$tag" <<'PY'
+          import re, sys
+          raw, tag = sys.argv[1], sys.argv[2]
+          cleaned = re.sub(r'(?s)\r?\n-----BEGIN (?:PGP|SSH) SIGNATURE-----.*$', '', raw).strip()
+          if cleaned and cleaned != tag:
+              print(cleaned)
+          PY
+            )"
+          fi
+          if [ -z "$notes" ]; then
+            if [ "$(git rev-parse --is-shallow-repository 2>/dev/null || true)" = "true" ]; then
+              git fetch --tags --unshallow origin
+            else
+              git fetch --tags origin
+            fi
+            prev_tag=""
+            if git rev-parse --verify --quiet "${GITHUB_SHA}^" >/dev/null 2>&1; then
+              prev_tag="$(git describe --tags --abbrev=0 "${GITHUB_SHA}^" 2>/dev/null || true)"
+            fi
+            if [ -n "$prev_tag" ]; then
+              lines="$(git log --no-merges --pretty=format:'- %s (%h)' "${prev_tag}..${GITHUB_SHA}")"
+            else
+              lines="$(git log --no-merges --pretty=format:'- %s (%h)' "${GITHUB_SHA}" -n 20)"
+            fi
+            {
+              echo "## Changes"
+              echo
+              if [ -n "$lines" ]; then
+                printf '%s\n' "$lines"
+              else
+                echo "- Release $tag"
+              fi
+              if [ -n "$prev_tag" ]; then
+                echo
+                echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${prev_tag}...${tag}"
+              fi
+            } > exports_notes.tmp
+            mkdir -p exports
+            mv exports_notes.tmp exports/release-notes.md
+          else
+            mkdir -p exports
+            printf '%s\n' "$notes" > exports/release-notes.md
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
+          name: ${{ github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          body_path: exports/release-notes.md
+          generate_release_notes: false
+
+      - name: Upload all release assets with verified retries
         timeout-minutes: 20
         shell: bash
         env:
@@ -327,6 +401,9 @@ jobs:
           RELEASE_VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
-          for arch in x86_64 i686; do
-            python -B .github/scripts/publish_release_asset.py --tag "$RELEASE_TAG" --asset "dist/OptiScaler-NR-Linux-$arch-$RELEASE_VERSION.tar.gz"
+          for asset in \
+            "dist/OptiScaler-NR-Win-${RELEASE_VERSION}.zip" \
+            "dist/OptiScaler-NR-Linux-x86_64-${RELEASE_VERSION}.tar.gz" \
+            "dist/OptiScaler-NR-Linux-i686-${RELEASE_VERSION}.tar.gz"; do
+            python3 -B .github/scripts/publish_release_asset.py --tag "$RELEASE_TAG" --asset "$asset"
           done
