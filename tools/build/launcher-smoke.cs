@@ -522,6 +522,20 @@ static class LauncherSmoke
         var presentMap = presentMethod.Invoke(null, null);
         Check(presentMap != null, "SetupDi present display adapter map returned");
         readMethod.Invoke(null, null);
+
+        // Verify GPU family classification covers RDNA 3/3.5/4 non-RX models and avoids false warnings on unknown AMD names.
+        var classifyMethod = ctrlType.GetMethod("ClassifyGpu", BindingFlags.Static | BindingFlags.NonPublic);
+        Func<string, string> classify = gpuName => Convert.ToString(classifyMethod.Invoke(null, new object[] { gpuName }));
+        Check(classify("AMD Radeon(TM) 8060S Graphics") == "Rdna3", "8060S classified as Rdna3");
+        Check(classify("AMD Radeon(TM) 8050S Graphics") == "Rdna3", "8050S classified as Rdna3");
+        Check(classify("AMD Radeon(TM) 890M Graphics") == "Rdna3", "890M classified as Rdna3");
+        Check(classify("AMD Radeon 780M Graphics") == "Rdna3", "780M classified as Rdna3");
+        Check(classify("AMD Radeon PRO W7900") == "Rdna3", "PRO W7900 classified as Rdna3");
+        Check(classify("AMD Radeon AI PRO R9700") == "Rdna4", "AI PRO R9700 classified as Rdna4");
+        Check(classify("AMD Radeon RX 9060 XT") == "Rdna4", "RX 9060 XT classified as Rdna4");
+        Check(classify("AMD Radeon 680M") == "Rdna2", "680M classified as Rdna2");
+        Check(classify("AMD Radeon RX 5700 XT") == "OtherAmd", "RX 5700 XT classified as OtherAmd");
+        Check(classify("AMD Radeon(TM) Graphics") == "Unknown", "generic AMD name stays Unknown");
     }
 
     static int FinishSmoke()

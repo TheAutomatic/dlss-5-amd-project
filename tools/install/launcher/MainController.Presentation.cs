@@ -25,15 +25,16 @@ namespace OptScalerNR.Launcher
             if (string.IsNullOrWhiteSpace(name)) return GpuFamily.Unknown;
             if (!ContainsHardwareText(name, "AMD") && !ContainsHardwareText(name, "Radeon"))
                 return ContainsHardwareText(name, "NVIDIA") || ContainsHardwareText(name, "Intel") ? GpuFamily.NonAmd : GpuFamily.Unknown;
-            var match = System.Text.RegularExpressions.Regex.Match(name, @"\bRX\s*(\d{4})(?!\d)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            if (match.Success) {
-                switch (match.Groups[1].Value[0]) {
-                    case '9': return GpuFamily.Rdna4;
-                    case '7': return GpuFamily.Rdna3;
-                    case '6': return GpuFamily.Rdna2;
-                }
-            }
-            return GpuFamily.OtherAmd;
+            const System.Text.RegularExpressions.RegexOptions opts = System.Text.RegularExpressions.RegexOptions.IgnoreCase;
+            if (System.Text.RegularExpressions.Regex.IsMatch(name, @"\b(?:RX\s*9\d{3}|PRO\s+R9\d{3}|R9[5-9]\d{2})(?!\d)", opts))
+                return GpuFamily.Rdna4;
+            if (System.Text.RegularExpressions.Regex.IsMatch(name, @"\b(?:RX\s*7\d{3}|80\d{2}S|8[1-9]0M|7[4-9]0M|W7\d{3})(?!\d)", opts))
+                return GpuFamily.Rdna3;
+            if (System.Text.RegularExpressions.Regex.IsMatch(name, @"\b(?:RX\s*6\d{3}|6[1-9]0M|W6\d{3})(?!\d)", opts))
+                return GpuFamily.Rdna2;
+            if (System.Text.RegularExpressions.Regex.IsMatch(name, @"\b(?:RX\s*5\d{3}|RX\s*[45]\d{2}|W5\d{3}|WX\s*\d{4}|Vega|VII|R[579]\s*[23]\d{2}|HD\s*\d{4})(?!\d)", opts))
+                return GpuFamily.OtherAmd;
+            return GpuFamily.Unknown;
         }
         void SetDetectedAdapter(string name)
         {
@@ -49,11 +50,11 @@ namespace OptScalerNR.Launcher
         {
             bool unknown = _gpuFamily == GpuFamily.Unknown;
             bool mochiSupported = _gpuFamily == GpuFamily.Rdna4 || _gpuFamily == GpuFamily.Rdna3;
-            SetGpuHint("MochiDescription", mochiSupported ? "" : unknown ? L("适合 RX 7000 / 9000 系列", "For RX 7000 / 9000 series")
-                : _gpuFamily == GpuFamily.Rdna2 ? L("RX 6000 请使用旧版 Mochizuki", "RX 6000: use legacy Mochizuki")
+            SetGpuHint("MochiDescription", mochiSupported ? "" : unknown ? L("适合 RDNA 3 / 3.5 / 4（RX 7000 / 9000 / 8060S 等）", "For RDNA 3 / 3.5 / 4 (RX 7000 / 9000 / 8060S, etc.)")
+                : _gpuFamily == GpuFamily.Rdna2 ? L("RX 6000 / RDNA 2 请使用旧版 Mochizuki", "RX 6000 / RDNA 2: use legacy Mochizuki")
                 : L("当前显卡不在 Mochizuki 支持范围内", "This GPU is not supported by Mochizuki"), !unknown && !mochiSupported);
-            SetGpuHint("OpenRrDescription", _gpuFamily == GpuFamily.Rdna4 ? "" : unknown ? L("适合 RX 9000；RX 7000 为实验性支持", "For RX 9000; experimental on RX 7000")
-                : _gpuFamily == GpuFamily.Rdna3 ? L("RX 7000 为实验性支持", "Experimental on RX 7000")
+            SetGpuHint("OpenRrDescription", _gpuFamily == GpuFamily.Rdna4 ? "" : unknown ? L("适合 RX 9000；RDNA 3 / 3.5 为实验性支持", "For RX 9000; experimental on RDNA 3 / 3.5")
+                : _gpuFamily == GpuFamily.Rdna3 ? L("RDNA 3 / 3.5 为实验性支持", "Experimental on RDNA 3 / 3.5")
                 : L("当前显卡不在 OpenRR 支持范围内", "This GPU is not supported by OpenRR"), !unknown && _gpuFamily != GpuFamily.Rdna3 && _gpuFamily != GpuFamily.Rdna4);
         }
         void SetGpuHint(string name, string text, bool warning)
@@ -337,12 +338,9 @@ namespace OptScalerNR.Launcher
             if (!string.IsNullOrEmpty(device) && !device.StartsWith(@"PCI\", StringComparison.OrdinalIgnoreCase)) return -1;
             if (ContainsHardwareText(name, "NVIDIA")) return 0;
             if (ContainsHardwareText(name, "AMD") || ContainsHardwareText(name, "Radeon")) {
-                bool integrated = ContainsHardwareText(name, "Vega") && !ContainsHardwareText(name, "RX Vega") || ContainsHardwareText(name, "Radeon(TM) Graphics") ||
+                bool integrated = (ContainsHardwareText(name, "Vega") && !ContainsHardwareText(name, "RX Vega")) || ContainsHardwareText(name, "Radeon(TM) Graphics") ||
                     ContainsHardwareText(name, "Radeon Graphics") || ContainsHardwareText(name, "Ryzen") ||
-                    ContainsHardwareText(name, "Radeon 610M") || ContainsHardwareText(name, "Radeon 660M") ||
-                    ContainsHardwareText(name, "Radeon 680M") || ContainsHardwareText(name, "Radeon 740M") ||
-                    ContainsHardwareText(name, "Radeon 760M") || ContainsHardwareText(name, "Radeon 780M") ||
-                    ContainsHardwareText(name, "Radeon 880M") || ContainsHardwareText(name, "Radeon 890M");
+                    System.Text.RegularExpressions.Regex.IsMatch(name, @"\b(?:610M|660M|680M|740M|760M|780M|820M|840M|860M|880M|890M)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                 return integrated ? 1 : 0;
             }
             if (ContainsHardwareText(name, "Intel")) return ContainsHardwareText(name, "Arc A") || ContainsHardwareText(name, "Arc B") ||
