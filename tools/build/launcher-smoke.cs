@@ -61,9 +61,10 @@ static class LauncherSmoke
             var classify = type.GetMethod("ClassifyGpu", BindingFlags.Static | BindingFlags.NonPublic);
             foreach (var sample in new[] {
                 new[] { "AMD Radeon RX 9070 XT", "Rdna4" }, new[] { "AMD Radeon RX 7900 XTX", "Rdna3" },
-                new[] { "AMD Radeon RX 6800", "Rdna2" }, new[] { "AMD Radeon 780M Graphics", "OtherAmd" },
-                new[] { "AMD Radeon RX 580", "OtherAmd" }, new[] { "NVIDIA GeForce RTX 4090", "NonAmd" },
-                new[] { "Intel Arc B580", "NonAmd" }, new[] { "Microsoft Basic Display Adapter", "Unknown" },
+                new[] { "AMD Radeon RX 6800", "Rdna2" }, new[] { "AMD Radeon 780M Graphics", "Rdna3" },
+                new[] { "AMD Radeon(TM) 8060S Graphics", "Rdna3" }, new[] { "AMD Radeon RX 580", "OtherAmd" },
+                new[] { "NVIDIA GeForce RTX 4090", "NonAmd" }, new[] { "Intel Arc B580", "NonAmd" },
+                new[] { "Microsoft Basic Display Adapter", "Unknown" },
                 new[] { "", "Unknown" }, new[] { (string)null, "Unknown" } })
                 Check(classify.Invoke(null, new object[] { sample[0] }).ToString() == sample[1], "GPU family: " + sample[0]);
             var create = type.GetMethod("Create", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public, null,
