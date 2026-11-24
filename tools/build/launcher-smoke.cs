@@ -458,6 +458,7 @@ static class LauncherSmoke
             Check(!(bool)Member(_controller, "_pendingActionsWarned"), "game change clears warning");
             CheckProxyModes(args[1]);
             CheckGameBitness(args[1]);
+            CheckHardwareSelection();
             CheckCommunityLinks();
         }
         catch (Exception ex)
@@ -465,6 +466,62 @@ static class LauncherSmoke
             Fail("exception: " + ex);
         }
         return FinishSmoke();
+    }
+
+    static void CheckHardwareSelection()
+    {
+        var ctrlType = _controller.GetType();
+        var adapterType = ctrlType.GetNestedType("HardwareAdapter", BindingFlags.NonPublic);
+        var selectMethod = ctrlType.GetMethod("SelectBestHardwareAdapter", BindingFlags.Static | BindingFlags.NonPublic);
+        var presentMethod = ctrlType.GetMethod("ReadPresentDisplayDriverSubkeys", BindingFlags.Static | BindingFlags.NonPublic);
+        var readMethod = ctrlType.GetMethod("ReadPhysicalAdapter", BindingFlags.Static | BindingFlags.NonPublic);
+        var listType = typeof(List<>).MakeGenericType(adapterType);
+
+        Func<string, int, int, bool, bool, bool, object> make = (name, rank, index, present, started, primary) => {
+            var a = Activator.CreateInstance(adapterType);
+            SetMember(a, "Name", name);
+            SetMember(a, "Rank", rank);
+            SetMember(a, "Index", index);
+            SetMember(a, "Present", present);
+            SetMember(a, "Started", started);
+            SetMember(a, "Primary", primary);
+            return a;
+        };
+        Func<object[], string> pick = items => {
+            var list = (System.Collections.IList)Activator.CreateInstance(listType);
+            foreach (var item in items) list.Add(item);
+            var chosen = selectMethod.Invoke(null, new object[] { list });
+            return chosen == null ? null : (string)Member(chosen, "Name");
+        };
+
+        // Exact user bug: stale 0000 RX 5700 XT left from old disk vs present 0001 RX 9060 XT.
+        Check(pick(new[] {
+            make("AMD Radeon RX 5700 XT", 0, 0, false, false, false),
+            make("AMD Radeon RX 9060 XT", 0, 1, true, true, true)
+        }) == "AMD Radeon RX 9060 XT", "present 9060 XT beats stale 5700 XT");
+
+        // Disabled present GPU must not beat a running present GPU.
+        Check(pick(new[] {
+            make("AMD Radeon RX 5700 XT", 0, 0, true, false, false),
+            make("AMD Radeon RX 9060 XT", 0, 1, true, true, false)
+        }) == "AMD Radeon RX 9060 XT", "started present GPU beats disabled present GPU");
+
+        // Present discrete GPU beats primary present iGPU.
+        Check(pick(new[] {
+            make("AMD Radeon(TM) Graphics", 1, 0, true, true, true),
+            make("AMD Radeon RX 9060 XT", 0, 1, true, true, false)
+        }) == "AMD Radeon RX 9060 XT", "present discrete GPU beats primary iGPU");
+
+        // Fallback tie-breaker without PnP info prefers newer registry index over 0000.
+        Check(pick(new[] {
+            make("AMD Radeon RX 5700 XT", 0, 0, true, true, false),
+            make("AMD Radeon RX 9060 XT", 0, 1, true, true, false)
+        }) == "AMD Radeon RX 9060 XT", "higher registry index wins ties");
+
+        // Exercise live SetupDi / cfgmgr32 / user32 P/Invoke on Windows runner without throwing.
+        var present = presentMethod.Invoke(null, null);
+        Check(present != null, "SetupDi present display adapter map returned");
+        readMethod.Invoke(null, null);
     }
 
     static int FinishSmoke()

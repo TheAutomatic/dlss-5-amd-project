@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
 using System.Windows.Media;
@@ -270,10 +271,61 @@ namespace OptScalerNR.Launcher
         sealed class HardwareAdapter
         {
             public string Name, WindowsDriver, RadeonVersion;
-            public int Rank;
-            public bool Primary;
+            public int Rank, Index;
+            public bool Present, Started, Primary;
         }
         static readonly string[] NonPhysicalAdapterNames = { "virtual", "remote", "gameviewer", "uu", "parsec", "basic", "indirect", "rdp", "citrix", "vmware", "vnc", "displaylink" };
+        static readonly Guid DisplayClassGuid = new Guid("4d36e968-e325-11ce-bfc1-08002be10318");
+        const uint DigcfPresent = 0x00000002;
+        const uint SpdrpDriver = 0x00000009;
+        const uint DnStarted = 0x00000008;
+        const uint DnHasProblem = 0x00000400;
+        const uint CrSuccess = 0;
+        const uint DisplayDeviceActive = 0x00000001;
+        const uint DisplayDevicePrimaryDevice = 0x00000004;
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct SpDevinfoData
+        {
+            public uint cbSize;
+            public Guid ClassGuid;
+            public uint DevInst;
+            public IntPtr Reserved;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        struct DisplayDeviceW
+        {
+            public uint cb;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string DeviceName;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceString;
+            public uint StateFlags;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceID;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceKey;
+        }
+
+        [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern IntPtr SetupDiGetClassDevsW(ref Guid classGuid, string enumerator, IntPtr hwndParent, uint flags);
+
+        [DllImport("setupapi.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        static extern bool SetupDiEnumDeviceInfo(IntPtr deviceInfoSet, uint memberIndex, ref SpDevinfoData deviceInfoData);
+
+        [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        static extern bool SetupDiGetDeviceRegistryPropertyW(IntPtr deviceInfoSet, ref SpDevinfoData deviceInfoData, uint property, out uint propertyRegDataType, byte[] propertyBuffer, uint propertyBufferSize, out uint requiredSize);
+
+        [DllImport("setupapi.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        static extern bool SetupDiDestroyDeviceInfoList(IntPtr deviceInfoSet);
+
+        [DllImport("cfgmgr32.dll")]
+        static extern uint CM_Get_DevNode_Status(out uint status, out uint problemNumber, uint devInst, uint flags);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        static extern bool EnumDisplayDevicesW(string lpDevice, uint iDevNum, ref DisplayDeviceW lpDisplayDevice, uint dwFlags);
+
         static bool ContainsHardwareText(string value, string text)
         {
             return value.IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0;
@@ -297,45 +349,136 @@ namespace OptScalerNR.Launcher
                 ContainsHardwareText(name, "Arc(TM) A") || ContainsHardwareText(name, "Arc(TM) B") ? 0 : 2;
             return -1;
         }
+        static Dictionary<string, bool> ReadPresentDisplayDriverSubkeys()
+        {
+            IntPtr hDevInfo = IntPtr.Zero;
+            try {
+                Guid cls = DisplayClassGuid;
+                hDevInfo = SetupDiGetClassDevsW(ref cls, null, IntPtr.Zero, DigcfPresent);
+                if (hDevInfo == IntPtr.Zero || hDevInfo == new IntPtr(-1)) return null;
+                var map = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                uint structSize = (uint)Marshal.SizeOf(typeof(SpDevinfoData));
+                byte[] buffer = new byte[512];
+                for (uint i = 0; i < 128; i++) {
+                    var info = new SpDevinfoData { cbSize = structSize };
+                    if (!SetupDiEnumDeviceInfo(hDevInfo, i, ref info)) break;
+                    uint regType, required;
+                    bool ok = SetupDiGetDeviceRegistryPropertyW(hDevInfo, ref info, SpdrpDriver, out regType, buffer, (uint)buffer.Length, out required);
+                    if (!ok && required > buffer.Length && required <= 65536) {
+                        buffer = new byte[required];
+                        ok = SetupDiGetDeviceRegistryPropertyW(hDevInfo, ref info, SpdrpDriver, out regType, buffer, (uint)buffer.Length, out required);
+                    }
+                    if (!ok || required == 0) continue;
+                    int byteCount = (int)Math.Min(required, (uint)buffer.Length);
+                    string driver = System.Text.Encoding.Unicode.GetString(buffer, 0, byteCount).TrimEnd('\0', ' ', '\t');
+                    int slash = driver.LastIndexOf('\\');
+                    if (slash < 0 || slash + 1 >= driver.Length) continue;
+                    string subkey = driver.Substring(slash + 1);
+                    int parsed;
+                    if (subkey.Length != 4 || !int.TryParse(subkey, out parsed)) continue;
+                    bool started = true;
+                    try {
+                        uint status, problem;
+                        if (CM_Get_DevNode_Status(out status, out problem, info.DevInst, 0) == CrSuccess)
+                            started = (status & DnStarted) != 0 && (status & DnHasProblem) == 0;
+                    } catch { }
+                    bool existing;
+                    map[subkey] = map.TryGetValue(subkey, out existing) ? (existing || started) : started;
+                }
+                return map;
+            } catch {
+                return null;
+            } finally {
+                if (hDevInfo != IntPtr.Zero && hDevInfo != new IntPtr(-1)) {
+                    try { SetupDiDestroyDeviceInfoList(hDevInfo); } catch { }
+                }
+            }
+        }
+        static void ReadPrimaryDisplayAdapter(out string deviceId, out string deviceName)
+        {
+            deviceId = "";
+            deviceName = "";
+            try {
+                uint cb = (uint)Marshal.SizeOf(typeof(DisplayDeviceW));
+                bool foundActivePrimary = false;
+                for (uint i = 0; i < 64; i++) {
+                    var dd = new DisplayDeviceW { cb = cb };
+                    if (!EnumDisplayDevicesW(null, i, ref dd, 0)) break;
+                    if ((dd.StateFlags & DisplayDevicePrimaryDevice) == 0) continue;
+                    bool active = (dd.StateFlags & DisplayDeviceActive) != 0;
+                    if (!foundActivePrimary || active) {
+                        deviceId = dd.DeviceID ?? "";
+                        deviceName = dd.DeviceString ?? "";
+                        if (active) foundActivePrimary = true;
+                    }
+                }
+            } catch { }
+        }
+        static bool MatchesPrimaryAdapter(string gpuName, string matchingDeviceId, string primaryDeviceId, string primaryDeviceName)
+        {
+            if (!string.IsNullOrWhiteSpace(matchingDeviceId) && !string.IsNullOrWhiteSpace(primaryDeviceId)) {
+                string a = matchingDeviceId.Trim();
+                string b = primaryDeviceId.Trim();
+                if (b.StartsWith(a, StringComparison.OrdinalIgnoreCase) || a.StartsWith(b, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return !string.IsNullOrWhiteSpace(gpuName) && !string.IsNullOrWhiteSpace(primaryDeviceName) &&
+                string.Equals(gpuName.Trim(), primaryDeviceName.Trim(), StringComparison.OrdinalIgnoreCase);
+        }
+        static HardwareAdapter SelectBestHardwareAdapter(IEnumerable<HardwareAdapter> candidates)
+        {
+            if (candidates == null) return null;
+            HardwareAdapter best = null;
+            foreach (var adapter in candidates) {
+                if (adapter == null) continue;
+                if (best == null) { best = adapter; continue; }
+                if (adapter.Present != best.Present) { if (adapter.Present) best = adapter; continue; }
+                if (adapter.Started != best.Started) { if (adapter.Started) best = adapter; continue; }
+                if (adapter.Rank != best.Rank) { if (adapter.Rank < best.Rank) best = adapter; continue; }
+                if (adapter.Primary != best.Primary) { if (adapter.Primary) best = adapter; continue; }
+                if (adapter.Index > best.Index) best = adapter;
+            }
+            return best;
+        }
         static HardwareAdapter ReadPhysicalAdapter()
         {
-            HardwareAdapter best = null;
-            string primary = "";
-            try {
-                using (var video = Registry.LocalMachine.OpenSubKey(@"HARDWARE\DEVICEMAP\VIDEO"))
-                    if (video != null) primary = Convert.ToString(video.GetValue(@"\Device\Video0"));
-                const string machinePrefix = @"\Registry\Machine\";
-                if (primary.StartsWith(machinePrefix, StringComparison.OrdinalIgnoreCase))
-                    using (var mapped = Registry.LocalMachine.OpenSubKey(primary.Substring(machinePrefix.Length)))
-                        primary = mapped == null ? "" : Convert.ToString(mapped.GetValue("Driver"));
-            } catch { }
+            var presentMap = ReadPresentDisplayDriverSubkeys();
+            string primaryDeviceId, primaryDeviceName;
+            ReadPrimaryDisplayAdapter(out primaryDeviceId, out primaryDeviceName);
+            var candidates = new List<HardwareAdapter>();
             try {
                 using (var root = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}")) {
                     if (root != null) foreach (var name in root.GetSubKeyNames()) {
                         int index; if (name.Length != 4 || !int.TryParse(name, out index)) continue;
+                        bool present = true;
+                        bool started = true;
+                        if (presentMap != null && presentMap.Count > 0) {
+                            if (!presentMap.TryGetValue(name, out started)) continue;
+                            present = true;
+                        }
                         try {
                             using (var key = root.OpenSubKey(name)) {
                                 if (key == null) continue;
                                 string gpu = Convert.ToString(key.GetValue("DriverDesc"));
                                 if (string.IsNullOrWhiteSpace(gpu)) continue;
-                                int rank = PhysicalAdapterRank(gpu, Convert.ToString(key.GetValue("MatchingDeviceId")));
+                                string matchingId = Convert.ToString(key.GetValue("MatchingDeviceId"));
+                                int rank = PhysicalAdapterRank(gpu, matchingId);
                                 if (rank < 0) continue;
-                                var adapter = new HardwareAdapter {
-                                    Name = gpu, Rank = rank,
-                                    Primary = primary.EndsWith(@"\" + name, StringComparison.OrdinalIgnoreCase),
+                                candidates.Add(new HardwareAdapter {
+                                    Name = gpu, Rank = rank, Index = index,
+                                    Present = present, Started = started,
+                                    Primary = MatchesPrimaryAdapter(gpu, matchingId, primaryDeviceId, primaryDeviceName),
                                     WindowsDriver = Convert.ToString(key.GetValue("DriverVersion")),
                                     // Do not infer an Adrenalin release from the Windows driver number.
                                     RadeonVersion = ContainsHardwareText(gpu, "AMD") || ContainsHardwareText(gpu, "Radeon")
                                         ? Convert.ToString(key.GetValue("RadeonSoftwareVersion")) : null
-                                };
-                                if (best == null || adapter.Rank < best.Rank ||
-                                    (adapter.Rank == best.Rank && adapter.Primary && !best.Primary)) best = adapter;
+                                });
                             }
                         } catch { }
                     }
                 }
             } catch { }
-            return best;
+            return SelectBestHardwareAdapter(candidates);
         }
         void StartHardwareDetection()
         {

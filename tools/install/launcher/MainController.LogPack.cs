@@ -276,6 +276,7 @@ namespace OptScalerNR.Launcher
             sb.AppendLine("GPU (registry):");
             try
             {
+                var presentMap = ReadPresentDisplayDriverSubkeys();
                 using (var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"))
                 {
                     if (key != null)
@@ -287,7 +288,15 @@ namespace OptScalerNR.Launcher
                                 if (sub == null) continue;
                                 var desc = sub.GetValue("DriverDesc") as string;
                                 if (string.IsNullOrEmpty(desc)) continue;
-                                sb.AppendLine("  " + desc + "  driver " + sub.GetValue("DriverVersion") + "  " + sub.GetValue("DriverDate"));
+                                string state = "";
+                                if (presentMap != null)
+                                {
+                                    bool started;
+                                    state = presentMap.TryGetValue(name, out started)
+                                        ? (started ? "  [present]" : "  [present, not started]")
+                                        : "  [not present]";
+                                }
+                                sb.AppendLine("  " + name + " " + desc + "  driver " + sub.GetValue("DriverVersion") + "  " + sub.GetValue("DriverDate") + state);
                             }
                         }
                 }
