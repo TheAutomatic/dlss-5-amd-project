@@ -1,8 +1,8 @@
-# Mochizuki NR ASI payload (0.0.9m9)
+# Mochizuki NR ASI payload (0.0.9m10)
 
 Vendored payload for `dlssnr-amd.asi` and Standalone / ReShade / DXVK routes:
 
-- Base resources & build: built from `DLSSNR-AMD` (release `v0.0.9m9` on `TheAutomatic/DLSSNR-AMD` (commit `c926c1d`, upstream `v0.0.9` base)), preserving the CJK language pack.
+- Base resources & build: built from `DLSSNR-AMD` (release `v0.0.9m10` on `TheAutomatic/DLSSNR-AMD` (commit `c7e8665`, upstream `v0.0.9` base)), preserving the CJK language pack.
 - Plugin path: `OptiScaler/plugins/dlssnr-amd.asi` (also reused for Standalone route)
 - Probe path in the release: `dlssnr-amd/nr_present_probe.exe`
 - Resources: `dlssnr-amd/` (SPIR-V shaders, ACO records/shaders, pre-captured D3D12 outer ACO archives `aco/d3d12_outer.nra` & `aco/rdna3/d3d12_outer.nra`, INT4 / performance / ultra data, language files; retired D3D12 HLSL shader sources removed)

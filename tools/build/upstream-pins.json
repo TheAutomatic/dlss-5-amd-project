@@ -33,10 +33,10 @@
     }
   },
   "dlssnr": {
-    "version": "0.0.9m9",
-    "archiveName": "DLSSNR-AMD-Vulkan-Windows-0.0.9m9-preview-x86_64.zip",
-    "archiveUrl": "https://github.com/TheAutomatic/DLSSNR-AMD/releases/download/v0.0.9m9/DLSSNR-AMD-Vulkan-Windows-0.0.9m9-preview-x86_64.zip",
-    "archiveSha256": "11e8e2e2126f7ec9e412a46c173f0421e6885ad3ba725f9397884831278dd8e3",
+    "version": "0.0.9m10",
+    "archiveName": "DLSSNR-AMD-Vulkan-Windows-0.0.9m10-preview-x86_64.zip",
+    "archiveUrl": "https://github.com/TheAutomatic/DLSSNR-AMD/releases/download/v0.0.9m10/DLSSNR-AMD-Vulkan-Windows-0.0.9m10-preview-x86_64.zip",
+    "archiveSha256": "f8def7b965e4a02d5a8366d93bfd8e3e70539463a1f6408ee46e751068133832",
     "langArchiveName": "DLSSNR-AMD-lang-CJK-0.0.9m1.zip",
     "langArchiveUrl": "https://github.com/TheAutomatic/DLSSNR-AMD/releases/download/v0.0.9m6/DLSSNR-AMD-lang-CJK-0.0.9m1.zip",
     "langArchiveSha256": "14736abe9d8f9e763574603780993aaa285776c285264894d749e781704bd7c4"

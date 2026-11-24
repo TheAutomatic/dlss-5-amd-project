@@ -337,12 +337,12 @@ if [[ -z "$proxy" ]]; then
     fi
 fi
 
-# 2. Ask whether to install dlssnr-amd.asi (Mochizuki 0.0.9m9)
+# 2. Ask whether to install dlssnr-amd.asi (Mochizuki 0.0.9m10)
 if [[ -z "$want_nr" ]]; then
     want_nr="on"
     if [[ -t 0 ]]; then
         echo
-        read -r -p "Install dlssnr-amd.asi (Mochizuki 0.0.9m9 DLSS Neural Rendering)? [Y/n]: " pick || pick=""
+        read -r -p "Install dlssnr-amd.asi (Mochizuki 0.0.9m10 DLSS Neural Rendering)? [Y/n]: " pick || pick=""
         [[ "$pick" == "n" || "$pick" == "N" ]] && want_nr="off"
     fi
 fi
