@@ -112,7 +112,7 @@ namespace OptScalerNR.Launcher
             if (_iniApplyButton != null) _iniApplyButton.Content = L("应用", "Apply");
             ((Button)_window.FindName("ProfileMoreButton")).ToolTip = L("更多配置操作", "More profile actions");
             if (_iniFolderButton != null) _iniFolderButton.Content = L("配置文件夹", "Profiles folder");
-            if (_iniSearchBox != null) _iniSearchBox.ToolTip = L("搜索共享配置", "Search shared profiles");
+            if (_iniSearchBox != null) _iniSearchBox.ToolTip = L("搜索已保存方案", "Search saved profiles");
             RefreshModelImportLanguage();
             RefreshUnlockerLanguage();
             PopulateIniProfiles();
@@ -284,7 +284,7 @@ namespace OptScalerNR.Launcher
         {
             var game = CaptureIniGame();
             if (!CanUseIniGame(game)) return;
-            var name = PromptIniName(L("保存共享配置", "Save shared profile"), game.Name + L(" 保存配置", " profile"));
+            var name = PromptIniName(L("保存方案", "Save profile"), game.Name + L(" 保存配置", " profile"));
             if (name != null) SaveIniProfileCore(game, name);
         }
         void AlignProfilePopup(Popup popup)
@@ -387,7 +387,7 @@ namespace OptScalerNR.Launcher
                 if (picker.ShowDialog(_window) != true) return;
                 value = picker.FileName;
             } else if (operation == "delete" && DialogTheme.Show(_window,
-                L("删除共享配置？游戏 INI 不会改变。", "Delete this shared profile? The game INI will not change."), L("删除配置", "Delete profile"), MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+                L("删除已保存方案？游戏 INI 不会改变。", "Delete this saved profile? The game INI will not change."), L("删除配置", "Delete profile"), MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
             RunAsiProfileAction(game, operation, value, source);
         }
         bool RunAsiProfileAction(IniGameIdentity game, string operation, string value, string source)
@@ -448,7 +448,7 @@ namespace OptScalerNR.Launcher
             var picker = new OpenFileDialog { Title = L("导入 OptiScaler.ini 配置", "Import OptiScaler.ini profile"), Filter = "INI (*.ini)|*.ini", CheckFileExists = true, RestoreDirectory = true };
             if (picker.ShowDialog(_window) != true || !CanUseIniGame(game)) return;
             var source = picker.FileName;
-            var name = PromptIniName(L("导入共享配置", "Import shared profile"), Path.GetFileNameWithoutExtension(source));
+            var name = PromptIniName(L("导入方案", "Import profile"), Path.GetFileNameWithoutExtension(source));
             if (name != null) ImportIniProfileCore(game, source, name);
         }
         bool HasIniExportSource(IniGameIdentity game, string name)
@@ -486,7 +486,7 @@ namespace OptScalerNR.Launcher
             var game = CaptureIniGame();
             var oldName = _iniSelectedProfile;
             if (!CanUseIniGame(game) || string.IsNullOrEmpty(oldName)) return;
-            var name = PromptIniName(L("重命名共享配置", "Rename shared profile"), oldName);
+            var name = PromptIniName(L("重命名方案", "Rename profile"), oldName);
             if (name != null) RenameIniProfileCore(game, oldName, name);
         }
         void PromptDeleteIniProfile()
@@ -494,7 +494,7 @@ namespace OptScalerNR.Launcher
             var game = CaptureIniGame();
             var name = _iniSelectedProfile;
             if (!CanUseIniGame(game) || string.IsNullOrEmpty(name)) return;
-            if (DialogTheme.Show(_window, L("删除共享配置“", "Delete shared profile \"") + name + L("”？所有游戏的该配置选择都会清除，游戏 INI 不会改变。", "\"? Its selection will be cleared for every game. Game INI files are not changed."),
+            if (DialogTheme.Show(_window, L("删除已保存方案“", "Delete saved profile \"") + name + L("”？所有游戏的该配置选择都会清除，游戏 INI 不会改变。", "\"? Its selection will be cleared for every game. Game INI files are not changed."),
                 L("删除配置", "Delete profile"), MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
                 DeleteIniProfileCore(game, name);
         }
@@ -619,19 +619,17 @@ namespace OptScalerNR.Launcher
                 case "name": text = L("请输入有效的配置名称。", "Enter a valid profile name."); break;
                 case "exists": text = L("已有同名配置，请使用其他名称。", "That profile name already exists. Choose another name."); break;
                 case "pending": text = L("已保存选择；点击“应用”后修改游戏 INI。", "Selection saved; click Apply to change the game INI."); break;
-                case "saved": text = L("已保存共享配置：", "Shared profile saved: ") + _iniStatusDetail; break;
+                case "saved": text = L("已保存方案：", "Saved profile: ") + _iniStatusDetail; break;
                 case "imported": text = L("已导入：", "Imported: ") + _iniStatusDetail + L("。点击“应用”切换。", ". Click Apply to switch."); break;
                 case "renamed": text = L("已重命名：", "Renamed: ") + _iniStatusDetail; break;
-                case "deleted": text = L("已删除共享配置：", "Shared profile deleted: ") + _iniStatusDetail; break;
+                case "deleted": text = L("已删除方案：", "Deleted profile: ") + _iniStatusDetail; break;
                 case "applied": text = L("已应用，请重启游戏。原 INI 备份：", "Applied; restart the game. Original INI backup: ") + _iniStatusDetail; break;
                 case "share-imported": text = L("已换上同款画面，重启游戏后生效", "New look applied; restart the game."); break;
                 case "share-error": text = _iniStatusDetail; break;
                 case "unlocker": text = _iniStatusDetail; break;
                 case "plugins-missing": text = L("未检测到插件目录，请先安装本工具", "Plugins folder not found; install this tool first."); break;
                 case "io": text = L("配置操作失败，请检查文件权限与可用空间。", "Profile operation failed. Check file permissions and free space."); break;
-                default: text = _iniProfiles == null ? L("配置库不可用。", "Profile library unavailable.")
-                    : _selectedGame == null ? L("选择游戏以使用共享配置。", "Select a game to use shared profiles.")
-                    : _iniProfileNames.Length == 0 && (_asiProfileCombo == null || _asiProfileCombo.Items.Count <= 1) ? L("暂无共享配置", "No shared profiles") : ""; break;
+                default: text = _iniProfiles == null ? L("配置库不可用。", "Profile library unavailable.") : ""; break;
             }
             _iniProfileStatus.Text = text;
             _iniProfileStatus.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;

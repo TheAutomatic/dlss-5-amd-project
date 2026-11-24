@@ -439,10 +439,12 @@ static class LauncherSmoke
                 var bounds = card.TransformToAncestor((ScrollViewer)Find("DetailsScroll")).TransformBounds(new Rect(card.RenderSize));
                 Check(bounds.Bottom <= ((ScrollViewer)Find("DetailsScroll")).ActualHeight + 1, "pending warning scrolled into view: " + theme);
                 Check((string)((Button)Find("QuickLogButton")).Content == "安装日志" && ((TextBlock)Find("LogHeading")).Text == "安装日志", "install log labels in Chinese");
+                Check((string)((Button)Find("PackLogButton")).Content == "反馈问题日志" && ((System.Windows.Documents.Run)Find("AuthorCaption")).Text == " · 作者：", "bug report log and author labels in Chinese");
                 Shot("warned-" + theme + "-zh-optiscaler");
                 if (theme == "light") {
                     Invoke("SetLanguage", "en");
                     Check((string)((Button)Find("QuickLogButton")).Content == "Install log" && ((TextBlock)Find("LogHeading")).Text == "Install log", "install log labels in English");
+                    Check((string)((Button)Find("PackLogButton")).Content == "Bug report logs" && ((System.Windows.Documents.Run)Find("AuthorCaption")).Text == " · Author: ", "bug report log and author labels in English");
                     Shot("warned-light-en-optiscaler");
                     Invoke("SetLanguage", "zh");
                 }
@@ -724,10 +726,11 @@ static class LauncherSmoke
         Check(label.FontSize == optiLabel.FontSize && label.Foreground.ToString() == optiLabel.Foreground.ToString(), "profile label typography matches");
         Check(Math.Abs(a.X - optiLabel.TranslatePoint(new Point(), root).X) < 1, "profile labels align");
         Check(((StackPanel)Find("ProfilesCardBody")).IsVisible, "OptiScaler row stays expanded: " + language);
-        foreach (var pair in new[] { new[] { "AsiProfileCombo", "IniProfileCombo" }, new[] { "AsiProfileApplyButton", "IniApplyButton" }, new[] { "AsiProfileSaveButton", "IniSaveButton" }, new[] { "AsiProfileMoreButton", "ProfileMoreButton" } }) {
+        foreach (var pair in new[] { new[] { "AsiProfileCombo", "IniProfileCombo" }, new[] { "IniAsiImportButton", "IniImportButton" }, new[] { "IniAsiExportButton", "IniExportButton" }, new[] { "AsiProfileApplyButton", "IniApplyButton" }, new[] { "AsiProfileMoreButton", "ProfileMoreButton" } }) {
             var first = (FrameworkElement)Find(pair[0]); var second = (FrameworkElement)Find(pair[1]);
             Check(Math.Abs(first.TranslatePoint(new Point(), root).X - second.TranslatePoint(new Point(), root).X) < 1, "paired profile columns align: " + language + pair[0]);
         }
+        Check(((Button)Find("AsiProfileApplyButton")).FontWeight == ((Button)Find("IniApplyButton")).FontWeight, "apply buttons share weight");
         Check(Math.Abs(optiLabel.TranslatePoint(new Point(), root).Y + optiLabel.ActualHeight / 2 - ((ComboBox)Find("IniProfileCombo")).TranslatePoint(new Point(), root).Y - 16) < 1, "OptiScaler controls share label row");
         Call("SetIniStatus", "", ""); Pump(50);
         Check(((TextBlock)Find("IniProfileStatus")).Visibility == Visibility.Collapsed, "empty profile status uses no space");
@@ -837,7 +840,7 @@ static class LauncherSmoke
             if (el.ActualWidth < 1 || el.ActualHeight < 1) Fail(state + ": " + name + " has zero size");
         }
         // Hero action buttons must not be squeezed below their desired width (text clipping).
-        foreach (var name in new[] { "PrimaryButton", "LaunchGameButton", "ManageGameButton", "OpenFolderButton", "UninstallButton" })
+        foreach (var name in new[] { "PrimaryButton", "LaunchGameButton", "ManageGameButton", "OpenFolderButton", "PackLogButton", "UninstallButton" })
         {
             var el = _window.FindName(name) as FrameworkElement;
             if (el == null || !el.IsVisible) continue;
