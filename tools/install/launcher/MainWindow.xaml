@@ -571,8 +571,6 @@
                             local:DialogTheme.Icon="M 10.5 2.5 L 13.5 5.5 L 5.5 13.5 H 2.5 V 10.5 Z M 9 4 L 12 7"/>
                     <Button x:Name="OpenFolderButton" Style="{DynamicResource HeroButton}" Height="30" Padding="10,0,12,0" Margin="8,0,0,0"
                             local:DialogTheme.Icon="M 1.75 4.25 A 1 1 0 0 1 2.75 3.25 H 6 L 7.5 4.75 H 13.25 A 1 1 0 0 1 14.25 5.75 V 12 A 1 1 0 0 1 13.25 13 H 2.75 A 1 1 0 0 1 1.75 12 Z"/>
-                    <Button x:Name="PackLogButton" Style="{DynamicResource HeroButton}" Height="30" Padding="10,0,12,0" Margin="8,0,0,0"
-                            local:DialogTheme.Icon="M 2.5 4.75 L 8 2.25 L 13.5 4.75 V 11.25 L 8 13.75 L 2.5 11.25 Z M 2.5 4.75 L 8 7.25 L 13.5 4.75 M 8 7.25 V 13.75"/>
                     <Border Width="1" Height="18" Background="{DynamicResource ThemeHairline}" Margin="14,0,6,0" VerticalAlignment="Center"/>
                     <Button x:Name="UninstallButton" Style="{DynamicResource HeroButton}" Height="30" Padding="8,0,10,0" IsEnabled="False"
                             local:DialogTheme.Icon="M 2.5 4.25 H 13.5 M 6 4.25 V 2.75 H 10 V 4.25 M 4 4.25 L 4.75 13.5 H 11.25 L 12 4.25 M 6.75 6.75 V 11 M 9.25 6.75 V 11"/>
@@ -967,24 +965,28 @@
               </Border>
             </StackPanel>
 
-            <!-- ===== Group C: launcher install log ===== -->
+            <!-- ===== Group C: runtime diagnostic log ===== -->
             <StackPanel x:Name="AdvancedLogSection" Margin="0,28,0,0">
               <Border Style="{StaticResource Card}">
                 <StackPanel>
-                  <DockPanel>
-                    <Button x:Name="OpenLogButton" DockPanel.Dock="Right" Style="{DynamicResource CardAction}" Margin="12,0,0,0" VerticalAlignment="Center"
-                            local:DialogTheme.Icon="M 4 1.75 H 9.5 L 12.5 4.75 V 14.25 H 4 Z M 9.5 1.75 V 4.75 H 12.5 M 6 8 H 10.5 M 6 10.5 H 10.5"/>
-                    <Button x:Name="InstallLogExpandButton" Style="{DynamicResource CardAction}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="0">
-                      <Grid Width="{Binding ActualWidth, ElementName=InstallLogExpandButton}">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                        <TextBlock x:Name="LogHeading" Style="{StaticResource SectionHeader}" VerticalAlignment="Center"/>
-                        <TextBlock x:Name="LogPreviewHeading" Grid.Column="1" Foreground="{DynamicResource ThemeMuted}" Margin="16,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                        <Path x:Name="InstallLogChevron" Grid.Column="2" Data="M 4 2 L 10 8 L 4 14" Stroke="{DynamicResource ThemeMuted}" StrokeThickness="1.5" Width="10" Height="12" Stretch="Uniform" RenderTransformOrigin="0.5,0.5"/>
-                      </Grid>
-                    </Button>
-                  </DockPanel>
-                  <StackPanel x:Name="InstallLogCardBody" Visibility="Collapsed" Margin="0,12,0,0">
-                    <TextBox x:Name="LogView" Height="150" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Background="{DynamicResource ThemeLayer}" Foreground="{DynamicResource ThemeMuted}" Padding="8,6" FontSize="11.5" FontFamily="Cascadia Mono, Consolas, Segoe UI"/>
+                  <Button x:Name="InstallLogExpandButton" Style="{DynamicResource CardAction}" HorizontalContentAlignment="Stretch" Padding="0">
+                    <Grid Width="{Binding ActualWidth, ElementName=InstallLogExpandButton}">
+                      <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                      <TextBlock x:Name="LogHeading" Style="{StaticResource SectionHeader}" VerticalAlignment="Center"/>
+                      <TextBlock x:Name="LogPreviewHeading" Grid.Column="1" Foreground="{DynamicResource ThemeMuted}" Margin="16,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                      <Path x:Name="InstallLogChevron" Grid.Column="2" Data="M 4 2 L 10 8 L 4 14" Stroke="{DynamicResource ThemeMuted}" StrokeThickness="1.5" Width="10" Height="12" Stretch="Uniform" RenderTransformOrigin="0.5,0.5"/>
+                    </Grid>
+                  </Button>
+                  <StackPanel x:Name="InstallLogCardBody" Visibility="Collapsed" Margin="0,14,0,0">
+              <DockPanel Margin="2,0,0,10">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                  <Button x:Name="PackLogButton" Style="{DynamicResource CardAction}" Margin="0,0,8,0"
+                          local:DialogTheme.Icon="M 2.5 4.75 L 8 2.25 L 13.5 4.75 V 11.25 L 8 13.75 L 2.5 11.25 Z M 2.5 4.75 L 8 7.25 L 13.5 4.75 M 8 7.25 V 13.75"/>
+                  <Button x:Name="OpenLogButton" Style="{DynamicResource CardAction}"
+                          local:DialogTheme.Icon="M 4 1.75 H 9.5 L 12.5 4.75 V 14.25 H 4 Z M 9.5 1.75 V 4.75 H 12.5 M 6 8 H 10.5 M 6 10.5 H 10.5"/>
+                </StackPanel>
+              </DockPanel>
+                  <TextBox x:Name="LogView" Height="150" Margin="0,4,0,10" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Background="{DynamicResource ThemeLayer}" Foreground="{DynamicResource ThemeMuted}" Padding="8,6" FontSize="11.5" FontFamily="Cascadia Mono, Consolas, Segoe UI"/>
                   </StackPanel>
                 </StackPanel>
               </Border>

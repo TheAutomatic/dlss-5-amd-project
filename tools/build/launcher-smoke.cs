@@ -439,12 +439,10 @@ static class LauncherSmoke
                 var bounds = card.TransformToAncestor((ScrollViewer)Find("DetailsScroll")).TransformBounds(new Rect(card.RenderSize));
                 Check(bounds.Bottom <= ((ScrollViewer)Find("DetailsScroll")).ActualHeight + 1, "pending warning scrolled into view: " + theme);
                 Check((string)((Button)Find("QuickLogButton")).Content == "安装日志" && ((TextBlock)Find("LogHeading")).Text == "安装日志", "install log labels in Chinese");
-                Check((string)((Button)Find("PackLogButton")).Content == "反馈问题日志" && ((System.Windows.Documents.Run)Find("AuthorCaption")).Text == " · 开发者：", "bug report log and developer labels in Chinese");
                 Shot("warned-" + theme + "-zh-optiscaler");
                 if (theme == "light") {
                     Invoke("SetLanguage", "en");
                     Check((string)((Button)Find("QuickLogButton")).Content == "Install log" && ((TextBlock)Find("LogHeading")).Text == "Install log", "install log labels in English");
-                    Check((string)((Button)Find("PackLogButton")).Content == "Bug report logs" && ((System.Windows.Documents.Run)Find("AuthorCaption")).Text == " · Developer: ", "bug report log and developer labels in English");
                     Shot("warned-light-en-optiscaler");
                     Invoke("SetLanguage", "zh");
                 }
@@ -839,7 +837,7 @@ static class LauncherSmoke
             if (el.ActualWidth < 1 || el.ActualHeight < 1) Fail(state + ": " + name + " has zero size");
         }
         // Hero action buttons must not be squeezed below their desired width (text clipping).
-        foreach (var name in new[] { "PrimaryButton", "LaunchGameButton", "ManageGameButton", "OpenFolderButton", "PackLogButton", "UninstallButton" })
+        foreach (var name in new[] { "PrimaryButton", "LaunchGameButton", "ManageGameButton", "OpenFolderButton", "UninstallButton" })
         {
             var el = _window.FindName(name) as FrameworkElement;
             if (el == null || !el.IsVisible) continue;

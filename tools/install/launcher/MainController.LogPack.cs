@@ -26,7 +26,7 @@ namespace OptScalerNR.Launcher
             {
                 DialogTheme.Show(_window,
                     L("请先在游戏库中选择要收集日志的游戏。", "Select a game in the library first."),
-                    L("反馈问题日志", "Bug report logs"), MessageBoxButton.OK, MessageBoxImage.Information);
+                    L("一键打包日志", "Pack Logs"), MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
@@ -53,9 +53,9 @@ namespace OptScalerNR.Launcher
                 if (copied == 0 && events == null)
                 {
                     DialogTheme.Show(_window,
-                        L("未在游戏目录中找到可收集的日志（无 OptiScaler / mochizuki / OpenRR / ReShade 日志）。\n请先运行一次游戏再执行打包。",
-                          "No logs found in the game directory (no OptiScaler, mochizuki, OpenRR, or ReShade logs).\nPlease run the game once before packing logs."),
-                        L("反馈问题日志", "Bug report logs"), MessageBoxButton.OK, MessageBoxImage.Warning);
+                        L("未在游戏目录中找到可收集的日志（无 OptiScaler 或 mochizuki 日志）。\n请先运行一次游戏再执行打包。",
+                          "No logs found in the game directory (no OptiScaler or mochizuki logs).\nPlease run the game once before packing logs."),
+                        L("一键打包日志", "Pack Logs"), MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
 
@@ -69,8 +69,8 @@ namespace OptScalerNR.Launcher
             catch (Exception ex)
             {
                 DialogTheme.Show(_window,
-                    L("打包反馈问题日志失败：" + ex.Message, "Failed to pack bug report logs: " + ex.Message),
-                    L("反馈问题日志", "Bug report logs"), MessageBoxButton.OK, MessageBoxImage.Error);
+                    L("打包日志失败：" + ex.Message, "Failed to pack logs: " + ex.Message),
+                    L("一键打包日志", "Pack Logs"), MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
@@ -80,13 +80,13 @@ namespace OptScalerNR.Launcher
 
         void ShowLogPackSuccessDialog(string zip)
         {
-            var title = L("反馈问题日志", "Bug report logs");
+            var title = L("一键打包日志", "Pack Logs");
             var dialog = DialogTheme.Create(_window, title, 580);
             var panel = new StackPanel { Margin = new Thickness(22) };
 
             panel.Children.Add(new TextBlock
             {
-                Text = L("反馈问题日志与诊断信息已成功打包到桌面：", "Bug report logs and diagnostic info have been packed to your desktop:"),
+                Text = L("日志与诊断信息已成功打包到桌面：", "Logs and diagnostic info have been packed to your desktop:"),
                 Foreground = LauncherTheme.Brush("ThemeInk"),
                 FontWeight = FontWeights.SemiBold,
                 FontSize = 13,
@@ -120,15 +120,15 @@ namespace OptScalerNR.Launcher
             {
                 Text = L(
                     "压缩包包含以下内容：\n" +
-                    "• 游戏目录（含受保护目录的 LocalAppData）下的 OptiScaler / mochizuki / OpenRR / ReShade 运行日志、崩溃转储与 INI 配置文件\n" +
+                    "• 游戏目录下的 OptiScaler / mochizuki 运行日志与 INI 配置文件\n" +
                     "• 启动器安装日志、系统硬件概况（显卡型号、驱动版本、内存容量）\n" +
                     "• 近两天的显卡驱动超时重置 (TDR) 与游戏崩溃记录\n\n" +
-                    "向开发者反馈问题时，请直接发送该压缩包。",
+                    "向作者反馈问题时，请直接发送该压缩包。",
                     "The archive contains:\n" +
-                    "• OptiScaler / mochizuki / OpenRR / ReShade runtime logs, crash dumps, and INI configs (including LocalAppData for protected folders)\n" +
+                    "• OptiScaler / mochizuki runtime logs and INI configs in the game directory\n" +
                     "• Launcher install log and system summary (GPU, driver version, RAM capacity)\n" +
                     "• Graphics driver timeout reset (TDR) and game crash events from the past 2 days\n\n" +
-                    "When reporting an issue to the developer, please share this archive directly."
+                    "When requesting assistance, please share this archive with the maintainers."
                 ),
                 Foreground = LauncherTheme.Brush("ThemeMuted"),
                 FontSize = 11.5,

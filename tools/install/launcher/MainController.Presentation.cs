@@ -198,10 +198,10 @@ namespace OptScalerNR.Launcher
             SetLabel("SettingsCloseButton", "完成", "Done");
             ((Button)_window.FindName("RefreshBackendsButton")).ToolTip = L("重新检查后端与模型来源（不下载、不提取）", "Recheck backends and model sources (no download or extraction)");
             SetLabel("QuickLogButton", "安装日志", "Install log");
-            SetLabel("PackLogButton", "反馈问题日志", "Bug report logs");
+            SetLabel("PackLogButton", "打包日志", "Pack logs");
             ((Button)_window.FindName("PackLogButton")).ToolTip =
-                L("游戏闪退、黑屏或异常时点此：收集所选游戏的 OptiScaler / mochizuki / OpenRR / ReShade 日志与配置、系统信息（GPU / 驱动 / 内存）和近两天的驱动与崩溃事件，打包成压缩包放到桌面。",
-                  "Collect the selected game's OptiScaler / mochizuki / OpenRR / ReShade logs and configs, a system summary (GPU/driver/RAM), and the last two days of driver and crash events into a zip on your desktop.");
+                L("收集所选游戏的 OptiScaler/mochizuki 日志与配置、系统信息（GPU/驱动/内存）和近两天的驱动与崩溃事件，打包成压缩包放到桌面。",
+                  "Collect the selected game's OptiScaler/mochizuki logs and configs, a system summary (GPU/driver/RAM) and the last two days of driver and crash events into a zip on your desktop.");
             SetLabel("DiagnosticsHeading", "安装选项", "Install options");
             _searchBox.ToolTip = L("搜索游戏或程序路径", "Search games or executable paths");
             _refreshButton.ToolTip = L("刷新游戏库", "Refresh game library");

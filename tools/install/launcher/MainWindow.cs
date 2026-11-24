@@ -724,7 +724,7 @@ namespace OptScalerNR.Launcher
                 SetLabel("CommunityHeading", "关于与社区", "About & Community");
                 SetLabel("GithubButton", "GitHub · 项目主页", "GitHub · Repository");
                 SetLabel("RtxRemixMcPatchButton", "RTX Remix MC 补丁", "RTX Remix MC patch");
-                SetLabel("BilibiliButton", "Bilibili · 开发者主页", "Bilibili · Developer");
+                SetLabel("BilibiliButton", "Bilibili · 作者主页", "Bilibili · Channel");
                 if (_selectedGame == null)
                 {
                     SetLabel("HeroTitle", "选择一个游戏以开始", "Select a game to get started");
