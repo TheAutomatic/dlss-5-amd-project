@@ -83,7 +83,7 @@ namespace OptScalerNR.Launcher
                 _packageRootBox.IsEnabled = _diagnosticMode && CanChangePackageSource();
                 if (!_packageRootBox.IsKeyboardFocusWithin) _packageRootBox.Text = _diagnosticPackageRoot;
             }
-            ((Run)_window.FindName("AuthorCaption")).Text = L(" · 作者：", " · Author: ");
+            ((Run)_window.FindName("AuthorCaption")).Text = L(" · 开发者：", " · Developer: ");
             SetLabel("PackageDesc", "仅诊断模式使用此目录；留空则使用当前安装包。关闭模式或重启后恢复普通来源。", "This folder is used only in diagnostic mode. Leave blank for the current package. Disabling the mode or restarting restores the normal source.");
             if (_packageBrowse != null) _packageBrowse.IsEnabled = _diagnosticMode && CanChangePackageSource();
             var indicator = (TextBlock)_window.FindName("DiagnosticModeIndicator");
