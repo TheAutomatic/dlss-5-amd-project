@@ -8,6 +8,7 @@
     <PlatformTarget>x64</PlatformTarget>
     <FrameworkPathOverride>C:\Windows\Microsoft.NET\Framework64\v4.0.30319</FrameworkPathOverride>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <ApplicationIcon>app.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.cs"/>
@@ -38,6 +39,7 @@
     <EmbeddedResource Include="MainWindow.xaml"><LogicalName>OptScalerNR.Launcher.MainWindow.xaml</LogicalName></EmbeddedResource>
     <EmbeddedResource Include="App.xaml"><LogicalName>OptScalerNR.Launcher.App.xaml</LogicalName></EmbeddedResource>
     <EmbeddedResource Include="DialogTheme.xaml"><LogicalName>OptScalerNR.Launcher.DialogTheme.xaml</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="app.ico"><LogicalName>OptScalerNR.Launcher.app.ico</LogicalName></EmbeddedResource>
     <EmbeddedResource Include="../../../assets/compatibility/proxy-profiles.json"><LogicalName>OptScalerNR.Launcher.proxy-profiles.json</LogicalName></EmbeddedResource>
     <Reference Include="System"/><Reference Include="System.Core"/><Reference Include="System.Xml"/><Reference Include="System.Xaml"/>
     <Reference Include="System.Runtime.Serialization"/><Reference Include="WindowsBase"/>

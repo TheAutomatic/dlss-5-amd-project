@@ -58,6 +58,7 @@ $res = @(
     "/resource:`"$(Join-Path $src 'App.xaml')`",OptScalerNR.Launcher.App.xaml",
     "/resource:`"$(Join-Path $src 'MainWindow.xaml')`",OptScalerNR.Launcher.MainWindow.xaml",
     "/resource:`"$(Join-Path $src 'DialogTheme.xaml')`",OptScalerNR.Launcher.DialogTheme.xaml",
+    "/resource:`"$(Join-Path $src 'app.ico')`",OptScalerNR.Launcher.app.ico",
     "/resource:`"$(Join-Path $root 'assets/compatibility/proxy-profiles.json')`",OptScalerNR.Launcher.proxy-profiles.json"
 )
 $argFile = Join-Path $obj 'csc.rsp'
@@ -68,6 +69,7 @@ $lines = @(
     '/optimize+',
     '/debug:pdbonly',
     "/out:`"$exe`"",
+    "/win32icon:`"$(Join-Path $src 'app.ico')`"",
     "/win32manifest:`"$(Join-Path $src 'app.manifest')`"",
     "/define:TRACE"
 )
@@ -85,7 +87,7 @@ Copy-Item -LiteralPath (Join-Path $root 'tools/install/proxy-probe.ps1') -Destin
 Copy-Item -LiteralPath (Join-Path $root 'tools/install/library-scan.ps1') -Destination $OutDir -Force
 Copy-Item -LiteralPath (Join-Path $root 'tools/install/install-capabilities.ps1') -Destination $OutDir -Force
 Copy-Item -LiteralPath (Join-Path $root 'tools/install/xess-compat.ps1') -Destination $OutDir -Force
-$srcFiles = Get-ChildItem -LiteralPath $src -File | Where-Object { $_.Extension -match '\.(cs|xaml|manifest|md|ps1)$' }
+$srcFiles = Get-ChildItem -LiteralPath $src -File | Where-Object { $_.Extension -match '\.(cs|xaml|manifest|ico|md|ps1)$' }
 $srcFiles += Get-Item -LiteralPath (Join-Path $root 'assets/compatibility/proxy-profiles.json')
 $srcFiles += Get-Item -LiteralPath (Join-Path $root 'tools/install/launcher-worker.ps1')
 $srcFiles += Get-Item -LiteralPath (Join-Path $root 'tools/install/proxy-probe.ps1')

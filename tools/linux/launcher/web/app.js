@@ -221,7 +221,9 @@ const P = {
 };
 const icon = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${P[n] || ''}</svg>`;
 const ROUTE_ICON = { 'optiscaler': 'layers', 'reshade-feeder': 'monitor', 'reshade-feeder-vulkan': 'vulkan', 'reshade-feeder-dx9': 'depth' };
-const LOGO = '<svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F23A4F"/><stop offset="1" stop-color="#C20E24"/></linearGradient></defs><rect x="2" y="2" width="60" height="60" rx="14" fill="url(#lg)"/><circle cx="32" cy="32" r="15" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="3"/><path d="M32 13c1.6 9.2 4.3 12.9 13.9 14.6 1.2.2 1.2 1.9 0 2.1C36.3 31.4 33.6 35.1 32 44.3c-.2 1.2-1.9 1.2-2.1 0-1.6-9.2-4.3-12.9-13.9-14.6-1.2-.2-1.2-1.9 0-2.1 9.6-1.7 12.3-5.4 13.9-14.6.2-1.2 1.9-1.2 2.1 0z" fill="#fff" transform="translate(1 3.3) scale(.97)"/></svg>';
+let logoSrc = '/icon.svg';
+const logoHtml = (style = '') => `<img class="logo" src="${logoSrc}" alt="" aria-hidden="true"${style ? ` style="${style}"` : ''}>`;
+fetch('/icon.svg').then((r) => (r.ok ? r.blob() : null)).then((b) => { if (b) logoSrc = URL.createObjectURL(b); }).catch(() => {});
 
 /* ----------------------------------------------------------------------------------------- state */
 const S = {
@@ -336,7 +338,7 @@ function renderShell() {
   const p = pkg();
   $('#app').innerHTML = `
     <header class="topbar">
-      <div class="brand">${LOGO}<span class="name">OptiScaler NR</span>
+      <div class="brand">${logoHtml()}<span class="name">OptiScaler NR</span>
         <span class="ver" id="ver">${esc(p.version ? 'v' + p.version : '')}</span>
         <span class="arch" id="arch" title="Linux ${esc(p.arch)}">Linux ${esc(p.arch)}</span></div>
       <label class="search">${icon('search')}<input id="search" type="search" autocomplete="off" spellcheck="false" placeholder="${esc(t('search'))}" value="${esc(S.search)}"><span class="kbd">Ctrl F</span></label>
@@ -835,7 +837,7 @@ function connectEvents() {
 function stopped() {
   if (S.stopped) return;
   S.stopped = true;
-  document.body.insertAdjacentHTML('beforeend', `<div class="stopped"><div>${LOGO.replace('class="logo"', 'class="logo" style="width:48px;height:48px"')}<h2>${esc(t('stopped'))}</h2><div>${esc(t('stopped_d'))}</div></div></div>`);
+  document.body.insertAdjacentHTML('beforeend', `<div class="stopped"><div>${logoHtml('width:48px;height:48px;margin:0 auto')}<h2>${esc(t('stopped'))}</h2><div>${esc(t('stopped_d'))}</div></div></div>`);
   try { window.close(); } catch (e) { /* browsers may refuse */ }
 }
 

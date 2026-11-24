@@ -158,6 +158,9 @@ namespace OptScalerNR.Launcher
             Window window;
             using (var stream = Program.OpenXaml("MainWindow.xaml"))
                 window = (Window)XamlReader.Load(stream);
+            var windowIcon = Program.LoadWindowIcon();
+            if (windowIcon != null)
+                window.Icon = windowIcon;
             window.Resources.MergedDictionaries.Add(DialogTheme.Resources());
             var controller = new MainController(window, args, settingsDirectory);
             window.Tag = controller;
@@ -171,6 +174,9 @@ namespace OptScalerNR.Launcher
             _window = window;
             _libraryArtwork = new LocalArtwork.Scope(window.Dispatcher);
             _heroArtwork = new LocalArtwork.Scope(window.Dispatcher);
+            var titleIcon = window.FindName("AppTitleIcon") as Image;
+            if (titleIcon != null)
+                titleIcon.Source = Program.LoadTitleIcon();
 
             _minBtn = (Button)window.FindName("MinBtn");
             _maxBtn = (Button)window.FindName("MaxBtn");

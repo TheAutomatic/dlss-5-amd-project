@@ -93,6 +93,8 @@ static class LauncherSmoke
                 return FinishSmoke();
             }
             Check(_window.FindName("ShowAdvancedOptions") == null, "Settings advanced toggle removed");
+            Check(_window.Icon != null, "embedded window icon loaded");
+            Check(((Image)Find("AppTitleIcon")).Source != null, "embedded title-bar icon loaded");
             foreach (var name in new[] { "AdvancedProxySection", "AdvancedInstallSection", "AdvancedProfilesSection", "AdvancedLogSection" })
                 Check(((FrameworkElement)Find(name)).IsVisible, "section visible by default: " + name);
             Check(((StackPanel)Find("ProfilesCardBody")).IsVisible, "OptiScaler config always expanded");
