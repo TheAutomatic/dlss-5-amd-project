@@ -695,9 +695,25 @@ try {
     [IO.File]::WriteAllText($probe, 'ok')
     Remove-Item -LiteralPath $probe -Force
 } catch {
+    $writeErr = $_.Exception.Message
     $me = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
     if ($me.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-        Fail "Cannot write to $game ($($_.Exception.Message)). Pick a writable folder next to the game .exe."
+        $aclSummary = ''
+        try {
+            $acl = Get-Acl -LiteralPath $game -ErrorAction Stop
+            $owner = if ($acl.Owner) { $acl.Owner } else { 'unknown' }
+            $denyRules = @($acl.Access | Where-Object { $_.AccessControlType -eq 'Deny' } | ForEach-Object { "$($_.IdentityReference):$($_.FileSystemRights)" } | Select-Object -Unique)
+            $adminAllow = @($acl.Access | Where-Object { $_.AccessControlType -eq 'Allow' -and ($_.IdentityReference.Value -match '(?i)\\Administrators$|^Administrators$|^Everyone$') } | ForEach-Object { "$($_.IdentityReference):$($_.FileSystemRights)" } | Select-Object -Unique)
+            $itemAttr = ''
+            try { $itemAttr = [string](Get-Item -LiteralPath $game -Force -ErrorAction Stop).Attributes } catch { }
+            $parts = @("owner=$owner")
+            if ($itemAttr) { $parts += "attrs=$itemAttr" }
+            if ($denyRules.Count -gt 0) { $parts += ('deny=' + (($denyRules | Select-Object -First 4) -join '; ')) }
+            if ($adminAllow.Count -gt 0) { $parts += ('allow=' + (($adminAllow | Select-Object -First 3) -join '; ')) }
+            else { $parts += 'adminAllow=none' }
+            $aclSummary = ' [' + ($parts -join ', ') + ']'
+        } catch { }
+        Fail "ELEVATED_WRITE_DENIED: Already running as Administrator, yet writing to $game was still denied ($writeErr).$aclSummary Likely blocked by antivirus / Windows Defender Controlled Folder Access, an active game/launcher anti-cheat driver, or restrictive NTFS folder permissions (ACL)."
     }
     if ($NonInteractive) {
         Fail "ADMIN_REQUIRED: Cannot write to $game without administrator privileges."

@@ -638,6 +638,14 @@ if ($code -eq 0) {
     Fail-Result 'success' $null 0
 }
 Write-Event 'done' "$($req.action) failed ($code)"
-$tail = ''
-if (Test-Path -LiteralPath $stderrLog) { $tail = (Get-Content -LiteralPath $stderrLog -Raw -ErrorAction SilentlyContinue) }
+$tailParts = [Collections.Generic.List[string]]::new()
+if (Test-Path -LiteralPath $stdoutLog) {
+    $errLines = @(Get-Content -LiteralPath $stdoutLog -ErrorAction SilentlyContinue | Where-Object { $_ -match '^ERROR: ' } | Select-Object -First 5)
+    if ($errLines.Count -gt 0) { $tailParts.Add(($errLines -join [Environment]::NewLine)) }
+}
+if (Test-Path -LiteralPath $stderrLog) {
+    $stderrRaw = Get-Content -LiteralPath $stderrLog -Raw -ErrorAction SilentlyContinue
+    if (-not [string]::IsNullOrWhiteSpace($stderrRaw)) { $tailParts.Add($stderrRaw.Trim()) }
+}
+$tail = ($tailParts -join [Environment]::NewLine).Trim()
 Fail-Result 'failed' ("setup exit $code $tail").Trim() 1

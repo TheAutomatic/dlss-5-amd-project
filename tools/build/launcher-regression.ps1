@@ -254,6 +254,36 @@ try {
         [IO.File]::ReadAllText("$tree\first.bin") -ceq 'first' -and [IO.File]::ReadAllText("$tree\second.bin") -ceq 'new writer' -and
         [IO.File]::ReadAllText("$($stage[0].FullName)\second.bin") -ceq 'second') 'Partial restore lost or replaced a file'
     Write-Host 'PASS partial move, locked cleanup, partial restore and successful model restore'
+
+    # Verify write-probe failure surfaces ERROR lines + ACL diagnostics through launcher-worker.ps1.
+    $denyDir = Join-Path $work 'AclDeniedGame'
+    [void][IO.Directory]::CreateDirectory($denyDir)
+    $denyExe = Join-Path $denyDir 'Game.exe'
+    Copy-Item -LiteralPath (Join-Path $bitnessDir 'Game64.exe') -Destination $denyExe
+    $isAdminNow = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    $denyUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $denyRule = New-Object Security.AccessControl.FileSystemAccessRule($denyUser, 'CreateFiles,WriteData', 'None', 'None', 'Deny')
+    $origAcl = Get-Acl -LiteralPath $denyDir
+    $lockedAcl = Get-Acl -LiteralPath $denyDir
+    $lockedAcl.AddAccessRule($denyRule)
+    Set-Acl -LiteralPath $denyDir -AclObject $lockedAcl
+    try {
+        foreach ($denyAction in 'install','uninstall') {
+            $denyReq = @{ schema = 1; requestId = "deny-$denyAction"; action = $denyAction; gameExe = $denyExe; packageRoot = $pkgFixture; installMode = 'optiscaler'; proxyChoice = 'dxgi.dll'; explicitDecisions = @{ mochizukiNetworks = @('small') } }
+            Put $req ($denyReq | ConvertTo-Json -Depth 5)
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $install 'launcher-worker.ps1') -RequestJson $req -ResultJson $res -EventsJsonl (Join-Path $work "events-deny-$denyAction.jsonl")
+            $denyResult = Get-Content -LiteralPath $res -Raw | ConvertFrom-Json
+            Assert ($LASTEXITCODE -eq 1 -and $denyResult.status -eq 'failed') "ACL-denied $denyAction unexpectedly succeeded"
+            if ($isAdminNow) {
+                Assert ($denyResult.error -like '*ELEVATED_WRITE_DENIED:*' -and $denyResult.error -like '*owner=*' -and $denyResult.error -like '*deny=*') "Missing elevated ACL diagnostic on ${denyAction}: $($denyResult.error)"
+            } else {
+                Assert ($denyResult.error -like '*ADMIN_REQUIRED:*') "Missing ADMIN_REQUIRED on ${denyAction}: $($denyResult.error)"
+            }
+        }
+        Write-Host 'PASS write-denied ACL diagnostic surfaced for install and uninstall'
+    } finally {
+        Set-Acl -LiteralPath $denyDir -AclObject $origAcl
+    }
 } finally {
     $env:LOCALAPPDATA = $local
     if ([IO.Directory]::Exists($work)) { [IO.Directory]::Delete($work, $true) }

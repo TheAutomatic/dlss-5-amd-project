@@ -3030,10 +3030,40 @@ namespace OptScalerNR.Launcher
                     var detail = result.Error ?? "";
                     if (detail.Length > 1200) detail = detail.Substring(0, 1200) + "…";
                     if (_statusLed != null) _statusLed.Fill = WarningBrush;
-                    DialogTheme.Show(_window, L("操作失败：", "Operation failed: ") + detail +
+                    DialogTheme.Show(_window, FormatWorkerFailureMessage(detail) +
                         "\n\n" + L("完整日志：", "Full log: ") + _currentLogPath, _window.Title, MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }));
+        }
+
+        string FormatWorkerFailureMessage(string detail)
+        {
+            if (!string.IsNullOrEmpty(detail))
+            {
+                if (detail.IndexOf("ELEVATED_WRITE_DENIED:", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return L(
+                        "操作失败：启动器已以管理员权限运行，但系统仍拒绝写入目标目录。\n\n" +
+                        "常见原因与排查建议：\n" +
+                        "1. 安全软件拦截：检查 Windows 安全中心「勒索软件防护 / 受控文件夹访问」或火绒、360、电脑管家是否拦截了 powershell.exe；\n" +
+                        "2. 游戏或反作弊驻留：彻底关闭游戏与官方启动器（含托盘与反作弊进程）后重试；\n" +
+                        "3. 目录权限异常：右键目标文件夹 → 属性 → 安全 → 高级，检查是否存在「拒绝」规则或缺少 Administrators 写入权限（也可将游戏移出 C:\\Program Files）。\n\n" +
+                        "详细信息：\n",
+                        "Operation failed: The launcher already ran with Administrator privileges, but Windows still denied writing to the target folder.\n\n" +
+                        "Common causes:\n" +
+                        "1. Antivirus or Windows Defender Controlled Folder Access blocking powershell.exe;\n" +
+                        "2. The game, its official launcher, or an anti-cheat driver still protecting the folder;\n" +
+                        "3. Restrictive NTFS permissions (explicit Deny rule or missing Administrators write access — check Properties -> Security -> Advanced, or move the game out of C:\\Program Files).\n\n" +
+                        "Details:\n") + detail;
+                }
+                if (detail.IndexOf("ADMIN_REQUIRED:", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return L(
+                        "操作失败：目标目录受系统保护，需要管理员权限才能写入。请在 UAC 提示中允许授权，或右键以管理员身份运行启动器后再试。\n\n详细信息：\n",
+                        "Operation failed: The target folder requires Administrator privileges to write. Approve the UAC prompt or run the launcher as Administrator and try again.\n\nDetails:\n") + detail;
+                }
+            }
+            return L("操作失败：", "Operation failed: ") + detail;
         }
 
         void ApplyInspect(LauncherResult result, string requestedPackageRoot = null)
