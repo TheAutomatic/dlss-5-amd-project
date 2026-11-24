@@ -519,8 +519,8 @@ static class LauncherSmoke
         }) == "AMD Radeon RX 9060 XT", "higher registry index wins ties");
 
         // Exercise live SetupDi / cfgmgr32 / user32 P/Invoke on Windows runner without throwing.
-        var present = presentMethod.Invoke(null, null);
-        Check(present != null, "SetupDi present display adapter map returned");
+        var presentMap = presentMethod.Invoke(null, null);
+        Check(presentMap != null, "SetupDi present display adapter map returned");
         readMethod.Invoke(null, null);
     }
 
