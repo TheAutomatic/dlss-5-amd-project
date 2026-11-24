@@ -504,7 +504,7 @@ function renderDetail() {
       <div class="card">
         <div class="row">${icon('chip')}<div><div class="t">${esc(t('p_nr'))}</div><div class="d">${esc(t('p_nr_d'))}</div></div>
           <div class="ctl"><button class="switch" role="switch" aria-checked="${f.nr}" data-act="toggle-nr"><span class="lbl">${esc(f.nr ? t('on') : t('off'))}</span><span class="track"><span class="knob"></span></span></button></div></div>
-        <div class="row">${icon('layers')}<div><div class="t">${esc(t('p_openrr', { ver: p.openrr.version || '0.1.7plus3' }))}${dlssdBadge}</div><div class="d">${esc(t('p_openrr_d'))}</div></div>
+        <div class="row">${icon('layers')}<div><div class="t">${esc(t('p_openrr', { ver: p.openrr.version || '0.1.7plus5' }))}${dlssdBadge}</div><div class="d">${esc(t('p_openrr_d'))}</div></div>
           <div class="ctl"><button class="switch" role="switch" aria-checked="${f.openrr}" data-act="toggle-openrr"><span class="lbl">${esc(f.openrr ? t('on') : t('off'))}</span><span class="track"><span class="knob"></span></span></button></div></div>
         ${dlssdRow}
         ${patcherRow}
@@ -622,7 +622,7 @@ function renderStatus() {
     el.innerHTML = `<span class="spinner"></span><span>${esc(t('scanning'))}</span>`;
   } else {
     const inst = S.games.filter((g) => g.status.installed).length;
-    const orr = p.openrr && p.openrr.available ? ` · OpenRR ${p.openrr.version || '0.1.7plus3'}` : '';
+    const orr = p.openrr && p.openrr.available ? ` · OpenRR ${p.openrr.version || '0.1.7plus5'}` : '';
     el.innerHTML = `<span class="dot ok" style="opacity:${p.ok ? 1 : 0}"></span><span>${esc(t('ready'))} · ${esc(t('games_n', { n: S.games.length }))}${inst ? ` · ${esc(t('inst_n', { n: inst }))}` : ''}${p.upstreamVersion ? ` · DLSSNR-AMD ${esc(p.upstreamVersion)}` : ''}${esc(orr)}</span>`;
   }
 }
@@ -677,7 +677,7 @@ function settingsHtml() {
         <dt>${esc(t('set_ver'))}</dt><dd>${esc(p.version || '—')}</dd>
         <dt>${esc(t('set_arch'))}</dt><dd>Linux ${esc(p.arch)} · ${esc(t('bits', { b: p.bits }))}</dd>
         <dt>${esc(t('set_up'))}</dt><dd>${esc(p.upstreamVersion || '—')}</dd>
-        ${hasOpenRr ? `<dt>${esc(t('set_openrr'))}</dt><dd>${esc(p.openrr.version || '0.1.7plus3')}${p.optipatcher ? ' · OptiPatcher' : ''}</dd>` : ''}
+        ${hasOpenRr ? `<dt>${esc(t('set_openrr'))}</dt><dd>${esc(p.openrr.version || '0.1.7plus5')}${p.optipatcher ? ' · OptiPatcher' : ''}</dd>` : ''}
         <dt>${esc(t('set_path'))}</dt><dd title="${esc(p.root || '')}">${esc(p.root || '—')}</dd>
         <dt>${esc(t('set_model'))}</dt><dd class="wrap">${mc('small')}${mc('aardwold')}${dc}</dd>
       </dl></div></div>

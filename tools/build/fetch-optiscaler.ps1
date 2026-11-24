@@ -21,11 +21,11 @@ $releaseDir = Join-Path $optiCacheDir 'release'
 $licenseOut = Join-Path $optiCacheDir 'OptiScaler_LICENSE.txt'
 New-Item -ItemType Directory -Force -Path $downloadsDir, $optiCacheDir | Out-Null
 
-$DefaultPinnedArchiveSha = '52bb8320df3190af263eb6b19de2d0257fba27164c79ffaec8d72802b73e9ac1'
-$PinnedArchiveName = 'OptiScaler_v10.0.0-pre1_20261123_b7b07d2d.7z'
-$PinnedArchiveUrl  = 'https://github.com/optiscaler/OptiScaler-nightly/releases/download/nightly-20261123/OptiScaler_v10.0.0-pre1_20261123_b7b07d2d.7z'
+$DefaultPinnedArchiveSha = '7e54630886c051ba8da13f7018a6e2d93902e8e3c770921c465a3f72642486cf'
+$PinnedArchiveName = 'OptiScaler_v10.0.0-pre1_20261124_14f8e39a.7z'
+$PinnedArchiveUrl  = 'https://github.com/optiscaler/OptiScaler-nightly/releases/download/nightly-20261124/OptiScaler_v10.0.0-pre1_20261124_14f8e39a.7z'
 $PinnedArchiveSha  = $DefaultPinnedArchiveSha
-$PinnedLicenseUrl  = 'https://raw.githubusercontent.com/optiscaler/OptiScaler/b7b07d2d19ba1b19fab07f6189d239dd49ea4552/LICENSE'
+$PinnedLicenseUrl  = 'https://raw.githubusercontent.com/optiscaler/OptiScaler/14f8e39ad706a0bac865744a0a7174718d42b7e4/LICENSE'
 $PinnedLicenseSha  = '3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986'
 $EffectiveManifest = [ordered]@{}
 $pinsPath = Join-Path $PSScriptRoot 'upstream-pins.json'
@@ -51,7 +51,7 @@ $DefaultPinnedReleaseManifest = [ordered]@{
     'Licenses/FidelityFX_v1_LICENSE.md'                 = 'a335c2bb2bd28184b9a30b6e35b0c7e4aa7826abd1c388fc2aa02405e9d04f03'
     'Licenses/FidelityFX_v2_LICENSE.md'                 = 'faeb8ef30681785235183e6393c920ad070955c2d2cae6c4b3a91b6a712767b7'
     'Licenses/XeSS_LICENSE.txt'                         = '784be42c39a4a4d03cf85d88e15e59d75828fca773ce45b8dbfffbd7eaf208df'
-    'OptiScaler.dll'                                    = 'd6efe4d2281041d5a600f21c59e74d97013cd1c68a291a160c77187af8b86ae3'
+    'OptiScaler.dll'                                    = 'ef60aba892c2b01c08ca43d611472b3b9169832605de6868c7abba43d9ce1d08'
     'OptiScaler.ini'                                    = 'bfe51f70670fd158ce3fe69f654be7e9d1590317cf233e28fc50f816786cb981'
     'OptiScaler/amd_fidelityfx_framegeneration_dx12.dll'= 'e6843252f58b0341a0d80f6a20bc0d840643ee95bc48c22cac08745344577bb6'
     'OptiScaler/amd_fidelityfx_framegeneration_vk.dll'  = 'd002dabff8c5e71eaa715fc99438cd4dc81230262a7897b16bc402efec3498b4'

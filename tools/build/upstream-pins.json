@@ -1,11 +1,11 @@
 {
   "schema": 1,
   "optiscaler": {
-    "version": "v10.0.0-pre1_20261123_b7b07d2d",
-    "archiveName": "OptiScaler_v10.0.0-pre1_20261123_b7b07d2d.7z",
-    "archiveUrl": "https://github.com/optiscaler/OptiScaler-nightly/releases/download/nightly-20261123/OptiScaler_v10.0.0-pre1_20261123_b7b07d2d.7z",
-    "archiveSha256": "52bb8320df3190af263eb6b19de2d0257fba27164c79ffaec8d72802b73e9ac1",
-    "licenseUrl": "https://raw.githubusercontent.com/optiscaler/OptiScaler/b7b07d2d19ba1b19fab07f6189d239dd49ea4552/LICENSE",
+    "version": "v10.0.0-pre1_20261124_14f8e39a",
+    "archiveName": "OptiScaler_v10.0.0-pre1_20261124_14f8e39a.7z",
+    "archiveUrl": "https://github.com/optiscaler/OptiScaler-nightly/releases/download/nightly-20261124/OptiScaler_v10.0.0-pre1_20261124_14f8e39a.7z",
+    "archiveSha256": "7e54630886c051ba8da13f7018a6e2d93902e8e3c770921c465a3f72642486cf",
+    "licenseUrl": "https://raw.githubusercontent.com/optiscaler/OptiScaler/14f8e39ad706a0bac865744a0a7174718d42b7e4/LICENSE",
     "licenseSha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
     "files": {
       "!! EXTRACT ALL FILES TO GAME FOLDER !!": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -13,7 +13,7 @@
       "Licenses/FidelityFX_v1_LICENSE.md": "a335c2bb2bd28184b9a30b6e35b0c7e4aa7826abd1c388fc2aa02405e9d04f03",
       "Licenses/FidelityFX_v2_LICENSE.md": "faeb8ef30681785235183e6393c920ad070955c2d2cae6c4b3a91b6a712767b7",
       "Licenses/XeSS_LICENSE.txt": "784be42c39a4a4d03cf85d88e15e59d75828fca773ce45b8dbfffbd7eaf208df",
-      "OptiScaler.dll": "d6efe4d2281041d5a600f21c59e74d97013cd1c68a291a160c77187af8b86ae3",
+      "OptiScaler.dll": "ef60aba892c2b01c08ca43d611472b3b9169832605de6868c7abba43d9ce1d08",
       "OptiScaler.ini": "bfe51f70670fd158ce3fe69f654be7e9d1590317cf233e28fc50f816786cb981",
       "OptiScaler/amd_fidelityfx_framegeneration_dx12.dll": "e6843252f58b0341a0d80f6a20bc0d840643ee95bc48c22cac08745344577bb6",
       "OptiScaler/amd_fidelityfx_framegeneration_vk.dll": "d002dabff8c5e71eaa715fc99438cd4dc81230262a7897b16bc402efec3498b4",
@@ -33,19 +33,19 @@
     }
   },
   "dlssnr": {
-    "version": "0.0.9m10",
-    "archiveName": "DLSSNR-AMD-Vulkan-Windows-0.0.9m10-preview-x86_64.zip",
-    "archiveUrl": "https://github.com/TheAutomatic/DLSSNR-AMD/releases/download/v0.0.9m10/DLSSNR-AMD-Vulkan-Windows-0.0.9m10-preview-x86_64.zip",
-    "archiveSha256": "f8def7b965e4a02d5a8366d93bfd8e3e70539463a1f6408ee46e751068133832",
+    "version": "0.0.9m11",
+    "archiveName": "DLSSNR-AMD-Vulkan-Windows-0.0.9m11-preview-x86_64.zip",
+    "archiveUrl": "https://github.com/TheAutomatic/DLSSNR-AMD/releases/download/v0.0.9m11/DLSSNR-AMD-Vulkan-Windows-0.0.9m11-preview-x86_64.zip",
+    "archiveSha256": "fc189547a30de87fba0eaa1603fd72ecbc185d8387a4778e7f5481fcdfe95840",
     "langArchiveName": "DLSSNR-AMD-lang-CJK-0.0.9m1.zip",
     "langArchiveUrl": "https://github.com/TheAutomatic/DLSSNR-AMD/releases/download/v0.0.9m6/DLSSNR-AMD-lang-CJK-0.0.9m1.zip",
     "langArchiveSha256": "14736abe9d8f9e763574603780993aaa285776c285264894d749e781704bd7c4"
   },
   "openrr": {
-    "version": "0.1.7plus3",
-    "archiveName": "OpenRR-v0.1.7plus3-OptiScaler.zip",
-    "archiveUrl": "https://github.com/TheAutomatic/OpenRR-ASI/releases/download/v0.1.7plus3/OpenRR-v0.1.7plus3-OptiScaler.zip",
-    "archiveSha256": "0c7733c8f43de7883487b662117445f82e0e64349515210062a467fe34ef90f6"
+    "version": "0.1.7plus5",
+    "archiveName": "OpenRR-v0.1.7plus5-OptiScaler.zip",
+    "archiveUrl": "https://github.com/TheAutomatic/OpenRR-ASI/releases/download/v0.1.7plus5/OpenRR-v0.1.7plus5-OptiScaler.zip",
+    "archiveSha256": "a0444206c80cd9c52528b44ee5a781587164ec09c50622669bf83c204b793d97"
   },
   "optipatcher": {
     "fileName": "OptiPatcher.asi",

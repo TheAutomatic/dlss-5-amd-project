@@ -337,7 +337,7 @@ def apply_optiscaler_addons(
             log("out", "Note: nvngx_dlssd.dll (310.9.1.0) was not found; place or import it into openrr-amd/ for Ray Reconstruction.")
 
         _append_manifest(game, OPENRR_MANIFEST_ENTRIES)
-        log("out", "OpenRR %s installed (spoof: %s)." % (pkg.openrr_version or "0.1.7plus3", "auto" if openrr_spoof == "auto" else "full"))
+        log("out", "OpenRR %s installed (spoof: %s)." % (pkg.openrr_version or "0.1.7plus5", "auto" if openrr_spoof == "auto" else "full"))
 
     if want_optipatcher:
         if not pkg.has_optipatcher:

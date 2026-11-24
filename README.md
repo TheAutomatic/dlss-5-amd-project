@@ -66,7 +66,7 @@
 
 | 包 | 适用 | 安装路线 |
 | --- | --- | --- |
-| `OptiScaler-NR-Linux-x86_64-<版本>.tar.gz` | 64 位游戏 | OptiScaler（含 Mochizuki NR + OpenRR 0.1.7plus3 + OptiPatcher）+ 三条 ReShade Feeder 路线 |
+| `OptiScaler-NR-Linux-x86_64-<版本>.tar.gz` | 64 位游戏 | OptiScaler（含 Mochizuki NR + OpenRR 0.1.7plus5 + OptiPatcher）+ 三条 ReShade Feeder 路线 |
 | `OptiScaler-NR-Linux-i686-<版本>.tar.gz` | 32 位游戏 | 仅 ReShade Feeder 路线（OptiScaler 与 OpenRR 只有 64 位） |
 
 ```bash

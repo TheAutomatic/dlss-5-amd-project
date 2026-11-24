@@ -66,7 +66,7 @@ Download a Linux package from the [Releases page](https://github.com/TheAutomati
 
 | Package | For | Install routes |
 | --- | --- | --- |
-| `OptiScaler-NR-Linux-x86_64-<version>.tar.gz` | 64-bit games | OptiScaler (Mochizuki NR + OpenRR 0.1.7plus3 + OptiPatcher) + three ReShade Feeder routes |
+| `OptiScaler-NR-Linux-x86_64-<version>.tar.gz` | 64-bit games | OptiScaler (Mochizuki NR + OpenRR 0.1.7plus5 + OptiPatcher) + three ReShade Feeder routes |
 | `OptiScaler-NR-Linux-i686-<version>.tar.gz` | 32-bit games | ReShade Feeder routes only (OptiScaler and OpenRR are 64-bit only) |
 
 ```bash
