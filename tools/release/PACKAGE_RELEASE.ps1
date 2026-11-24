@@ -24,9 +24,20 @@ param(
     [string]$UpstreamDir = '',
     [switch]$RefreshOptiPatcher,
     [string]$SigningThumbprint = '',
-    [switch]$LocalTest
+    [switch]$LocalTest,
+    [int]$Jobs = 0
 )
 $ErrorActionPreference = 'Stop'
+
+if ($Jobs -le 0) {
+    $envJobs = 0
+    if ($env:JOBS -and [int]::TryParse($env:JOBS, [ref]$envJobs) -and $envJobs -gt 0) {
+        $Jobs = $envJobs
+    } else {
+        $Jobs = [Math]::Max(1, [Environment]::ProcessorCount)
+    }
+}
+if ($Jobs -gt 16) { $Jobs = 16 }
 
 function Get-Sha256([string]$path) {
     $sha = [System.Security.Cryptography.SHA256]::Create()
@@ -35,6 +46,129 @@ function Get-Sha256([string]$path) {
         try { return ([BitConverter]::ToString($sha.ComputeHash($fs))).Replace('-', '') }
         finally { $fs.Dispose() }
     } finally { $sha.Dispose() }
+}
+
+function Find-SevenZip {
+    $candidates = New-Object System.Collections.Generic.List[string]
+    foreach ($cmdName in @('7z.exe', '7zz', '7z', '7za')) {
+        $cmd = Get-Command $cmdName -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($cmd -and $cmd.Source) { [void]$candidates.Add($cmd.Source) }
+    }
+    foreach ($pf in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+        if ($pf) { [void]$candidates.Add((Join-Path (Join-Path $pf '7-Zip') '7z.exe')) }
+    }
+    return $candidates | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1
+}
+
+function Initialize-ParallelPackageTool {
+    if ('OptiScaler.ParallelPackageTool' -as [type]) { return }
+    Add-Type -ReferencedAssemblies @('System.IO.Compression', 'System.IO.Compression.FileSystem') -TypeDefinition @'
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.IO;
+using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+
+namespace OptiScaler {
+    public static class ParallelPackageTool {
+        public static void CopyDirectoryTree(string srcDir, string dstDir) {
+            Directory.CreateDirectory(dstDir);
+            string[] dirs = Directory.GetDirectories(srcDir, "*", SearchOption.AllDirectories);
+            int prefixLen = srcDir.TrimEnd('\\', '/').Length + 1;
+            for (int i = 0; i < dirs.Length; i++) {
+                Directory.CreateDirectory(Path.Combine(dstDir, dirs[i].Substring(prefixLen)));
+            }
+            string[] files = Directory.GetFiles(srcDir, "*", SearchOption.AllDirectories);
+            for (int i = 0; i < files.Length; i++) {
+                string dest = Path.Combine(dstDir, files[i].Substring(prefixLen));
+                File.Copy(files[i], dest, true);
+            }
+        }
+
+        public static KeyValuePair<string, string>[] HashFiles(string stageDir, string[] fullPaths, int maxParallel) {
+            int prefixLen = stageDir.TrimEnd('\\', '/').Length + 1;
+            var results = new KeyValuePair<string, string>[fullPaths.Length];
+            var opts = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, maxParallel) };
+            Parallel.For(0, fullPaths.Length, opts,
+                () => SHA256.Create(),
+                (i, state, sha) => {
+                    string full = fullPaths[i];
+                    string rel = full.Substring(prefixLen).Replace('\\', '/');
+                    using (var fs = File.OpenRead(full)) {
+                        string digest = BitConverter.ToString(sha.ComputeHash(fs)).Replace("-", "");
+                        results[i] = new KeyValuePair<string, string>(rel, digest);
+                    }
+                    return sha;
+                },
+                sha => { if (sha != null) sha.Dispose(); }
+            );
+            return results;
+        }
+
+        public static void VerifyZipEntries(string zipPath, Dictionary<string, string> expectedEntries, string forbiddenPattern, string[] requiredEntries, int maxParallel) {
+            var forbidden = new Regex(forbiddenPattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var toVerify = new List<Tuple<int, string, long>>();
+            using (var archive = ZipFile.OpenRead(zipPath)) {
+                var entries = archive.Entries;
+                for (int i = 0; i < entries.Count; i++) {
+                    var entry = entries[i];
+                    string relative = entry.FullName.Replace('\\', '/');
+                    if (string.IsNullOrEmpty(entry.Name)) continue;
+                    if (relative.StartsWith("./", StringComparison.Ordinal) || relative.StartsWith("/", StringComparison.Ordinal)) {
+                        throw new InvalidDataException("Invalid archive entry path prefix: " + relative);
+                    }
+                    if (forbidden.IsMatch(entry.Name) || !expectedEntries.ContainsKey(relative) || !seen.Add(relative)) {
+                        throw new InvalidDataException("Unexpected, forbidden or duplicate archive entry: " + relative);
+                    }
+                    toVerify.Add(Tuple.Create(i, relative, entry.Length));
+                }
+            }
+            for (int i = 0; i < requiredEntries.Length; i++) {
+                if (!seen.Contains(requiredEntries[i])) {
+                    throw new InvalidDataException("Package archive missing required component: " + requiredEntries[i]);
+                }
+            }
+            foreach (string key in expectedEntries.Keys) {
+                if (!seen.Contains(key)) {
+                    throw new InvalidDataException("Package archive missing expected file: " + key);
+                }
+            }
+            // Schedule largest entries first to avoid single-core tail at the end of verification.
+            toVerify.Sort((a, b) => b.Item3.CompareTo(a.Item3));
+            var opts = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, maxParallel) };
+            try {
+                Parallel.ForEach(
+                    Partitioner.Create(toVerify, EnumerablePartitionerOptions.NoBuffering),
+                    opts,
+                    () => Tuple.Create(ZipFile.OpenRead(zipPath), SHA256.Create()),
+                    (item, state, local) => {
+                        var entry = local.Item1.Entries[item.Item1];
+                        using (var stream = entry.Open()) {
+                            string actual = BitConverter.ToString(local.Item2.ComputeHash(stream)).Replace("-", "");
+                            if (!string.Equals(actual, expectedEntries[item.Item2], StringComparison.OrdinalIgnoreCase)) {
+                                throw new InvalidDataException("Archive checksum mismatch: " + item.Item2);
+                            }
+                        }
+                        return local;
+                    },
+                    local => {
+                        if (local != null) {
+                            if (local.Item2 != null) local.Item2.Dispose();
+                            if (local.Item1 != null) local.Item1.Dispose();
+                        }
+                    }
+                );
+            } catch (AggregateException aex) {
+                throw aex.Flatten().InnerException ?? aex;
+            }
+        }
+    }
+}
+'@
 }
 
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -214,15 +348,10 @@ $pluginReadme = @(
 Copy-Item -LiteralPath $optiPatcherAsiSrc -Destination (Join-Path $optiPluginDst 'OptiPatcher.asi') -Force
 
 # 6. Stage ASI 1: dlssnr-amd.asi + resources
+Initialize-ParallelPackageTool
 $mzAssets = Join-Path $stage 'dlssnr-amd'
 New-Item -ItemType Directory -Force $mzAssets, (Join-Path $stage 'model-tools'), (Join-Path $stage 'experimental') | Out-Null
-Get-ChildItem -LiteralPath (Join-Path $asiPayload 'dlssnr-amd') -Recurse -File | ForEach-Object {
-    $relative = $_.FullName.Substring((Join-Path $asiPayload 'dlssnr-amd').Length).TrimStart('\', '/')
-    $dest = Join-Path $mzAssets $relative
-    $destDir = Split-Path -Parent $dest
-    if ($destDir) { New-Item -ItemType Directory -Force $destDir | Out-Null }
-    Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
-}
+[OptiScaler.ParallelPackageTool]::CopyDirectoryTree((Join-Path $asiPayload 'dlssnr-amd'), $mzAssets)
 Copy-Item -LiteralPath (Join-Path $asiPayload 'OptiScaler/plugins/dlssnr-amd.asi') -Destination (Join-Path $optiPluginDst 'dlssnr-amd.asi') -Force
 Copy-Item -LiteralPath (Join-Path $asiPayload 'nr_present_probe.exe') -Destination $mzAssets -Force
 Copy-Item -LiteralPath (Join-Path $asiPayload 'ini/dlssnr-amd-optiscaler.ini') -Destination $stage -Force
@@ -297,14 +426,7 @@ foreach ($cand in @('openrr-amd.ini', 'OptiScaler/openrr-amd.ini')) {
 if ($openRrIniSrc) { Copy-Item -LiteralPath $openRrIniSrc -Destination (Join-Path $stage 'openrr-amd.ini') -Force }
 $openRrAssetsDst = Join-Path $stage 'openrr-amd'
 $openRrAssetsSrc = Join-Path $openRrPayload 'openrr-amd'
-New-Item -ItemType Directory -Force $openRrAssetsDst | Out-Null
-Get-ChildItem -LiteralPath $openRrAssetsSrc -Recurse -File | ForEach-Object {
-    $relative = $_.FullName.Substring($openRrAssetsSrc.Length).TrimStart('\', '/')
-    $dest = Join-Path $openRrAssetsDst $relative
-    $destDir = Split-Path -Parent $dest
-    if ($destDir) { New-Item -ItemType Directory -Force $destDir | Out-Null }
-    Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
-}
+[OptiScaler.ParallelPackageTool]::CopyDirectoryTree($openRrAssetsSrc, $openRrAssetsDst)
 Get-ChildItem -LiteralPath (Join-Path $openRrPayload 'Licenses') -File | Copy-Item -Destination (Join-Path $stage 'Licenses') -Force
 
 # 7b. Stage RTX Remix for Minecraft AMD patch (remixbridge.dll + licenses; no OptiScaler.ini)
@@ -381,47 +503,52 @@ if ($badAll) {
 . (Join-Path $PSScriptRoot 'package-signing.ps1')
 Invoke-PackageSigning -Stage $stage -Thumbprint $SigningThumbprint
 
-# 11. Generate SHA256SUMS.txt & ZIP
-$expectedEntries = @{}
-$hashes = Get-ChildItem -LiteralPath $stage -Recurse -File |
+# 11. Generate SHA256SUMS.txt & ZIP (parallel hashing + multi-threaded 7z Deflate with Compress-Archive fallback)
+Initialize-ParallelPackageTool
+$stageFiles = @(Get-ChildItem -LiteralPath $stage -Recurse -File |
     Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |
     Sort-Object FullName |
-    ForEach-Object {
-        $relative = $_.FullName.Substring($stage.Length + 1).Replace('\', '/')
-        $digest = Get-Sha256 $_.FullName
-        $expectedEntries[$relative] = $digest
-        '{0} *{1}' -f $digest, $relative
-    }
+    ForEach-Object { $_.FullName })
+$hashedPairs = [OptiScaler.ParallelPackageTool]::HashFiles($stage, [string[]]$stageFiles, $Jobs)
+$expectedEntries = New-Object 'System.Collections.Generic.Dictionary[string,string]' ([StringComparer]::OrdinalIgnoreCase)
+$hashes = New-Object 'System.Collections.Generic.List[string]' ($hashedPairs.Length)
+foreach ($pair in $hashedPairs) {
+    $expectedEntries[$pair.Key] = $pair.Value
+    [void]$hashes.Add(('{0} *{1}' -f $pair.Value, $pair.Key))
+}
 [IO.File]::WriteAllText((Join-Path $stage 'SHA256SUMS.txt'), (($hashes -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
 $expectedEntries['SHA256SUMS.txt'] = Get-Sha256 (Join-Path $stage 'SHA256SUMS.txt')
 
 New-Item -ItemType Directory -Force -Path (Join-Path $root $OutDir) | Out-Null
 if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
+$requiredZipEntries = [string[]]@('OptiScaler.dll', 'OptiScaler.ini', 'Setup.ps1', 'install.sh', 'OptiScalerNRLauncher.exe', 'launcher-worker.ps1', 'proxy-probe.ps1', 'library-scan.ps1', 'install-capabilities.ps1', 'xess-compat.ps1', 'proxy-profiles.json', 'OptiScaler/plugins/dlssnr-amd.asi', 'OptiScaler/plugins/openrr-amd.asi', 'OptiScaler/plugins/openrr-ngx-host.dll', 'rtx-remix-mc/remixbridge.dll', 'Licenses/RTX-Remix-Minecraft-AMD-Patch_LICENSE.txt', 'Licenses/RTX-Remix-Minecraft-AMD-Patch_NOTICE.txt', 'Licenses/NVIDIA-rtx-remix-minecraft-Apache-2.0.txt', 'openrr-amd/aco/gfx1201/openrr-d3d12-v1/manifest.msgpack', 'openrr-amd/aco/gfx1200/openrr-d3d12-v1/manifest.msgpack', 'openrr-amd/lang/zh-CN.txt', 'openrr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf', 'dlssnr-amd/nr_present_probe.exe', 'dlssnr-amd/aco/d3d12_outer.nra', 'dlssnr-amd/aco/rdna3/d3d12_outer.nra', 'dlssnr-amd/lang/zh-CN.txt', 'dlssnr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf', 'model-tools/dlssnr_extract_model.exe', 'experimental/dlssnr-small-experimental.delta', 'optimized/dlssnr-optimized.delta', 'dlssnr-amd-optiscaler.ini', 'dlssnr-amd-optiscaler-renodx.ini', 'dlssnr-amd-standalone.ini', 'dlssnr-amd-addon.ini', 'standalone/dxgi.dll', 'standalone/vk-override/implicit_layer/dlssnr_standalone.json', 'reshade/ReShade64.dll', 'reshade/dlssnr_amd.addon64', 'reshade/ReShade.ini', 'reshade/ReShadePreset.ini', 'reshade/ReShadePreset-d3d9.ini', 'reshade/vk-override/implicit_layer/ReShade64.json', 'reshade/reshade-shaders/Shaders/DLSS5_Feed.fx', 'dxvk/d3d9.dll', 'dxvk/dxgi.dll', 'vulkan/vulkan-1.dll', 'mochizuki-owned.txt')
 try {
-    Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal -Force
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $archive = [IO.Compression.ZipFile]::OpenRead($zip)
-    try {
-        $seen = @{}
-        foreach ($entry in $archive.Entries) {
-            $relative = $entry.FullName.Replace('\', '/')
-            if ([string]::IsNullOrEmpty($entry.Name)) { continue }
-            if ($entry.Name -match $forbidden -or -not $expectedEntries.ContainsKey($relative) -or $seen.ContainsKey($relative)) {
-                throw "Unexpected, forbidden or duplicate archive entry: $relative"
+    $sevenZip = Find-SevenZip
+    if ($sevenZip) {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $sevenZip
+        $psi.WorkingDirectory = $stage
+        $psi.Arguments = ('a -tzip -mm=Deflate -mx=6 -mmt={0} -bd -y -- "{1}" *' -f $Jobs, $zip)
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $proc = [System.Diagnostics.Process]::Start($psi)
+        try {
+            $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+            $stderrTask = $proc.StandardError.ReadToEndAsync()
+            $proc.WaitForExit()
+            $zErr = $stderrTask.Result
+            $zOut = $stdoutTask.Result
+            if ($proc.ExitCode -ne 0) {
+                throw ("7z zip creation failed (exit {0}): {1} {2}" -f $proc.ExitCode, $zErr, $zOut)
             }
-            $seen[$relative] = $true
-            $stream = $entry.Open()
-            $sha = [Security.Cryptography.SHA256]::Create()
-            try { $actual = [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-', '') }
-            finally { $stream.Dispose(); $sha.Dispose() }
-            if ($actual -ne $expectedEntries[$relative]) { throw "Archive checksum mismatch: $relative" }
+        } finally {
+            $proc.Dispose()
         }
-        foreach ($required in @('OptiScaler.dll', 'OptiScaler.ini', 'Setup.ps1', 'install.sh', 'OptiScalerNRLauncher.exe', 'launcher-worker.ps1', 'proxy-probe.ps1', 'library-scan.ps1', 'install-capabilities.ps1', 'xess-compat.ps1', 'proxy-profiles.json', 'OptiScaler/plugins/dlssnr-amd.asi', 'OptiScaler/plugins/openrr-amd.asi', 'OptiScaler/plugins/openrr-ngx-host.dll', 'rtx-remix-mc/remixbridge.dll', 'Licenses/RTX-Remix-Minecraft-AMD-Patch_LICENSE.txt', 'Licenses/RTX-Remix-Minecraft-AMD-Patch_NOTICE.txt', 'Licenses/NVIDIA-rtx-remix-minecraft-Apache-2.0.txt', 'openrr-amd/aco/gfx1201/openrr-d3d12-v1/manifest.msgpack', 'openrr-amd/aco/gfx1200/openrr-d3d12-v1/manifest.msgpack', 'openrr-amd/lang/zh-CN.txt', 'openrr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf', 'dlssnr-amd/nr_present_probe.exe', 'dlssnr-amd/aco/d3d12_outer.nra', 'dlssnr-amd/aco/rdna3/d3d12_outer.nra', 'dlssnr-amd/lang/zh-CN.txt', 'dlssnr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf', 'model-tools/dlssnr_extract_model.exe', 'experimental/dlssnr-small-experimental.delta', 'optimized/dlssnr-optimized.delta', 'dlssnr-amd-optiscaler.ini', 'dlssnr-amd-optiscaler-renodx.ini', 'dlssnr-amd-standalone.ini', 'dlssnr-amd-addon.ini', 'standalone/dxgi.dll', 'standalone/vk-override/implicit_layer/dlssnr_standalone.json', 'reshade/ReShade64.dll', 'reshade/dlssnr_amd.addon64', 'reshade/ReShade.ini', 'reshade/ReShadePreset.ini', 'reshade/ReShadePreset-d3d9.ini', 'reshade/vk-override/implicit_layer/ReShade64.json', 'reshade/reshade-shaders/Shaders/DLSS5_Feed.fx', 'dxvk/d3d9.dll', 'dxvk/dxgi.dll', 'vulkan/vulkan-1.dll', 'mochizuki-owned.txt') + @($expectedEntries.Keys)) {
-            if (-not $seen.ContainsKey($required)) { throw "Package archive missing required component: $required" }
-        }
-    } finally {
-        $archive.Dispose()
+    } else {
+        Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal -Force
     }
+    [OptiScaler.ParallelPackageTool]::VerifyZipEntries($zip, $expectedEntries, $forbidden, $requiredZipEntries, $Jobs)
 } catch {
     if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
     throw "Package archive validation failed; zip removed: $($_.Exception.Message)"

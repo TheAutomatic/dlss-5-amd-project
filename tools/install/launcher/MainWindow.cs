@@ -706,7 +706,7 @@ namespace OptScalerNR.Launcher
                 if (_replaceIni != null) _replaceIni.Content = isZh ? "覆盖现有配置" : "Replace existing configuration";
                 SetLabel("OptiPatcherToggle", "安装 OptiPatcher", "Install OptiPatcher");
                 ApplyOptiPatcherTooltip(IsOptiPatcherSupported(_selectedGame, (_selectedGame == null || _recommendations == null) ? null : _recommendations.Match(_selectedGame)));
-                SetLabel("OpenRrToggle", "OpenRR 0.1.7 Plus 3", "OpenRR 0.1.7 Plus 3");
+                SetLabel("OpenRrToggle", "OpenRR 0.1.7 Plus 5", "OpenRR 0.1.7 Plus 5");
                 SetLabel("OpenRrAutoSpoofToggle",
                     "实验性：减少全局显卡伪装（Dxgi=auto，配合 OptiPatcher 保持真实 A 卡身份）",
                     "Experimental: Reduce global GPU spoofing (Dxgi=auto, keeps native AMD adapter with OptiPatcher)");

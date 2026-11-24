@@ -144,14 +144,85 @@ function Resolve-PinnedArchive([string]$Name, [string]$Url, [string]$ExpectedSha
     return $cached
 }
 
+function Prefetch-PinnedArchives([object[]]$Specs) {
+    if (-not $Specs -or $Specs.Count -le 1) { return }
+    $curl = Get-Command 'curl.exe' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $curl) { $curl = Get-Command 'curl' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1 }
+    if (-not $curl) { return }
+    $maxJobs = [Math]::Max(1, [Environment]::ProcessorCount)
+    $envJobs = 0
+    if ($env:JOBS -and [int]::TryParse($env:JOBS, [ref]$envJobs) -and $envJobs -gt 0) { $maxJobs = $envJobs }
+    if ($maxJobs -le 1) { return }
+
+    $pending = New-Object System.Collections.Generic.List[hashtable]
+    foreach ($spec in $Specs) {
+        $name = [string]$spec.Name
+        $url = [string]$spec.Url
+        $expected = ([string]$spec.ExpectedSha).ToLowerInvariant()
+        if ($UpstreamDir -and (Test-Path -LiteralPath (Join-Path $UpstreamDir $name) -PathType Leaf)) { continue }
+        $cached = Join-Path $downloadsDir $name
+        if ((Test-Path -LiteralPath $cached -PathType Leaf) -and (Get-Sha256Hex $cached) -eq $expected) { continue }
+        [void]$pending.Add(@{ Name = $name; Url = $url; Expected = $expected; Cached = $cached; Part = "$cached.part.$([guid]::NewGuid().ToString('N'))" })
+    }
+    if ($pending.Count -le 1) { return }
+
+    $running = New-Object System.Collections.Generic.List[hashtable]
+    $idx = 0
+    try {
+        while ($idx -lt $pending.Count -or $running.Count -gt 0) {
+            while ($idx -lt $pending.Count -and $running.Count -lt $maxJobs) {
+                $item = $pending[$idx]
+                $idx++
+                Write-Host "Downloading $($item.Url) -> $($item.Cached) ..." -ForegroundColor Cyan
+                $psi = New-Object System.Diagnostics.ProcessStartInfo
+                $psi.FileName = $curl.Source
+                $psi.Arguments = ('-fsSL --retry 3 --connect-timeout 15 --max-time 600 -o "{0}" "{1}"' -f $item.Part, $item.Url)
+                $psi.UseShellExecute = $false
+                $psi.CreateNoWindow = $true
+                $proc = [System.Diagnostics.Process]::Start($psi)
+                [void]$running.Add(@{ Item = $item; Proc = $proc })
+            }
+            $finished = $null
+            for ($i = 0; $i -lt $running.Count; $i++) {
+                if ($running[$i].Proc.HasExited) { $finished = $i; break }
+            }
+            if ($null -eq $finished) { Start-Sleep -Milliseconds 100; continue }
+            $slot = $running[$finished]
+            $running.RemoveAt($finished)
+            $code = $slot.Proc.ExitCode
+            $slot.Proc.Dispose()
+            $item = $slot.Item
+            if ($code -ne 0 -or -not (Test-Path -LiteralPath $item.Part -PathType Leaf)) {
+                if (Test-Path -LiteralPath $item.Part) { Remove-Item -LiteralPath $item.Part -Force -ErrorAction SilentlyContinue }
+                throw "Parallel curl download failed (exit $code) for $($item.Url)"
+            }
+            $actual = Get-Sha256Hex $item.Part
+            if ($actual -ne $item.Expected) {
+                Remove-Item -LiteralPath $item.Part -Force -ErrorAction SilentlyContinue
+                throw "SHA-256 mismatch for downloaded archive '$($item.Url)': expected $($item.Expected), got $actual"
+            }
+            Move-Item -LiteralPath $item.Part -Destination $item.Cached -Force
+        }
+    } catch {
+        foreach ($slot in $running) {
+            try { if (-not $slot.Proc.HasExited) { $slot.Proc.Kill() } } catch { }
+            try { $slot.Proc.Dispose() } catch { }
+            if (Test-Path -LiteralPath $slot.Item.Part) { Remove-Item -LiteralPath $slot.Item.Part -Force -ErrorAction SilentlyContinue }
+        }
+        throw
+    }
+}
+
+$script:CreatedDirs = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+
 function Join-RelPath([string]$BaseDir, [string]$RelPath) {
     return Join-Path $BaseDir ($RelPath.Replace('/', [IO.Path]::DirectorySeparatorChar))
 }
 
 function Write-ZipEntryToFile($Entry, [string]$DestPath) {
-    $dir = Split-Path -Parent $DestPath
-    if ($dir -and -not (Test-Path -LiteralPath $dir -PathType Container)) {
-        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $dir = [IO.Path]::GetDirectoryName($DestPath)
+    if ($dir -and $script:CreatedDirs.Add($dir)) {
+        [void][IO.Directory]::CreateDirectory($dir)
     }
     $inStream = $Entry.Open()
     try {
@@ -168,11 +239,11 @@ function Write-ZipEntryToFile($Entry, [string]$DestPath) {
 
 function Copy-FileToRel([string]$SrcPath, [string]$BaseDir, [string]$DestRel) {
     $destPath = Join-RelPath $BaseDir $DestRel
-    $dir = Split-Path -Parent $destPath
-    if ($dir -and -not (Test-Path -LiteralPath $dir -PathType Container)) {
-        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $dir = [IO.Path]::GetDirectoryName($destPath)
+    if ($dir -and $script:CreatedDirs.Add($dir)) {
+        [void][IO.Directory]::CreateDirectory($dir)
     }
-    Copy-Item -LiteralPath $SrcPath -Destination $destPath -Force
+    [IO.File]::Copy($SrcPath, $destPath, $true)
 }
 
 function Normalize-ZipEntryRel([string]$FullName) {
@@ -413,6 +484,20 @@ function Stage-DlssnrPayload([string]$DestDir, [bool]$CustomMode) {
         throw
     }
 }
+
+# Pre-download any missing pinned archives concurrently (largest first) before staging.
+$prefetchSpecs = New-Object System.Collections.Generic.List[hashtable]
+if (-not $isCustomDlssnr) {
+    [void]$prefetchSpecs.Add(@{ Name = $pins.dlssnr.archiveName; Url = $pins.dlssnr.archiveUrl; ExpectedSha = $pins.dlssnr.archiveSha256 })
+    [void]$prefetchSpecs.Add(@{ Name = $pins.dlssnr.langArchiveName; Url = $pins.dlssnr.langArchiveUrl; ExpectedSha = $pins.dlssnr.langArchiveSha256 })
+}
+if (-not ($OpenRrDir -or $OpenRrArchive)) {
+    [void]$prefetchSpecs.Add(@{ Name = $pins.openrr.archiveName; Url = $pins.openrr.archiveUrl; ExpectedSha = $pins.openrr.archiveSha256 })
+}
+if (-not $RtxRemixMcArchive) {
+    [void]$prefetchSpecs.Add(@{ Name = $pins.rtxRemixMc.archiveName; Url = $pins.rtxRemixMc.archiveUrl; ExpectedSha = $pins.rtxRemixMc.archiveSha256 })
+}
+Prefetch-PinnedArchives -Specs $prefetchSpecs.ToArray()
 
 if ($isCustomDlssnr) {
     Stage-DlssnrPayload -DestDir $dlssnrDir -CustomMode $true

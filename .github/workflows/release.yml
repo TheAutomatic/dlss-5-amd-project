@@ -218,6 +218,15 @@ jobs:
         working-directory: tools/linux
         run: python3 -B launcher/selftest.py --unit-only -v
 
+      - name: Ensure pigz for multi-threaded gzip compression
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v pigz >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends pigz
+          fi
+
       - name: Package Linux tarballs (x86_64 + i686)
         shell: bash
         run: |
@@ -232,20 +241,32 @@ jobs:
           ver='${{ steps.ver.outputs.version }}'
           work="$RUNNER_TEMP/linux-pkg"
           mkdir -p "$work"
-          for arch in x86_64 i686; do
-            name="OptiScaler-NR-Linux-$arch-$ver"
-            tgz="dist/$name.tar.gz"
+          have_pigz=0
+          command -v pigz >/dev/null 2>&1 && have_pigz=1
+          verify_arch() {
+            local arch=$1
+            local name="OptiScaler-NR-Linux-$arch-$ver"
+            local tgz="dist/$name.tar.gz"
+            local arch_work="$work/pkg-$arch"
+            local arch_tmp="$work/tmp-$arch"
+            mkdir -p "$arch_work" "$arch_tmp"
             test -f "$tgz" && test -f "$tgz.sha256"
             (cd dist && sha256sum -c "$name.tar.gz.sha256")
-            # Same forbidden-name regex as the Windows guard; also require a single top-level folder.
-            python3 -B - "$tgz" "$name" <<'PY'
-          import re, sys, tarfile
-          tgz, top = sys.argv[1], sys.argv[2]
+            # Validate archive listing BEFORE extracting (via pigz when available) for forbidden names
+            # and single top-level folder layout.
+            local list_file="$work/list-$arch.txt"
+            if [ "$have_pigz" -eq 1 ]; then
+              pigz -dc "$tgz" | tar -tf - > "$list_file"
+            else
+              tar -tzf "$tgz" > "$list_file"
+            fi
+            python3 -B - "$list_file" "$name" "$tgz" <<'PY'
+          import re, sys
+          list_path, top, tgz = sys.argv[1], sys.argv[2], sys.argv[3]
           forbidden = re.compile(r'^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr(?:-int4|-small)?\.bin|CC_(?:SMALL_FP8|SMALL_FP8_EXPERIMENTAL|SILVER_AARDWOLD|SILVER_AARDWOLD_OPTIMIZED|SILVER_AARDWOLD_OPTIMIZED_INT4)\.bin|pipeline\.cache|version\.dll|dlssnr_on_amd_setup\.exe)$', re.I)
-          with tarfile.open(tgz) as tf:
-              names = tf.getnames()
+          names = [line.rstrip('\r\n') for line in open(list_path, encoding='utf-8')]
           bad = [n for n in names if forbidden.match(n.rstrip('/').rsplit('/', 1)[-1])]
-          stray = [n for n in names if n != top and not n.startswith(top + '/')]
+          stray = [n for n in names if n != top and n != top + '/' and not n.startswith(top + '/')]
           for n in bad:
               print('FORBIDDEN: ' + n)
           for n in stray:
@@ -253,10 +274,39 @@ jobs:
           if bad or stray:
               sys.exit('Refusing to publish ' + tgz)
           PY
-            tar -xzf "$tgz" -C "$work"
-            NR_E2E_TMP="$RUNNER_TEMP" python3 -B "$work/$name/launcher/selftest.py" -v
-            rm -rf "${work:?}/$name"
+            if [ "$have_pigz" -eq 1 ]; then
+              pigz -dc "$tgz" | tar -C "$arch_work" -xf -
+            else
+              tar -xzf "$tgz" -C "$arch_work"
+            fi
+            NR_E2E_TMP="$arch_tmp" python3 -B "$arch_work/$name/launcher/selftest.py" -v
+            rm -rf -- "$arch_work" "$arch_tmp" "$list_file"
+          }
+          pids=()
+          logs=()
+          cleanup() {
+            if [ "${#pids[@]}" -gt 0 ]; then
+              for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done
+              for p in "${pids[@]}"; do wait "$p" 2>/dev/null || true; done
+            fi
+          }
+          trap cleanup EXIT
+          # Schedule heavier x86_64 first alongside i686.
+          for arch in x86_64 i686; do
+            logf="$work/verify-$arch.log"
+            logs+=("$logf")
+            ( verify_arch "$arch" ) > "$logf" 2>&1 &
+            pids+=("$!")
           done
+          failed=0
+          for i in "${!pids[@]}"; do
+            rc=0
+            wait "${pids[$i]}" || rc=$?
+            cat "${logs[$i]}"
+            if [ "$rc" -ne 0 ] && [ "$failed" -eq 0 ]; then failed=$rc; fi
+          done
+          pids=()
+          exit "$failed"
 
       - name: Upload tested Linux packages
         if: github.event_name == 'workflow_dispatch'
@@ -315,17 +365,12 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: python3 -B .github/scripts/publish_release_asset.py --tag "$RELEASE_TAG" --verify-source "$GITHUB_SHA"
 
-      - name: Download staged Windows release asset
+      - name: Download staged release assets
         uses: actions/download-artifact@v6
         with:
-          name: release-win-${{ github.run_id }}
+          pattern: release-*-${{ github.run_id }}
           path: dist
-
-      - name: Download staged Linux release assets
-        uses: actions/download-artifact@v6
-        with:
-          name: release-linux-${{ github.run_id }}
-          path: dist
+          merge-multiple: true
 
       - name: Prepare release notes
         shell: bash
@@ -401,9 +446,35 @@ jobs:
           RELEASE_VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
-          for asset in \
-            "dist/OptiScaler-NR-Win-${RELEASE_VERSION}.zip" \
-            "dist/OptiScaler-NR-Linux-x86_64-${RELEASE_VERSION}.tar.gz" \
-            "dist/OptiScaler-NR-Linux-i686-${RELEASE_VERSION}.tar.gz"; do
-            python3 -B .github/scripts/publish_release_asset.py --tag "$RELEASE_TAG" --asset "$asset"
+          work="$RUNNER_TEMP/release-uploads"
+          mkdir -p "$work"
+          # Upload largest assets first in parallel (each uses its own unique .pending-<sha> staging name).
+          assets=(
+            "dist/OptiScaler-NR-Win-${RELEASE_VERSION}.zip"
+            "dist/OptiScaler-NR-Linux-x86_64-${RELEASE_VERSION}.tar.gz"
+            "dist/OptiScaler-NR-Linux-i686-${RELEASE_VERSION}.tar.gz"
+          )
+          pids=()
+          logs=()
+          cleanup() {
+            if [ "${#pids[@]}" -gt 0 ]; then
+              for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done
+              for p in "${pids[@]}"; do wait "$p" 2>/dev/null || true; done
+            fi
+          }
+          trap cleanup EXIT
+          for i in "${!assets[@]}"; do
+            logf="$work/upload-$i.log"
+            logs+=("$logf")
+            python3 -B .github/scripts/publish_release_asset.py --tag "$RELEASE_TAG" --asset "${assets[$i]}" > "$logf" 2>&1 &
+            pids+=("$!")
           done
+          failed=0
+          for i in "${!pids[@]}"; do
+            rc=0
+            wait "${pids[$i]}" || rc=$?
+            cat "${logs[$i]}"
+            if [ "$rc" -ne 0 ] && [ "$failed" -eq 0 ]; then failed=$rc; fi
+          done
+          pids=()
+          exit "$failed"

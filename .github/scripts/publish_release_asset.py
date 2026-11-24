@@ -96,10 +96,14 @@ def publish(client, tag, path, attempts=5, sleep=time.sleep):
     if final:
         print("Already published and SHA-256 verified:", name)
         return final
-    # Keep the package file unchanged; only this temporary copy gets the staging name.
-    with tempfile.TemporaryDirectory(prefix="release-upload-") as temporary:
+    # Keep the package file unchanged; prefer a same-FS hardlink for the temporary staging name
+    # (zero-copy for multi-hundred-MB packages) and fall back to copying when linking is unsupported.
+    with tempfile.TemporaryDirectory(prefix="release-upload-", dir=str(path.parent)) as temporary:
         staged = Path(temporary) / pending_name
-        shutil.copyfile(path, staged)
+        try:
+            os.link(path, staged)
+        except OSError:
+            shutil.copyfile(path, staged)
         retry(lambda: client.upload(tag, staged), attempts, sleep)
     pending = next((a for a in assets() if a["name"] == pending_name), None)
     if pending is None or not verified(pending):
