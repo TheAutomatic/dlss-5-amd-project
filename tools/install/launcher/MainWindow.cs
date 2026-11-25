@@ -174,9 +174,23 @@ namespace OptScalerNR.Launcher
             _window = window;
             _libraryArtwork = new LocalArtwork.Scope(window.Dispatcher);
             _heroArtwork = new LocalArtwork.Scope(window.Dispatcher);
+            var brandIcon = Program.LoadTitleIcon();
             var titleIcon = window.FindName("AppTitleIcon") as Image;
             if (titleIcon != null)
-                titleIcon.Source = Program.LoadTitleIcon();
+                titleIcon.Source = brandIcon;
+            var settingsIcon = window.FindName("SettingsBrandIcon") as Image;
+            if (settingsIcon != null)
+                settingsIcon.Source = brandIcon;
+            var settingsVer = window.FindName("SettingsVersionText") as TextBlock;
+            if (settingsVer != null)
+            {
+                var infoAttrs = System.Reflection.Assembly.GetExecutingAssembly().GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false);
+                if (infoAttrs != null && infoAttrs.Length > 0)
+                {
+                    var iv = ((System.Reflection.AssemblyInformationalVersionAttribute)infoAttrs[0]).InformationalVersion;
+                    if (!string.IsNullOrEmpty(iv)) settingsVer.Text = "v" + iv.TrimStart('v', 'V');
+                }
+            }
 
             _minBtn = (Button)window.FindName("MinBtn");
             _maxBtn = (Button)window.FindName("MaxBtn");
@@ -630,6 +644,8 @@ namespace OptScalerNR.Launcher
                                 if (_versionText != null)
                                     _versionText.Text = "OptiScaler NR v" + raw.TrimStart('v', 'V');
                                 ((TextBlock)_window.FindName("VersionTag")).Text = raw.TrimStart('v', 'V');
+                                var sv = _window.FindName("SettingsVersionText") as TextBlock;
+                                if (sv != null) sv.Text = "v" + raw.TrimStart('v', 'V');
                             }
                             return;
                         }
@@ -717,11 +733,12 @@ namespace OptScalerNR.Launcher
                 SetLabel("LocalGamesHeading", "游戏库", "Library");
                 SetLabel("ProxyHeading", "注入代理", "Injection proxy");
                 SetLabel("BackendsHeading", "画质插件", "Quality plugins");
-                SetLabel("MochiCheck", "mochizuki 0.0.9 M11", "mochizuki 0.0.9 M11");
+                SetLabel("MochiCheck", "mochizuki 0.0.9 M12", "mochizuki 0.0.9 M12");
                 RefreshGpuHints();
                 SetLabel("DiagnosticsHeading", "安装选项", "Install options");
                 SetLabel("LogHeading", "安装日志", "Install log");
                 SetLabel("SettingsHeading", "设置", "Settings");
+                SetLabel("SettingsAuthorText", "作者：TheAutomatic", "Author: TheAutomatic");
                 SetLabel("LanguageHeading", "语言", "Language");
                 SetLabel("PackageHeading", "安装包目录", "Package Folder");
                 SetLabel("PackageDesc",

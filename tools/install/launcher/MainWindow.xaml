@@ -671,7 +671,7 @@
                           <Button x:Name="MochiHotkeysButton" Style="{DynamicResource CardAction}" Margin="0,0,8,0"/>
                           <Button x:Name="MochiShareCodeButton" Style="{DynamicResource CardAction}"/>
                         </StackPanel>
-                        <CheckBox x:Name="MochiCheck" Style="{DynamicResource ToggleSwitch}" Content="mochizuki 0.0.9 M11" FontWeight="SemiBold" FontSize="13.5" VerticalAlignment="Center" IsChecked="True" IsEnabled="True"/>
+                        <CheckBox x:Name="MochiCheck" Style="{DynamicResource ToggleSwitch}" Content="mochizuki 0.0.9 M12" FontWeight="SemiBold" FontSize="13.5" VerticalAlignment="Center" IsChecked="True" IsEnabled="True"/>
                       </DockPanel>
                       <TextBlock x:Name="MochiDescription" Grid.Row="1" Style="{StaticResource Caption}" Margin="52,6,0,0"/>
                       <TextBlock x:Name="MochiMcWarningText" Grid.Row="2" FontSize="12" Foreground="{DynamicResource ThemeMuted}" Margin="52,6,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
@@ -1034,15 +1034,32 @@
 
     <!-- ===== Settings: centred floating card over a scrim (click outside / Esc closes) ===== -->
     <Border x:Name="SettingsPage" Grid.Row="1" Grid.RowSpan="2" Panel.ZIndex="20" Visibility="Collapsed" Background="{DynamicResource ThemeScrim}">
-      <Border x:Name="SettingsCard" Width="640" MaxHeight="580" Margin="24" HorizontalAlignment="Center" VerticalAlignment="Center"
+      <Border x:Name="SettingsCard" Width="780" MaxHeight="580" Margin="24" HorizontalAlignment="Center" VerticalAlignment="Center"
               Background="{DynamicResource ThemeSurface}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="8">
         <Border.Effect><DropShadowEffect BlurRadius="36" ShadowDepth="10" Direction="270" Opacity="0.28"/></Border.Effect>
-        <DockPanel>
-          <Border DockPanel.Dock="Bottom" Background="{DynamicResource ThemeLayer}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="0,1,0,0" CornerRadius="0,0,8,8" Padding="24,12">
-            <Button x:Name="SettingsCloseButton" Style="{DynamicResource GhostButton}" HorizontalAlignment="Right" MinWidth="96" Height="32"/>
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="216"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+          <!-- Left brand panel: large crisp app icon displayed alongside settings -->
+          <Border Grid.Column="0" Background="{DynamicResource ThemeLayer}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="0,0,1,0" CornerRadius="8,0,0,8" Padding="20,24">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+              <Image x:Name="SettingsBrandIcon" Width="144" Height="144" Stretch="Uniform"
+                     RenderOptions.BitmapScalingMode="HighQuality" SnapsToDevicePixels="True" HorizontalAlignment="Center">
+                <Image.Effect><DropShadowEffect BlurRadius="18" ShadowDepth="4" Direction="270" Opacity="0.22"/></Image.Effect>
+              </Image>
+              <TextBlock Text="OptiScaler(NR)" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource ThemeInk}" HorizontalAlignment="Center" Margin="0,14,0,0"/>
+              <TextBlock x:Name="SettingsVersionText" FontSize="11.5" Foreground="{DynamicResource ThemeMuted}" HorizontalAlignment="Center" Margin="0,4,0,0"/>
+              <TextBlock x:Name="SettingsAuthorText" FontSize="11.5" Foreground="{DynamicResource ThemeFaint}" HorizontalAlignment="Center" Margin="0,10,0,0"/>
+            </StackPanel>
           </Border>
-          <TextBlock x:Name="SettingsHeading" DockPanel.Dock="Top" FontSize="20" FontWeight="SemiBold" Foreground="{DynamicResource ThemeInk}" Margin="24,20,24,14"/>
-          <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="24,0,20,18">
+          <DockPanel Grid.Column="1">
+            <Border DockPanel.Dock="Bottom" Background="{DynamicResource ThemeLayer}" BorderBrush="{DynamicResource ThemeHairline}" BorderThickness="0,1,0,0" CornerRadius="0,0,8,0" Padding="24,12">
+              <Button x:Name="SettingsCloseButton" Style="{DynamicResource GhostButton}" HorizontalAlignment="Right" MinWidth="96" Height="32"/>
+            </Border>
+            <TextBlock x:Name="SettingsHeading" DockPanel.Dock="Top" FontSize="20" FontWeight="SemiBold" Foreground="{DynamicResource ThemeInk}" Margin="24,20,24,14"/>
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="24,0,20,18">
             <StackPanel>
               <Border x:Name="SettingsOptionsPanel" Style="{StaticResource Card}" Padding="0">
               <StackPanel>
@@ -1093,8 +1110,9 @@
                         local:DialogTheme.Icon="M 9 2.5 H 13.5 V 7 M 13.5 2.5 L 7.5 8.5 M 11.5 9.5 V 13.5 H 2.5 V 4.5 H 6.5"/>
               </WrapPanel>
             </StackPanel>
-          </ScrollViewer>
-        </DockPanel>
+            </ScrollViewer>
+          </DockPanel>
+        </Grid>
       </Border>
     </Border>
   </Grid>

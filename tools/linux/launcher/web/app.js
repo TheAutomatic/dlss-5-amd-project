@@ -75,6 +75,7 @@ const STR = {
     cf_title: 'Uninstall from {name}?', cf_text: 'Every file listed in dlssnr-amd-install.txt is deleted, including INI files and logs. Game files that the installation overwrote are not restored.',
     cancel: 'Cancel', close: 'Close',
     set_appearance: 'Appearance', set_lang: 'Language', set_theme: 'Theme', light: 'Light', dark: 'Dark', system: 'System',
+    set_author: 'Author: TheAutomatic', set_license: 'Free · Noncommercial (PolyForm 1.0.0)',
     set_pkg: 'Package', set_ver: 'Version', set_arch: 'Architecture', set_up: 'DLSSNR-AMD', set_openrr: 'OpenRR', set_path: 'Folder', set_model: 'Model cache',
     set_int: 'Integration', set_desktop: 'App menu entry', set_desktop_d: 'Adds “OptiScaler NR” to your application menu (~/.local/share/applications).',
     add: 'Add', remove: 'Remove', set_quit: 'Quit launcher', set_quit_d: 'Stops the local server. Closing this window does the same after a moment.',
@@ -154,6 +155,7 @@ const STR = {
     cf_title: '从 {name} 卸载？', cf_text: '将删除 dlssnr-amd-install.txt 中列出的所有文件（包括配置文件和日志）。安装时被覆盖的游戏文件不会恢复。',
     cancel: '取消', close: '关闭',
     set_appearance: '外观', set_lang: '语言', set_theme: '主题', light: '浅色', dark: '深色', system: '跟随系统',
+    set_author: '作者：TheAutomatic', set_license: '免费开源 · 仅限非商业使用 (PolyForm 1.0.0)',
     set_pkg: '安装包', set_ver: '版本', set_arch: '架构', set_up: 'DLSSNR-AMD', set_openrr: 'OpenRR', set_path: '位置', set_model: '模型缓存',
     set_int: '系统集成', set_desktop: '应用菜单项', set_desktop_d: '将“OptiScaler NR”添加到应用菜单（~/.local/share/applications）。',
     add: '添加', remove: '移除', set_quit: '退出启动器', set_quit_d: '停止本地服务。关闭此窗口片刻后也会自动退出。',
@@ -669,6 +671,14 @@ function settingsHtml() {
   const seg = (act, cur, items) => `<div class="seg">${items.map(([v, l]) => `<button class="${cur === v ? 'on' : ''}" data-act="${act}" data-v="${v}">${esc(l)}</button>`).join('')}</div>`;
   return `<div class="dialog-head"><h2>${esc(t('settings'))}</h2><button class="icon-btn sm" data-act="dlg-cancel" aria-label="${esc(t('close'))}">${icon('x')}</button></div>
     <div class="dialog-body">
+      <div class="card settings-brand">
+        <img class="settings-logo" src="${esc(logoSrc)}" alt="OptiScaler NR"/>
+        <div class="settings-brand-meta">
+          <div class="settings-brand-title">OptiScaler(NR)${p.version ? ` <span class="settings-brand-ver">v${esc(p.version)}</span>` : ''}</div>
+          <div class="settings-brand-sub">${esc(t('set_author'))} · Linux ${esc(p.arch || 'x86_64')}</div>
+          <div class="settings-brand-lic">${esc(t('set_license'))}</div>
+        </div>
+      </div>
       <div class="settings-group"><div class="lbl">${esc(t('set_appearance'))}</div><div class="card">
         <div class="row">${icon('globe')}<div class="t">${esc(t('set_lang'))}</div><div class="ctl">${seg('set-lang', S.lang, [['zh', '中文'], ['en', 'English']])}</div></div>
         <div class="row">${icon('theme')}<div class="t">${esc(t('set_theme'))}</div><div class="ctl">${seg('set-theme', S.themePref, [['light', t('light')], ['dark', t('dark')], ['system', t('system')]])}</div></div>
