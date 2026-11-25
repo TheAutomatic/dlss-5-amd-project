@@ -555,7 +555,7 @@ static class LauncherSmoke
     {
         var names = new[] { "GithubButton", "MochizukiAuthorButton", "OpenRrAsiButton", "RtxRemixMcPatchButton", "BilibiliButton" };
         var urls = new[] { "https://github.com/TheAutomatic/dlss-5-amd-project", "https://gitlab.com/mochizuki0323/DLSSNR-AMD", "https://github.com/TheAutomatic/OpenRR-ASI", "https://github.com/TheAutomatic/rtx-remix-minecraft-amd-patch", "https://space.bilibili.com/291088" };
-        var panel = (WrapPanel)VisualTreeHelper.GetParent((Button)Find(names[0]));
+        var panel = (Panel)VisualTreeHelper.GetParent((Button)Find(names[0]));
         Check(panel.Children.Count == names.Length && _window.FindName("OpenRrAuthorButton") == null, "community links replace the old OpenRR button");
         for (int i = 0; i < names.Length; i++) {
             var button = (Button)Find(names[i]);
