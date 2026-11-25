@@ -312,6 +312,24 @@ if (Test-Path -LiteralPath (Join-Path $optiReleaseDir 'Licenses') -PathType Cont
 }
 Copy-Item -LiteralPath $optiLicense -Destination (Join-Path $stage 'Licenses/OptiScaler_LICENSE.txt') -Force
 
+$pinsManifest = Get-Content -LiteralPath (Join-Path $root 'tools/build/upstream-pins.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+$optiCommit = if ([string]$pinsManifest.optiscaler.licenseUrl -match 'OptiScaler/([0-9a-fA-F]{7,40})/LICENSE') { $Matches[1] } else { '' }
+$optiSourceText = @(
+    'Component: OptiScaler'
+    'License: GNU General Public License v3.0 (see Licenses/OptiScaler_LICENSE.txt)'
+    'Upstream Repository: https://github.com/optiscaler/OptiScaler'
+    "Bundled Pinned Version: $($pinsManifest.optiscaler.version)"
+    $(if ($optiCommit) { "Pinned Commit: $optiCommit" } else { 'Pinned Commit: (see tools/build/upstream-pins.json)' })
+    "Archive URL: $($pinsManifest.optiscaler.archiveUrl)"
+    "Archive SHA-256: $($pinsManifest.optiscaler.archiveSha256)"
+    ''
+    'Notice: Unmodified official OptiScaler binaries are distributed as an'
+    'independent aggregate strictly under GPL-3.0 with no additional restrictions'
+    'imposed by this project. Default OptiScaler.ini keys (LoadAsiPlugins=true,'
+    'LogToFile=true, LogLevel=2, FGShortcutKey=-1) are set during packaging.'
+) -join "`r`n"
+[IO.File]::WriteAllText((Join-Path $stage 'Licenses/OptiScaler_SOURCE.txt'), ($optiSourceText + "`r`n"), [Text.UTF8Encoding]::new($false))
+
 # Update official OptiScaler.ini in-place (LoadAsiPlugins=true, LogToFile=true, LogLevel=2, FGShortcutKey=-1)
 $iniPath = Join-Path $stage 'OptiScaler.ini'
 $wanted = [ordered]@{
@@ -346,6 +364,18 @@ $pluginReadme = @(
 ) -join "`r`n"
 [IO.File]::WriteAllText((Join-Path $optiPluginDst 'OptScaler-NR-plugins-README.txt'), ($pluginReadme + "`r`n"), [Text.UTF8Encoding]::new($false))
 Copy-Item -LiteralPath $optiPatcherAsiSrc -Destination (Join-Path $optiPluginDst 'OptiPatcher.asi') -Force
+$optiPatcherSha = Get-Sha256 (Join-Path $optiPluginDst 'OptiPatcher.asi')
+$optiPatcherSourceText = @(
+    'Component: OptiPatcher (OptiPatcher.asi)'
+    'License: GNU General Public License v3.0 (full text in Licenses/OptiScaler_LICENSE.txt)'
+    'Upstream Repository / Corresponding Source: https://github.com/optiscaler/OptiPatcher'
+    "Download URL: $($pinsManifest.optipatcher.url)"
+    "Staged File SHA-256: $($optiPatcherSha.ToLowerInvariant())"
+    ''
+    'Notice: Unmodified OptiPatcher.asi is distributed as an independent aggregate'
+    'strictly under GPL-3.0 with no additional restrictions imposed by this project.'
+) -join "`r`n"
+[IO.File]::WriteAllText((Join-Path $stage 'Licenses/OptiPatcher_SOURCE.txt'), ($optiPatcherSourceText + "`r`n"), [Text.UTF8Encoding]::new($false))
 
 # 6. Stage ASI 1: dlssnr-amd.asi + resources
 Initialize-ParallelPackageTool
@@ -521,7 +551,7 @@ $expectedEntries['SHA256SUMS.txt'] = Get-Sha256 (Join-Path $stage 'SHA256SUMS.tx
 
 New-Item -ItemType Directory -Force -Path (Join-Path $root $OutDir) | Out-Null
 if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
-$requiredZipEntries = [string[]]@('OptiScaler.dll', 'OptiScaler.ini', 'Setup.ps1', 'install.sh', 'OptiScalerNRLauncher.exe', 'launcher-worker.ps1', 'proxy-probe.ps1', 'library-scan.ps1', 'install-capabilities.ps1', 'xess-compat.ps1', 'proxy-profiles.json', 'OptiScaler/plugins/dlssnr-amd.asi', 'OptiScaler/plugins/openrr-amd.asi', 'OptiScaler/plugins/openrr-ngx-host.dll', 'rtx-remix-mc/remixbridge.dll', 'Licenses/RTX-Remix-Minecraft-AMD-Patch_LICENSE.txt', 'Licenses/RTX-Remix-Minecraft-AMD-Patch_NOTICE.txt', 'Licenses/NVIDIA-rtx-remix-minecraft-Apache-2.0.txt', 'openrr-amd/aco/gfx1201/openrr-d3d12-v1/manifest.msgpack', 'openrr-amd/aco/gfx1200/openrr-d3d12-v1/manifest.msgpack', 'openrr-amd/lang/zh-CN.txt', 'openrr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf', 'dlssnr-amd/nr_present_probe.exe', 'dlssnr-amd/aco/d3d12_outer.nra', 'dlssnr-amd/aco/rdna3/d3d12_outer.nra', 'dlssnr-amd/lang/zh-CN.txt', 'dlssnr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf', 'model-tools/dlssnr_extract_model.exe', 'experimental/dlssnr-small-experimental.delta', 'optimized/dlssnr-optimized.delta', 'dlssnr-amd-optiscaler.ini', 'dlssnr-amd-optiscaler-renodx.ini', 'dlssnr-amd-standalone.ini', 'dlssnr-amd-addon.ini', 'standalone/dxgi.dll', 'standalone/vk-override/implicit_layer/dlssnr_standalone.json', 'reshade/ReShade64.dll', 'reshade/dlssnr_amd.addon64', 'reshade/ReShade.ini', 'reshade/ReShadePreset.ini', 'reshade/ReShadePreset-d3d9.ini', 'reshade/vk-override/implicit_layer/ReShade64.json', 'reshade/reshade-shaders/Shaders/DLSS5_Feed.fx', 'dxvk/d3d9.dll', 'dxvk/dxgi.dll', 'vulkan/vulkan-1.dll', 'mochizuki-owned.txt')
+$requiredZipEntries = [string[]]@('OptiScaler.dll', 'OptiScaler.ini', 'Setup.ps1', 'install.sh', 'OptiScalerNRLauncher.exe', 'launcher-worker.ps1', 'proxy-probe.ps1', 'library-scan.ps1', 'install-capabilities.ps1', 'xess-compat.ps1', 'proxy-profiles.json', 'OptiScaler/plugins/dlssnr-amd.asi', 'OptiScaler/plugins/openrr-amd.asi', 'OptiScaler/plugins/openrr-ngx-host.dll', 'rtx-remix-mc/remixbridge.dll', 'Licenses/OptiScaler_LICENSE.txt', 'Licenses/OptiScaler_SOURCE.txt', 'Licenses/OptiPatcher_SOURCE.txt', 'Licenses/OpenRR_LICENSE.txt', 'Licenses/OpenRR_THIRD_PARTY.md', 'Licenses/RTX-Remix-Minecraft-AMD-Patch_LICENSE.txt', 'Licenses/RTX-Remix-Minecraft-AMD-Patch_NOTICE.txt', 'Licenses/NVIDIA-rtx-remix-minecraft-Apache-2.0.txt', 'openrr-amd/aco/gfx1201/openrr-d3d12-v1/manifest.msgpack', 'openrr-amd/aco/gfx1200/openrr-d3d12-v1/manifest.msgpack', 'openrr-amd/lang/zh-CN.txt', 'openrr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf', 'dlssnr-amd/nr_present_probe.exe', 'dlssnr-amd/aco/d3d12_outer.nra', 'dlssnr-amd/aco/rdna3/d3d12_outer.nra', 'dlssnr-amd/lang/zh-CN.txt', 'dlssnr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf', 'model-tools/dlssnr_extract_model.exe', 'experimental/dlssnr-small-experimental.delta', 'optimized/dlssnr-optimized.delta', 'dlssnr-amd-optiscaler.ini', 'dlssnr-amd-optiscaler-renodx.ini', 'dlssnr-amd-standalone.ini', 'dlssnr-amd-addon.ini', 'standalone/dxgi.dll', 'standalone/vk-override/implicit_layer/dlssnr_standalone.json', 'reshade/ReShade64.dll', 'reshade/dlssnr_amd.addon64', 'reshade/ReShade.ini', 'reshade/ReShadePreset.ini', 'reshade/ReShadePreset-d3d9.ini', 'reshade/vk-override/implicit_layer/ReShade64.json', 'reshade/reshade-shaders/Shaders/DLSS5_Feed.fx', 'dxvk/d3d9.dll', 'dxvk/dxgi.dll', 'vulkan/vulkan-1.dll', 'mochizuki-owned.txt')
 try {
     $sevenZip = Find-SevenZip
     if ($sevenZip) {

@@ -104,8 +104,8 @@ Este software es completamente gratuito para uso personal no comercial. **Se pro
 
 - **[TheAutomatic / dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)** — **[PolyForm Noncommercial License 1.0.0](LICENSE)** (ver [NOTICE](NOTICE))
 - **[RTX Remix for Minecraft AMD Patch](https://github.com/TheAutomatic/rtx-remix-minecraft-amd-patch)** (`remixbridge.dll`) — **PolyForm Noncommercial License 1.0.0** (derivado de [NVIDIAGameWorks/rtx-remix-minecraft](https://github.com/NVIDIAGameWorks/rtx-remix-minecraft), **Apache License 2.0**)
-- **[OptiScaler](https://github.com/optiscaler/OptiScaler)** — **GPL-3.0 License**
-- **[Mochizuki / DLSSNR-AMD](https://gitlab.com/mochizuki0323/DLSSNR-AMD)** & **[TheAutomatic / DLSSNR-AMD](https://github.com/TheAutomatic/DLSSNR-AMD)** (`dlssnr-amd.asi`) — **MIT License** (© mochizuki0323)
-- **[Storm (Matheus) / OpenRR](https://github.com/OpenNeuralRendering/OpenRR)** & **[TheAutomatic / OpenRR-ASI](https://github.com/TheAutomatic/OpenRR-ASI)** (`openrr-amd.asi`) — **MIT License**
+- **[OptiScaler](https://github.com/optiscaler/OptiScaler)** — **GPL-3.0 License** (agregado independiente sin modificar; código fuente correspondiente en `Licenses/OptiScaler_SOURCE.txt`)
+- **[TheAutomatic / DLSSNR-AMD](https://github.com/TheAutomatic/DLSSNR-AMD)** (`dlssnr-amd.asi`) — **PolyForm Noncommercial License 1.0.0** (modificaciones de TheAutomatic), derivado de **[Mochizuki / DLSSNR-AMD](https://gitlab.com/mochizuki0323/DLSSNR-AMD)** (**MIT License**, © mochizuki0323)
+- **[TheAutomatic / OpenRR-ASI](https://github.com/TheAutomatic/OpenRR-ASI)** (`openrr-amd.asi`) — **PolyForm Noncommercial License 1.0.0** (modificaciones de TheAutomatic), derivado de **[Storm (Matheus) / OpenRR](https://github.com/OpenNeuralRendering/OpenRR)** (**MIT License**, © 2026 OpenNR)
 - **[RenoDX / clshortfuse](https://github.com/clshortfuse/renodx)** — **MIT License**
-- **[OptiPatcher](https://github.com/optiscaler/OptiPatcher)** — **GPL-3.0 License**
+- **[OptiPatcher](https://github.com/optiscaler/OptiPatcher)** — **GPL-3.0 License** (agregado independiente sin modificar; código fuente correspondiente en `Licenses/OptiPatcher_SOURCE.txt`)

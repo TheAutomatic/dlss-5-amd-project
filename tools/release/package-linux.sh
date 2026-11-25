@@ -408,6 +408,20 @@ PY
     cp -- "$repo/LICENSE" "$repo/NOTICE" "$stage/"
     mkdir -p -- "$stage/licenses"
     cp -- "$repo/assets/licenses/Mochizuki_MIT.txt" "$stage/licenses/Mochizuki_MIT.txt"
+    if [[ "$a" == x86_64 ]]; then
+        optipatcher_url=$(pin_root optipatcher url)
+        optipatcher_sha=$(sha "$stage/optiscaler/asi/OptiPatcher.asi")
+        cat > "$stage/licenses/OptiPatcher_SOURCE.txt" <<EOF
+Component: OptiPatcher (OptiPatcher.asi)
+License: GNU General Public License v3.0 (full text in optiscaler/OptiScaler_LICENSE.txt)
+Upstream Repository / Corresponding Source: https://github.com/optiscaler/OptiPatcher
+Download URL: $optipatcher_url
+Staged File SHA-256: $optipatcher_sha
+
+Notice: Unmodified OptiPatcher.asi is distributed as an independent aggregate
+strictly under GPL-3.0 with no additional restrictions imposed by this project.
+EOF
+    fi
     printf '%s\n' "$version" > "$stage/VERSION"
     python3 - "$stage/OptiScaler-NR-package.json" "$a" "$version" "$upstream_version" "$upstream_release_url" "$openrr_version" <<'PY'
 import json, sys
@@ -452,7 +466,7 @@ if arch == "x86_64":
         "optiscaler/release/OptiScaler.dll", "optiscaler/asi/dlssnr-amd.asi", "reshade/dlssnr_amd.addon64",
         "optiscaler/asi/openrr-amd.asi", "optiscaler/asi/OptiPatcher.asi", "openrr-amd.ini",
         "openrr-amd/shaders/ae.spv", "openrr-amd/shaders-gfx11/ae.spv", "openrr-amd/lang/zh-CN.txt",
-        "openrr-amd/OpenRR_LICENSE.txt",
+        "openrr-amd/OpenRR_LICENSE.txt", "licenses/OptiPatcher_SOURCE.txt",
     ]
     if os.path.isdir(os.path.join(stage, "openrr-amd", "aco")):
         sys.exit("x86_64 Linux package unexpectedly contains Windows-only openrr-amd/aco/")

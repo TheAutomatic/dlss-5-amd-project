@@ -6,6 +6,13 @@ Required Notice: Noncommercial modifications and derivative works may credit the
 License Scope & Third-Party Attributions
 ================================================================================
 
+PolyForm Noncommercial License 1.0.0 applies solely to works and modifications
+by TheAutomatic. Third-party and upstream components (including OptiScaler,
+OptiPatcher, upstream mochizuki0323/DLSSNR-AMD, upstream OpenNeuralRendering/OpenRR,
+ReShade, DXVK, Vulkan Loader, RenoDX, and NVIDIA Apache-2.0/MIT components) are
+distributed in release packages as independent aggregates strictly under their
+respective licenses, with no additional restrictions imposed by this project.
+
 1. OptiScaler(NR) Launcher, Installer Scripts & Packaging Tooling
    Copyright (c) 2026 TheAutomatic (https://github.com/TheAutomatic/dlss-5-amd-project)
    License: PolyForm Noncommercial License 1.0.0 (see LICENSE)
@@ -16,22 +23,35 @@ License Scope & Third-Party Attributions
      https://github.com/Dagherbou/OptiScaler_DLSSNR
      https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass
      https://github.com/MatheusGViana/dlss-5-amd-project
-   License: GNU General Public License v3.0 (see Licenses/OptiScaler_LICENSE.txt)
+   License: GNU General Public License v3.0 (distributed unmodified as an
+   independent aggregate; see Licenses/OptiScaler_LICENSE.txt and
+   Licenses/OptiScaler_SOURCE.txt for exact release version, pinned commit, and
+   corresponding source; default launcher INI overrides are documented there)
 
 3. DLSSNR-AMD / Mochizuki ASI (dlssnr-amd.asi & route binaries)
-   Source: https://github.com/TheAutomatic/DLSSNR-AMD
-   Upstream: https://gitlab.com/mochizuki0323/DLSSNR-AMD
-   Licenses: MIT License & upstream notices (see Licenses/Mochizuki_MIT.txt,
-   Licenses/Mochizuki_ASI_SOURCES.md)
+   Modifications & builds by TheAutomatic: https://github.com/TheAutomatic/DLSSNR-AMD
+   License (TheAutomatic modifications/builds): PolyForm Noncommercial License 1.0.0
+   (see Licenses/DLSSNR-AMD_LICENSE.txt and Licenses/DLSSNR-AMD_NOTICE.txt when bundled)
+   Upstream source: https://gitlab.com/mochizuki0323/DLSSNR-AMD
+   Upstream license (mochizuki0323 original works): MIT License & upstream notices
+   (see Licenses/Mochizuki_MIT.txt, Licenses/Mochizuki_ASI_SOURCES.md)
 
 4. OpenRR-ASI (openrr-amd.asi / openrr-ngx-host.dll — DLSS Ray Reconstruction)
-   Source: https://github.com/TheAutomatic/OpenRR-ASI
-   Upstream: https://github.com/OpenNeuralRendering/OpenRR (Matheus Ferreira / OpenNeuralRendering)
-   License: MIT License & third-party notices (see Licenses/OpenRR_MIT.txt, Licenses/OpenRR_THIRD_PARTY.md)
+   Modifications, standalone ASI plugin & builds by TheAutomatic:
+   https://github.com/TheAutomatic/OpenRR-ASI
+   License (TheAutomatic works/builds): PolyForm Noncommercial License 1.0.0
+   (see Licenses/OpenRR_LICENSE.txt, Licenses/OpenRR_NOTICE.txt when bundled, and
+   Licenses/OpenRR_THIRD_PARTY.md)
+   Upstream source: https://github.com/OpenNeuralRendering/OpenRR (Matheus Ferreira / OpenNR)
+   Upstream license (OpenNR original works): MIT License (Copyright (c) 2026 OpenNR;
+   preserved in Licenses/OpenRR_THIRD_PARTY.md)
 
 5. OptiPatcher (OptiPatcher.asi — native DLSS spoofing enhancement)
    Source: https://github.com/optiscaler/OptiPatcher
-   License: GNU General Public License v3.0
+   License: GNU General Public License v3.0 (distributed unmodified as an
+   independent aggregate; see Licenses/OptiScaler_LICENSE.txt for full GPL-3.0 text
+   and Licenses/OptiPatcher_SOURCE.txt or licenses/OptiPatcher_SOURCE.txt for
+   corresponding source)
 
 6. RenoDX (tonemapping / colour-compositing algorithms)
    Source: https://github.com/clshortfuse/renodx
@@ -48,10 +68,19 @@ License Scope & Third-Party Attributions
    and Licenses/RTX-Remix-Minecraft-AMD-Patch_NOTICE.txt)
    Derived from NVIDIAGameWorks/rtx-remix-minecraft under Apache License 2.0
    (Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES;
-   see Licenses/NVIDIA-rtx-remix-minecraft-Apache-2.0.txt).
+   see Licenses/NVIDIA-rtx-remix-minecraft-Apache-2.0.txt) and NVIDIA Remix C API
+   header (include/remix_c.h) under MIT License (see Licenses/NVIDIA-remix-c-api-MIT.txt
+   when bundled).
 
 9. Proprietary Exclusions
    Release archives exclude proprietary NVIDIA binaries (such as nvngx_dlssnr.dll and
    nvngx_dlssd.dll), extracted NVIDIA neural rendering weights, and closed-source runtimes.
    Users supply separately required files from their own legitimate copies under their
    applicable licenses.
+
+10. Trademark & Unofficial Project Notice
+    This is an independent, unofficial community launcher and compatibility patch
+    distribution and is not affiliated with, endorsed by, or sponsored by NVIDIA
+    Corporation, Advanced Micro Devices, Inc. (AMD), Valve Corporation, Microsoft
+    Corporation, Mojang AB, or the OptiScaler project. All trademarks belong to
+    their respective owners.

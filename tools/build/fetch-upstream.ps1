@@ -265,6 +265,8 @@ function Test-ForbiddenPayloadRel([string]$Rel) {
 
 function Get-DlssnrDestRel([string]$Rel, [switch]$AllowNormalizedFallback, [string]$SourceRoot = '') {
     $norm = $Rel.Replace('\', '/')
+    if ($norm -eq 'LICENSE') { return 'Licenses/DLSSNR-AMD_LICENSE.txt' }
+    if ($norm -eq 'NOTICE') { return 'Licenses/DLSSNR-AMD_NOTICE.txt' }
     if ($norm -eq 'optiscaler/asi/dlssnr-amd.asi') { return 'OptiScaler/plugins/dlssnr-amd.asi' }
     if ($norm -eq 'optiscaler/asi/nr_present_probe.exe') { return 'nr_present_probe.exe' }
     if ($norm -eq 'optiscaler/asi/DearImGui-LICENSE.txt') { return 'Licenses/DearImGui-LICENSE.txt' }
@@ -470,7 +472,7 @@ function Stage-DlssnrPayload([string]$DestDir, [bool]$CustomMode) {
 
         if (-not $CustomMode) {
             $wantDlssnrStamp = @{
-                schema            = 2
+                schema            = 3
                 archiveSha256     = $pins.dlssnr.archiveSha256.ToLowerInvariant()
                 langArchiveSha256 = $pins.dlssnr.langArchiveSha256.ToLowerInvariant()
                 staticLicenseSha  = $staticLicHash
@@ -504,7 +506,7 @@ if ($isCustomDlssnr) {
     Write-Host "Staged custom DLSSNR-AMD payload -> $dlssnrDir" -ForegroundColor Green
 } else {
     $wantDlssnrStamp = @{
-        schema            = 2
+        schema            = 3
         archiveSha256     = $pins.dlssnr.archiveSha256.ToLowerInvariant()
         langArchiveSha256 = $pins.dlssnr.langArchiveSha256.ToLowerInvariant()
         staticLicenseSha  = $staticLicHash
@@ -594,17 +596,26 @@ function Stage-OpenRrPayload([string]$DestDir, [bool]$CustomMode) {
 
         $rrLicDir = Join-Path $stageTmp 'Licenses'
         New-Item -ItemType Directory -Force -Path $rrLicDir | Out-Null
-        $rrMit = Join-RelPath $stageTmp 'openrr-amd/OpenRR_LICENSE.txt'
+        $rrLegacyMit = Join-Path $rrLicDir 'OpenRR_MIT.txt'
+        if (Test-Path -LiteralPath $rrLegacyMit -PathType Leaf) {
+            Remove-Item -LiteralPath $rrLegacyMit -Force -ErrorAction SilentlyContinue
+        }
+        $rrLic = Join-RelPath $stageTmp 'openrr-amd/OpenRR_LICENSE.txt'
+        $rrNotice = Join-RelPath $stageTmp 'openrr-amd/OpenRR_NOTICE.txt'
         $rrThird = Join-RelPath $stageTmp 'openrr-amd/OpenRR_THIRD_PARTY.md'
-        $rrMitDest = Join-Path $rrLicDir 'OpenRR_MIT.txt'
+        $rrLicDest = Join-Path $rrLicDir 'OpenRR_LICENSE.txt'
+        $rrNoticeDest = Join-Path $rrLicDir 'OpenRR_NOTICE.txt'
         $rrThirdDest = Join-Path $rrLicDir 'OpenRR_THIRD_PARTY.md'
-        if ((Test-Path -LiteralPath $rrMit -PathType Leaf) -and -not (Test-Path -LiteralPath $rrMitDest -PathType Leaf)) {
-            Copy-Item -LiteralPath $rrMit -Destination $rrMitDest -Force
+        if ((Test-Path -LiteralPath $rrLic -PathType Leaf) -and -not (Test-Path -LiteralPath $rrLicDest -PathType Leaf)) {
+            Copy-Item -LiteralPath $rrLic -Destination $rrLicDest -Force
+        }
+        if ((Test-Path -LiteralPath $rrNotice -PathType Leaf) -and -not (Test-Path -LiteralPath $rrNoticeDest -PathType Leaf)) {
+            Copy-Item -LiteralPath $rrNotice -Destination $rrNoticeDest -Force
         }
         if ((Test-Path -LiteralPath $rrThird -PathType Leaf) -and -not (Test-Path -LiteralPath $rrThirdDest -PathType Leaf)) {
             Copy-Item -LiteralPath $rrThird -Destination $rrThirdDest -Force
         }
-        if (-not (Test-Path -LiteralPath $rrMitDest -PathType Leaf)) { throw 'Missing OpenRR_LICENSE.txt / Licenses/OpenRR_MIT.txt in OpenRR payload' }
+        if (-not (Test-Path -LiteralPath $rrLicDest -PathType Leaf)) { throw 'Missing OpenRR_LICENSE.txt / Licenses/OpenRR_LICENSE.txt in OpenRR payload' }
         if (-not (Test-Path -LiteralPath $rrThirdDest -PathType Leaf)) { throw 'Missing OpenRR_THIRD_PARTY.md / Licenses/OpenRR_THIRD_PARTY.md in OpenRR payload' }
 
         Assert-PeBinary -Path (Join-RelPath $stageTmp 'OptiScaler/plugins/openrr-amd.asi')
@@ -612,7 +623,7 @@ function Stage-OpenRrPayload([string]$DestDir, [bool]$CustomMode) {
 
         if (-not $CustomMode) {
             $wantOpenRrStamp = @{
-                schema        = 1
+                schema        = 2
                 archiveSha256 = $pins.openrr.archiveSha256.ToLowerInvariant()
             }
             [IO.File]::WriteAllText((Join-Path $stageTmp '.stamp.json'), (($wantOpenRrStamp | ConvertTo-Json -Depth 4) + "`n"), [Text.UTF8Encoding]::new($false))
@@ -630,13 +641,14 @@ if ($isCustomOpenRr) {
     Write-Host "Staged custom OpenRR-ASI payload -> $openRrDir" -ForegroundColor Green
 } else {
     $wantOpenRrStamp = @{
-        schema        = 1
+        schema        = 2
         archiveSha256 = $pins.openrr.archiveSha256.ToLowerInvariant()
     }
     $openRrCachedOk = $false
     if ((Test-Path -LiteralPath $openRrStampPath -PathType Leaf) -and
         (Test-Path -LiteralPath (Join-RelPath $openRrDir 'OptiScaler/plugins/openrr-amd.asi') -PathType Leaf) -and
-        (Test-Path -LiteralPath (Join-RelPath $openRrDir 'openrr-amd/aco/gfx1201/openrr-d3d12-v1/manifest.msgpack') -PathType Leaf)) {
+        (Test-Path -LiteralPath (Join-RelPath $openRrDir 'openrr-amd/aco/gfx1201/openrr-d3d12-v1/manifest.msgpack') -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-RelPath $openRrDir 'Licenses/OpenRR_LICENSE.txt') -PathType Leaf)) {
         try {
             $cur = Get-Content -LiteralPath $openRrStampPath -Raw -Encoding UTF8 | ConvertFrom-Json
             if ($cur.schema -eq $wantOpenRrStamp.schema -and $cur.archiveSha256 -eq $wantOpenRrStamp.archiveSha256) {
@@ -728,20 +740,28 @@ function Stage-RtxRemixMcPayload([string]$DestDir, [bool]$CustomMode) {
             'NOTICE' = 'Licenses/RTX-Remix-Minecraft-AMD-Patch_NOTICE.txt'
             'THIRD_PARTY_LICENSES/NVIDIA-rtx-remix-minecraft-Apache-2.0.txt' = 'Licenses/NVIDIA-rtx-remix-minecraft-Apache-2.0.txt'
         }
+        $optionalEntryMap = @{
+            'THIRD_PARTY_LICENSES/NVIDIA-remix-c-api-MIT.txt' = 'Licenses/NVIDIA-remix-c-api-MIT.txt'
+        }
         $seenEntries = @{}
         $archive = [IO.Compression.ZipFile]::OpenRead($mcZip)
         try {
             foreach ($entry in $archive.Entries) {
                 if ([string]::IsNullOrEmpty($entry.Name)) { continue }
                 $rel = Normalize-ZipEntryRel $entry.FullName
-                if (-not $entryMap.ContainsKey($rel)) {
+                $destRel = $null
+                if ($entryMap.ContainsKey($rel)) {
+                    $destRel = $entryMap[$rel]
+                } elseif ($optionalEntryMap.ContainsKey($rel)) {
+                    $destRel = $optionalEntryMap[$rel]
+                } else {
                     # Intentionally skip OptiScaler.ini (patched dynamically from official OptiScaler.ini at install time)
                     continue
                 }
                 if ((Test-ForbiddenPayloadRel $rel)) {
                     throw "Refusing forbidden entry in RTX Remix Minecraft archive: $rel"
                 }
-                $destPath = Join-RelPath $stageTmp $entryMap[$rel]
+                $destPath = Join-RelPath $stageTmp $destRel
                 Write-ZipEntryToFile -Entry $entry -DestPath $destPath
                 if (-not $CustomMode -and $pins.rtxRemixMc.files.PSObject.Properties[$rel]) {
                     $expectedFileSha = [string]$pins.rtxRemixMc.files.$rel
@@ -765,7 +785,7 @@ function Stage-RtxRemixMcPayload([string]$DestDir, [bool]$CustomMode) {
 
         if (-not $CustomMode) {
             $wantMcStamp = @{
-                schema        = 1
+                schema        = 2
                 archiveSha256 = $pins.rtxRemixMc.archiveSha256.ToLowerInvariant()
             }
             [IO.File]::WriteAllText((Join-Path $stageTmp '.stamp.json'), (($wantMcStamp | ConvertTo-Json -Depth 4) + "`n"), [Text.UTF8Encoding]::new($false))
@@ -783,7 +803,7 @@ if ($isCustomRtxRemixMc) {
     Write-Host "Staged custom RTX Remix Minecraft payload -> $rtxRemixMcDir" -ForegroundColor Green
 } else {
     $wantMcStamp = @{
-        schema        = 1
+        schema        = 2
         archiveSha256 = $pins.rtxRemixMc.archiveSha256.ToLowerInvariant()
     }
     $mcCachedOk = $false
