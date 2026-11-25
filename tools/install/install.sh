@@ -347,12 +347,12 @@ if [[ -z "$want_nr" ]]; then
     fi
 fi
 
-# 3. Ask whether to install openrr-amd.asi (OpenRR v0.1.7plus5 Ray Reconstruction)
+# 3. Ask whether to install openrr-amd.asi (OpenRR v0.1.7plus6 Ray Reconstruction)
 if [[ -z "$want_openrr" ]]; then
     want_openrr="on"
     if [[ -t 0 ]]; then
         echo
-        read -r -p "Install openrr-amd.asi (OpenRR v0.1.7plus5 DLSS Ray Reconstruction)? [Y/n]: " pick || pick=""
+        read -r -p "Install openrr-amd.asi (OpenRR v0.1.7plus6 DLSS Ray Reconstruction)? [Y/n]: " pick || pick=""
         [[ "$pick" == "n" || "$pick" == "N" ]] && want_openrr="off"
     fi
 fi

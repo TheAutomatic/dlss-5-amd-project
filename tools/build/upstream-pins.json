@@ -42,10 +42,10 @@
     "langArchiveSha256": "14736abe9d8f9e763574603780993aaa285776c285264894d749e781704bd7c4"
   },
   "openrr": {
-    "version": "0.1.7plus5",
-    "archiveName": "OpenRR-v0.1.7plus5-OptiScaler.zip",
-    "archiveUrl": "https://github.com/TheAutomatic/OpenRR-ASI/releases/download/v0.1.7plus5/OpenRR-v0.1.7plus5-OptiScaler.zip",
-    "archiveSha256": "a0444206c80cd9c52528b44ee5a781587164ec09c50622669bf83c204b793d97"
+    "version": "0.1.7plus6",
+    "archiveName": "OpenRR-v0.1.7plus6-OptiScaler.zip",
+    "archiveUrl": "https://github.com/TheAutomatic/OpenRR-ASI/releases/download/v0.1.7plus6/OpenRR-v0.1.7plus6-OptiScaler.zip",
+    "archiveSha256": "0191c69e6f94fb0f96fed3c542a3960d818ee5381a460cd9508f342c98ea8f59"
   },
   "optipatcher": {
     "fileName": "OptiPatcher.asi",

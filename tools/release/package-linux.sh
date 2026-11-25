@@ -367,7 +367,7 @@ with zipfile.ZipFile(src) as z:
             shutil.copyfileobj(r, w)
 PY
 
-    # OpenRR (v0.1.7plus5) + OptiPatcher for 64-bit OptiScaler route (Linux Wine / Proton, Mesa RADV >= 26.3).
+    # OpenRR (v0.1.7plus6) + OptiPatcher for 64-bit OptiScaler route (Linux Wine / Proton, Mesa RADV >= 26.3).
     # Windows-only openrr-amd/aco/ (amdxc64.dll D3D12 ELFs) is omitted on Linux.
     if [[ "$a" == x86_64 ]]; then
         python3 - "$openrr_zip" "$stage" <<'PY'

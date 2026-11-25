@@ -36,6 +36,8 @@ jobs:
     outputs:
       version: ${{ steps.ver.outputs.version }}
       release_id: ${{ steps.draft.outputs.release_id }}
+      linux_only: ${{ steps.ver.outputs.linux_only }}
+      linux_arch: ${{ steps.ver.outputs.linux_arch }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -47,7 +49,21 @@ jobs:
           set -euo pipefail
           v="${GITHUB_REF_NAME#v}"
           if ! printf '%s' "$v" | grep -Eq '^[0-9A-Za-z._-]+$'; then echo "Invalid version: $v" >&2; exit 1; fi
+          linux_only="false"
+          linux_arch="all"
+          case "$GITHUB_REF_NAME" in
+            *-linux-all*)
+              linux_only="true"
+              linux_arch="all"
+              ;;
+            *-linux*)
+              linux_only="true"
+              linux_arch="x86_64"
+              ;;
+          esac
           echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "linux_only=$linux_only" >> "$GITHUB_OUTPUT"
+          echo "linux_arch=$linux_arch" >> "$GITHUB_OUTPUT"
 
       - name: Prepare release notes
         shell: bash
@@ -131,7 +147,7 @@ jobs:
 
   build:
     needs: [prepare]
-    if: always() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref_type == 'tag' && needs.prepare.result == 'success'))
+    if: always() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref_type == 'tag' && needs.prepare.result == 'success' && needs.prepare.outputs.linux_only != 'true'))
     permissions:
       contents: write
     runs-on: windows-latest
@@ -322,15 +338,19 @@ jobs:
             sudo apt-get install -y -qq --no-install-recommends pigz
           fi
 
-      - name: Package Linux tarballs (x86_64 + i686)
+      - name: Package Linux tarballs
         shell: bash
+        env:
+          LINUX_ARCH: ${{ needs.prepare.outputs.linux_arch || 'all' }}
         run: |
           set -euo pipefail
-          bash tools/release/package-linux.sh --version '${{ steps.ver.outputs.version }}' --arch all --out dist --cache cache/linux
+          bash tools/release/package-linux.sh --version '${{ steps.ver.outputs.version }}' --arch "$LINUX_ARCH" --out dist --cache cache/linux
           ls -la dist
 
       - name: Guard against proprietary files and self-test packages
         shell: bash
+        env:
+          LINUX_ARCH: ${{ needs.prepare.outputs.linux_arch || 'all' }}
         run: |
           set -euo pipefail
           ver='${{ steps.ver.outputs.version }}'
@@ -377,6 +397,11 @@ jobs:
             NR_E2E_TMP="$arch_tmp" python3 -B "$arch_work/$name/launcher/selftest.py" -v
             rm -rf -- "$arch_work" "$arch_tmp" "$list_file"
           }
+          if [ "$LINUX_ARCH" = "all" ]; then
+            arches=(x86_64 i686)
+          else
+            arches=("$LINUX_ARCH")
+          fi
           pids=()
           logs=()
           cleanup() {
@@ -387,7 +412,7 @@ jobs:
           }
           trap cleanup EXIT
           # Schedule heavier x86_64 first alongside i686.
-          for arch in x86_64 i686; do
+          for arch in "${arches[@]}"; do
             logf="$work/verify-$arch.log"
             logs+=("$logf")
             ( verify_arch "$arch" ) > "$logf" 2>&1 &
@@ -424,14 +449,21 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
           RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
           RELEASE_VERSION: ${{ steps.ver.outputs.version }}
+          LINUX_ARCH: ${{ needs.prepare.outputs.linux_arch || 'all' }}
         run: |
           set -euo pipefail
           work="$RUNNER_TEMP/linux-uploads"
           mkdir -p "$work"
-          assets=(
-            "dist/OptiScaler-NR-Linux-x86_64-${RELEASE_VERSION}.tar.gz"
-            "dist/OptiScaler-NR-Linux-i686-${RELEASE_VERSION}.tar.gz"
-          )
+          if [ "$LINUX_ARCH" = "all" ]; then
+            assets=(
+              "dist/OptiScaler-NR-Linux-x86_64-${RELEASE_VERSION}.tar.gz"
+              "dist/OptiScaler-NR-Linux-i686-${RELEASE_VERSION}.tar.gz"
+            )
+          else
+            assets=(
+              "dist/OptiScaler-NR-Linux-${LINUX_ARCH}-${RELEASE_VERSION}.tar.gz"
+            )
+          fi
           pids=()
           logs=()
           cleanup() {
@@ -460,10 +492,16 @@ jobs:
           pids=()
           exit "$failed"
 
-  # Atomic publish: runs only after BOTH Windows and Linux uploaded their verified assets to the
-  # Draft Release. Performs zero file transfers — just checks all 3 assets and flips draft=false.
+  # Atomic publish: runs only after required platform jobs uploaded their verified assets to the
+  # Draft Release. Performs zero file transfers — just checks expected assets and flips draft=false.
   publish:
-    if: github.event_name == 'push' && github.ref_type == 'tag'
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      github.ref_type == 'tag' &&
+      needs.prepare.result == 'success' &&
+      needs.linux.result == 'success' &&
+      (needs.prepare.outputs.linux_only == 'true' || needs.build.result == 'success')
     needs: [prepare, build, linux]
     permissions:
       contents: write
@@ -481,11 +519,23 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
           RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          LINUX_ONLY: ${{ needs.prepare.outputs.linux_only }}
+          LINUX_ARCH: ${{ needs.prepare.outputs.linux_arch || 'all' }}
         run: |
           set -euo pipefail
+          expect_args=()
+          if [ "$LINUX_ONLY" != "true" ]; then
+            expect_args+=(--expect-asset "OptiScaler-NR-Win-${RELEASE_VERSION}.zip")
+          fi
+          if [ "$LINUX_ARCH" = "all" ]; then
+            expect_args+=(
+              --expect-asset "OptiScaler-NR-Linux-x86_64-${RELEASE_VERSION}.tar.gz"
+              --expect-asset "OptiScaler-NR-Linux-i686-${RELEASE_VERSION}.tar.gz"
+            )
+          else
+            expect_args+=(--expect-asset "OptiScaler-NR-Linux-${LINUX_ARCH}-${RELEASE_VERSION}.tar.gz")
+          fi
           python3 -B .github/scripts/publish_release_asset.py \
             --tag "$RELEASE_TAG" \
             --publish-draft "$RELEASE_ID" \
-            --expect-asset "OptiScaler-NR-Win-${RELEASE_VERSION}.zip" \
-            --expect-asset "OptiScaler-NR-Linux-x86_64-${RELEASE_VERSION}.tar.gz" \
-            --expect-asset "OptiScaler-NR-Linux-i686-${RELEASE_VERSION}.tar.gz"
+            "${expect_args[@]}"
