@@ -3,7 +3,7 @@
 # OptiScaler(NR)
 
 > [!IMPORTANT]
-> **Código disponible · Totalmente gratuito · Prohibida la reventa comercial y la instalación de pago**: El lanzador y los scripts de este repositorio se distribuyen bajo **PolyForm Noncommercial License 1.0.0** solo para uso personal no comercial. ¡Si pagó por esta herramienta, solicite un reembolso de inmediato! Véase la [sección 6](#6-aviso-de-gratuidad-atribuciones-y-licencias).
+> **Código disponible · Totalmente gratuito · Prohibida la reventa y la eliminación de créditos**: El lanzador y los scripts de este repositorio se distribuyen bajo **[PolyForm Noncommercial License 1.0.0](LICENSE)** solo para uso personal no comercial (se prohíbe la reventa, paquetes/grupos de pago e instalación de pago). **Las obras derivadas y modificaciones no comerciales deben cumplir con [NOTICE](NOTICE)**: pueden añadir el nombre de sus propios autores, pero DEBEN conservar intactos los créditos del autor original (`TheAutomatic`), de todos los autores upstream, el enlace al repositorio oficial y todas las líneas `Required Notice:`; se prohíbe eliminar créditos o alterar los metadatos/números de versión binarios para hacerse pasar por autor original. ¡Si pagó por esta herramienta, solicite un reembolso de inmediato! Véase la [sección 6](#6-aviso-de-gratuidad-atribuciones-y-licencias).
 >
 > **🎉 Actualización de arquitectura v2.0**: ¡Arquitectura **"OptiScaler oficial sin modificar + Doble plugin `.asi` (`dlssnr-amd.asi` + `openrr-amd.asi`) + Lanzador gráfico"** compatible con **OptiScaler / Standalone / ReShade / RTX Remix for Minecraft (Java Edition)**!
 > Documentación anterior v1.x: **[Documentación anterior en español (Legacy README)](docs/legacy-readme/README.es.md)**.
@@ -98,7 +98,9 @@ En las **Opciones de lanzamiento** de Steam, añada: `WINEDLLOVERRIDES="dxgi=n,b
 
 ## 6. Aviso de gratuidad, atribuciones y licencias
 
-Este software es completamente gratuito para uso personal no comercial. **Se prohíbe la reventa comercial, distribución de pago o servicios de instalación de pago.** Si pagó por él, solicite un reembolso de inmediato.
+Este software es completamente gratuito para uso personal no comercial. **Se prohíbe la reventa comercial, paquetes/grupos/descargas de pago o servicios de instalación/ajuste de pago.** Si pagó por él, solicite un reembolso de inmediato.
+
+**Las modificaciones no comerciales, reempaquetados y obras derivadas DEBEN cumplir con [NOTICE](NOTICE)**: pueden acreditar a sus propios autores, pero DEBEN conservar intactos los créditos del autor original (`TheAutomatic`), todos los avisos de derechos de autor upstream, la URL del repositorio oficial y todas las líneas `Required Notice:`. **Se prohíbe eliminar créditos o alterar los metadatos/números de versión binarios para hacerse pasar por autor original.**
 
 - **[TheAutomatic / dlss-5-amd-project](https://github.com/TheAutomatic/dlss-5-amd-project)** — **[PolyForm Noncommercial License 1.0.0](LICENSE)** (ver [NOTICE](NOTICE))
 - **[RTX Remix for Minecraft AMD Patch](https://github.com/TheAutomatic/rtx-remix-minecraft-amd-patch)** (`remixbridge.dll`) — **PolyForm Noncommercial License 1.0.0** (derivado de [NVIDIAGameWorks/rtx-remix-minecraft](https://github.com/NVIDIAGameWorks/rtx-remix-minecraft), **Apache License 2.0**)

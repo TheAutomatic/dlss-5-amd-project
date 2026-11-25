@@ -3,7 +3,7 @@
 # OptiScaler(NR)
 
 > [!IMPORTANT]
-> **Source-Available · Completely Free · No Commercial Resale or Paid Installation**: The launcher, installer scripts, and packaging tools in this repository are licensed under **PolyForm Noncommercial License 1.0.0** for personal, noncommercial use only. If you paid for this tool, request a refund immediately! See [Section 6](#6-free-software-notice-attributions--licenses).
+> **Source-Available · Completely Free · No Resale or Stripped Attribution**: The launcher, installer scripts, and packaging tools in this repository are licensed under **[PolyForm Noncommercial License 1.0.0](LICENSE)** for personal, noncommercial use only—commercial resale, paid bundles/groups/downloads, and paid installation services are strictly prohibited. **Noncommercial forks and derivative works must comply with [NOTICE](NOTICE)**: you may credit your own modifications, but MUST preserve attribution for the original author (`TheAutomatic`), all upstream authors, the official repository URL, and all `Required Notice:` lines; stripping attribution or altering binary metadata/version numbers to claim original authorship is prohibited. If you paid for this tool, request a refund immediately! See [Section 6](#6-free-software-notice-attributions--licenses).
 >
 > **🎉 v2.0 Full Architecture Upgrade**: Upgraded to the **"Official OptiScaler + Dual Standalone `.asi` Plugins (`dlssnr-amd.asi` + `openrr-amd.asi`) + One-Click GUI Launcher"** architecture! Supports **OptiScaler / Standalone Direct / ReShade Compatible / RTX Remix for Minecraft (Java Edition)**.
 > Looking for the legacy `1.x` documentation? Click here: **[Legacy English README](docs/legacy-readme/README.en.md)**.
@@ -125,8 +125,10 @@ Once in game with **DLSS** (or FSR / XeSS) and **Ray Reconstruction** (if suppor
 
 ## 6. Free Software Notice, Attributions & Licenses
 
-### Free Software & Anti-Resale Notice
-This software is distributed **free of charge** for personal, noncommercial use. **Selling this tool or its packages, bundling it in paid modpacks or paywalled groups, or charging for "remote installation / setup" services is strictly prohibited.** If you paid for this package, request a refund immediately!
+### Free Software, Anti-Resale & Derivative Attribution Notice
+This software is distributed **free of charge** for personal, noncommercial use. **Selling this tool or its packages, bundling it in paid modpacks or paywalled groups/downloads, or charging for "remote installation / setup / tuning" services is strictly prohibited.** If you paid for this package, request a refund immediately!
+
+**Noncommercial forks, modifications, repackaged builds, and derivative works MUST comply with [NOTICE](NOTICE)**: derivative authors may add credit for their own changes, but MUST keep original author attribution (`TheAutomatic`), all upstream copyright notices, the official repository URL, and all `Required Notice:` lines intact. **Stripping attribution or altering binary metadata/version numbers to claim original authorship is strictly prohibited.**
 
 ### Attributions & Licenses
 - **[This Project (TheAutomatic / dlss-5-amd-project)](https://github.com/TheAutomatic/dlss-5-amd-project)** — **[PolyForm Noncommercial License 1.0.0](LICENSE)** (see [NOTICE](NOTICE)): Graphical launcher, PE import probe, multi-mode deployment, installer/uninstaller scripts, shared INI profiles, and style share codes (**noncommercial use only; commercial resale and paid installation services prohibited**);
