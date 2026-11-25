@@ -95,7 +95,7 @@ def retry(operation, attempts, sleep):
             if attempt + 1 == attempts:
                 raise
             delay = min(30, 2 ** (attempt + 1))
-            print(f"GitHub transfer/API failed; retry {attempt + 2}/{attempts} in {delay}s", flush=True)
+            print(f"GitHub transfer/API failed; retry {attempt + 2}/{attempts} in {delay}s", file=sys.stderr, flush=True)
             sleep(delay)
 
 

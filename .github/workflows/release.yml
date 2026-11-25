@@ -138,7 +138,7 @@ jobs:
             --prepare-draft "$GITHUB_SHA" \
             --body-file exports/release-notes.md \
             "${extra[@]}")"
-          if ! printf '%s' "$rel_id" | grep -Eq '^[0-9]+$'; then
+          if ! [[ "$rel_id" =~ ^[0-9]+$ ]]; then
             echo "Invalid release_id from prepare-draft: $rel_id" >&2
             exit 1
           fi
