@@ -1034,7 +1034,7 @@
 
     <!-- ===== Settings: centred floating card over a scrim (click outside / Esc closes) ===== -->
     <Border x:Name="SettingsPage" Grid.Row="1" Grid.RowSpan="2" Panel.ZIndex="20" Visibility="Collapsed" Background="{DynamicResource ThemeScrim}">
-      <Border x:Name="SettingsCard" Width="780" MaxHeight="580" Margin="24" HorizontalAlignment="Center" VerticalAlignment="Center"
+      <Border x:Name="SettingsCard" Width="800" MaxHeight="580" Margin="24" HorizontalAlignment="Center" VerticalAlignment="Center"
               Background="{DynamicResource ThemeSurface}" BorderBrush="{DynamicResource ThemeBorder}" BorderThickness="1" CornerRadius="8">
         <Border.Effect><DropShadowEffect BlurRadius="36" ShadowDepth="10" Direction="270" Opacity="0.28"/></Border.Effect>
         <Grid>
@@ -1097,18 +1097,20 @@
               </StackPanel>
               </Border>
               <TextBlock x:Name="CommunityHeading" Style="{StaticResource SectionHeader}" FontSize="13" Margin="2,18,0,8"/>
-              <WrapPanel>
-                <Button x:Name="GithubButton" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,8,8" ToolTip="https://github.com/TheAutomatic/dlss-5-amd-project"
-                        local:DialogTheme.Icon="M 9 2.5 H 13.5 V 7 M 13.5 2.5 L 7.5 8.5 M 11.5 9.5 V 13.5 H 2.5 V 4.5 H 6.5"/>
-                <Button x:Name="MochizukiAuthorButton" Content="mochizuki0323" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,8,8" ToolTip="https://gitlab.com/mochizuki0323/DLSSNR-AMD"
-                        local:DialogTheme.Icon="M 9 2.5 H 13.5 V 7 M 13.5 2.5 L 7.5 8.5 M 11.5 9.5 V 13.5 H 2.5 V 4.5 H 6.5"/>
-                <Button x:Name="OpenRrAsiButton" Content="OpenRR-ASI" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,8,8" ToolTip="https://github.com/TheAutomatic/OpenRR-ASI"
-                        local:DialogTheme.Icon="M 9 2.5 H 13.5 V 7 M 13.5 2.5 L 7.5 8.5 M 11.5 9.5 V 13.5 H 2.5 V 4.5 H 6.5"/>
-                <Button x:Name="RtxRemixMcPatchButton" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,8,8" ToolTip="https://github.com/TheAutomatic/rtx-remix-minecraft-amd-patch"
-                        local:DialogTheme.Icon="M 9 2.5 H 13.5 V 7 M 13.5 2.5 L 7.5 8.5 M 11.5 9.5 V 13.5 H 2.5 V 4.5 H 6.5"/>
-                <Button x:Name="BilibiliButton" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,8,8" ToolTip="https://space.bilibili.com/291088"
-                        local:DialogTheme.Icon="M 9 2.5 H 13.5 V 7 M 13.5 2.5 L 7.5 8.5 M 11.5 9.5 V 13.5 H 2.5 V 4.5 H 6.5"/>
-              </WrapPanel>
+              <Border Style="{StaticResource Card}" Padding="6,6,6,2">
+                <UniformGrid Columns="3">
+                  <Button x:Name="GithubButton" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,4,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" ToolTip="https://github.com/TheAutomatic/dlss-5-amd-project"
+                          local:DialogTheme.Icon="M 9 2.5 H 13.5 V 7 M 13.5 2.5 L 7.5 8.5 M 11.5 9.5 V 13.5 H 2.5 V 4.5 H 6.5"/>
+                  <Button x:Name="MochizukiAuthorButton" Content="mochizuki0323" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,4,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" ToolTip="https://gitlab.com/mochizuki0323/DLSSNR-AMD"
+                          local:DialogTheme.Icon="M 9 2.5 H 13.5 V 7 M 13.5 2.5 L 7.5 8.5 M 11.5 9.5 V 13.5 H 2.5 V 4.5 H 6.5"/>
+                  <Button x:Name="OpenRrAsiButton" Content="OpenRR-ASI" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,0,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" ToolTip="https://github.com/TheAutomatic/OpenRR-ASI"
+                          local:DialogTheme.Icon="M 9 2.5 H 13.5 V 7 M 13.5 2.5 L 7.5 8.5 M 11.5 9.5 V 13.5 H 2.5 V 4.5 H 6.5"/>
+                  <Button x:Name="RtxRemixMcPatchButton" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,4,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" ToolTip="https://github.com/TheAutomatic/rtx-remix-minecraft-amd-patch"
+                          local:DialogTheme.Icon="M 9 2.5 H 13.5 V 7 M 13.5 2.5 L 7.5 8.5 M 11.5 9.5 V 13.5 H 2.5 V 4.5 H 6.5"/>
+                  <Button x:Name="BilibiliButton" Style="{DynamicResource CardAction}" Height="30" Margin="0,0,4,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" ToolTip="https://space.bilibili.com/291088"
+                          local:DialogTheme.Icon="M 9 2.5 H 13.5 V 7 M 13.5 2.5 L 7.5 8.5 M 11.5 9.5 V 13.5 H 2.5 V 4.5 H 6.5"/>
+                </UniformGrid>
+              </Border>
             </StackPanel>
             </ScrollViewer>
           </DockPanel>
