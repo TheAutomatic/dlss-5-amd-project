@@ -16,8 +16,11 @@ function Game($id, $exe, $root, $source = 'XBOX') {
 try {
     $env:LOCALAPPDATA = Join-Path $work 'local'
     & (Join-Path $PSScriptRoot 'build-launcher.ps1')
+    $builtExe = (Resolve-Path (Join-Path $PSScriptRoot '..\..\exports\launcher\OptiScalerNRLauncher.exe')).Path
+    $vi = [Diagnostics.FileVersionInfo]::GetVersionInfo($builtExe)
+    Assert ($vi.CompanyName -eq 'TheAutomatic' -and $vi.LegalCopyright -like '*TheAutomatic*' -and $vi.LegalCopyright -like '*dlss-5-amd-project*' -and $vi.ProductName -eq 'OptiScaler(NR)' -and -not [string]::IsNullOrWhiteSpace($vi.ProductVersion)) "Missing EXE FileVersionInfo metadata: $($vi | Out-String)"
     Add-Type -AssemblyName PresentationFramework
-    $asm = [Reflection.Assembly]::LoadFrom((Resolve-Path (Join-Path $PSScriptRoot '..\..\exports\launcher\OptiScalerNRLauncher.exe')))
+    $asm = [Reflection.Assembly]::LoadFrom($builtExe)
     $type = $asm.GetType('OptScalerNR.Launcher.MainController', $true)
     $paths = $asm.GetType('OptScalerNR.Launcher.GamePaths', $true)
     $data = $asm.GetType('OptScalerNR.Launcher.DlssnrLocalData', $true)

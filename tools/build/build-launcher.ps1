@@ -34,12 +34,32 @@ $exe = Join-Path $OutDir 'OptiScalerNRLauncher.exe'
 $obj = Join-Path $OutDir 'obj'
 New-Item -ItemType Directory -Force -Path $obj | Out-Null
 $cs = @(
-    'Program.cs', 'MainWindow.cs', 'Protocol.cs', 'WorkerClient.cs', 'GamePaths.cs',
+    'AssemblyInfo.cs', 'Program.cs', 'MainWindow.cs', 'Protocol.cs', 'WorkerClient.cs', 'GamePaths.cs',
     'DialogTheme.cs', 'FolderGameScanner.cs', 'ProxyRecommendations.cs',
     'MainController.Library.cs', 'MainController.Recommendations.cs', 'MainController.Modes.cs', 'LauncherTheme.cs', 'MainController.Presentation.cs',
     'MainController.Profiles.cs', 'MainController.ShareCode.cs', 'MainController.Hotkeys.cs', 'MainController.ModelImport.cs', 'MochizukiShareCode.cs', 'ModelDependencyLock.cs', 'MainController.Diagnostics.cs', 'MainController.LogPack.cs', 'IniProfiles.cs', 'LocalArtwork.cs'
     'MainController.UnlockerPlugin.cs', 'UnlockerPlugin.cs'
 ) | ForEach-Object { Join-Path $src $_ }
+$versionFile = Join-Path $root 'VERSION'
+$productVersion = if (Test-Path -LiteralPath $versionFile -PathType Leaf) { ([string](Get-Content -LiteralPath $versionFile -Encoding UTF8 -TotalCount 1)).Trim() } else { '2.0.0' }
+if (-not $productVersion) { $productVersion = '2.0.0' }
+$numericVersion = '2.0.0.0'
+if ($productVersion -match '^(\d+)\.(\d+)(?:\.(\d+))?(?:\.(\d+))?') {
+    $vMaj = $Matches[1]
+    $vMin = $Matches[2]
+    $vPat = if ($Matches[3]) { $Matches[3] } else { '0' }
+    $vRev = if ($Matches[4]) { $Matches[4] } else { '0' }
+    $numericVersion = "$vMaj.$vMin.$vPat.$vRev"
+}
+$escapedInfoVersion = $productVersion.Replace('\', '\\').Replace('"', '\"')
+$verInfoCs = Join-Path $obj 'AssemblyVersionInfo.cs'
+@(
+    'using System.Reflection;'
+    "[assembly: AssemblyVersion(`"$numericVersion`")]"
+    "[assembly: AssemblyFileVersion(`"$numericVersion`")]"
+    "[assembly: AssemblyInformationalVersion(`"$escapedInfoVersion`")]"
+) | Set-Content -LiteralPath $verInfoCs -Encoding UTF8
+$cs += $verInfoCs
 $refs = @(
     (Join-Path $fw 'mscorlib.dll'),
     (Join-Path $fw 'System.dll'),
@@ -88,6 +108,7 @@ Copy-Item -LiteralPath (Join-Path $root 'tools/install/library-scan.ps1') -Desti
 Copy-Item -LiteralPath (Join-Path $root 'tools/install/install-capabilities.ps1') -Destination $OutDir -Force
 Copy-Item -LiteralPath (Join-Path $root 'tools/install/xess-compat.ps1') -Destination $OutDir -Force
 $srcFiles = Get-ChildItem -LiteralPath $src -File | Where-Object { $_.Extension -match '\.(cs|xaml|manifest|ico|md|ps1)$' }
+if (Test-Path -LiteralPath $versionFile -PathType Leaf) { $srcFiles += Get-Item -LiteralPath $versionFile }
 $srcFiles += Get-Item -LiteralPath (Join-Path $root 'assets/compatibility/proxy-profiles.json')
 $srcFiles += Get-Item -LiteralPath (Join-Path $root 'tools/install/launcher-worker.ps1')
 $srcFiles += Get-Item -LiteralPath (Join-Path $root 'tools/install/proxy-probe.ps1')

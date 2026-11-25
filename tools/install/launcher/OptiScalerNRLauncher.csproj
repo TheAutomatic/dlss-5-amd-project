@@ -11,6 +11,7 @@
     <ApplicationIcon>app.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="AssemblyInfo.cs"/>
     <Compile Include="Program.cs"/>
     <Compile Include="MainWindow.cs"/>
     <Compile Include="Protocol.cs"/>
