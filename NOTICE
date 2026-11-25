@@ -22,9 +22,8 @@ License Scope & Third-Party Attributions
 3. DLSSNR-AMD / Mochizuki ASI (dlssnr-amd.asi & route binaries)
    Source: https://github.com/TheAutomatic/DLSSNR-AMD
    Upstream: https://gitlab.com/mochizuki0323/DLSSNR-AMD
-   Historical derivation notice: also derived from MatheusFerreiraS/neural-amd-opti (GPL-3.0).
    Licenses: MIT License & upstream notices (see Licenses/Mochizuki_MIT.txt,
-   Licenses/Mochizuki_ASI_SOURCES.md, Licenses/Mochizuki_SOURCES.md)
+   Licenses/Mochizuki_ASI_SOURCES.md)
 
 4. OpenRR-ASI (openrr-amd.asi / openrr-ngx-host.dll — DLSS Ray Reconstruction)
    Source: https://github.com/TheAutomatic/OpenRR-ASI

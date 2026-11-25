@@ -326,7 +326,7 @@ $isCustomDlssnr = [bool]($MochiDir -or $MochiArchive -or $MochiLangArchive)
 $dlssnrDir = Join-Path $upstreamCache $(if ($isCustomDlssnr) { 'dlssnr-amd-custom' } else { 'dlssnr-amd' })
 $dlssnrStampPath = Join-Path $dlssnrDir '.stamp.json'
 $staticLicenseSrcDir = Join-Path (Join-Path $repoRoot 'assets') 'licenses'
-$staticLicenseFiles = @('Mochizuki_MIT.txt', 'Mochizuki_ASI_SOURCES.md', 'Mochizuki_SOURCES.md', 'RenoDX_MIT.txt')
+$staticLicenseFiles = @('Mochizuki_MIT.txt', 'Mochizuki_ASI_SOURCES.md', 'RenoDX_MIT.txt')
 
 $staticLicenseDigestBuilder = New-Object System.Text.StringBuilder
 $resolvedStaticLicenses = @()
