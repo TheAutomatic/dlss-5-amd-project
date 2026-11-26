@@ -57,9 +57,15 @@ respective licenses, with no additional restrictions imposed by this project.
    Source: https://github.com/clshortfuse/renodx
    License: MIT License (see Licenses/RenoDX_MIT.txt)
 
-7. Compatibility Mode Third-Party Runtimes (staged from DLSSNR-AMD)
-   ReShade, DXVK, Vulkan Loader, Dear ImGui, Inter Font, and VORT / DLSS5_Feed shaders
-   retain their respective open-source licenses under Licenses/.
+7. Compatibility Mode Third-Party Runtimes (staged from DLSSNR-AMD as independent aggregates)
+   - ReShade (https://github.com/crosire/reshade): BSD-3-Clause License (see Licenses/ReShade-LICENSE.md)
+   - DXVK (https://github.com/doitsujin/dxvk): zlib License (see Licenses/DXVK-LICENSE.txt)
+   - Vulkan Loader (https://github.com/KhronosGroup/Vulkan-Loader): Apache License 2.0
+     (see Licenses/Vulkan-Loader-LICENSE.txt and vulkan/Vulkan-Loader-PATCHES.diff)
+   - DLSS5-Feeder (https://github.com/jlrouzies-fr/DLSS5-Feeder): MIT License (see Licenses/DLSS5_Feed-LICENSE.txt)
+   - vort_Shaders (https://github.com/vortigern11/vort_Shaders): MIT License (see Licenses/vort-LICENSE.txt)
+   - Dear ImGui (https://github.com/ocornut/imgui): MIT License (see Licenses/DearImGui-LICENSE.txt)
+   - Inter Font (https://github.com/rsms/inter): SIL Open Font License 1.1 (see Licenses/Inter-LICENSE.txt)
 
 8. RTX Remix for Minecraft — AMD Radeon Compatibility Patch (remixbridge.dll)
    Source: https://github.com/TheAutomatic/rtx-remix-minecraft-amd-patch
