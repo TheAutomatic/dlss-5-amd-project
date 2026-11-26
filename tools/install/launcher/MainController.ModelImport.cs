@@ -346,17 +346,21 @@ namespace OptScalerNR.Launcher
             if (!enabled)
             {
                 _openRrStatusText.Text = L("已关闭", "Off");
+                _openRrStatusText.ToolTip = null;
                 _openRrStatusText.Foreground = MissingBrush;
             }
             else if (hasDlssd)
             {
-                _openRrStatusText.Text = isPlaceholderAsi ? L("占位符待替换 · nvngx_dlssd.dll 已就绪", "Placeholder ASI · nvngx_dlssd.dll Ready") : L("已就绪 · nvngx_dlssd.dll 310.9.1", "Ready · nvngx_dlssd.dll 310.9.1");
-                _openRrStatusText.Foreground = ReadyBrush;
+                _openRrStatusText.Text = isPlaceholderAsi ? L("占位符待替换", "Placeholder ASI") : L("就绪", "Ready");
+                _openRrStatusText.ToolTip = isPlaceholderAsi ? L("openrr.asi 是占位文件，请替换。", "openrr.asi is a placeholder; replace it.") : null;
+                _openRrStatusText.Foreground = isPlaceholderAsi ? WarningBrush : ReadyBrush;
             }
             else
             {
-                _openRrStatusText.Text = L("待准备", "Setup needed");
-                _openRrStatusText.ToolTip = isPlaceholderAsi ? L("openrr.asi 是占位文件，请替换后导入模型源。", "openrr.asi is a placeholder; replace it and import a model source.") : "nvngx_dlssd.dll 310.9.1.0";
+                _openRrStatusText.Text = L("缺少 nvngx_dlssd.dll (310.9.1.0)", "Missing nvngx_dlssd.dll (310.9.1.0)");
+                _openRrStatusText.ToolTip = isPlaceholderAsi
+                    ? L("openrr.asi 是占位文件，请替换后导入 nvngx_dlssd.dll (310.9.1.0)。", "openrr.asi is a placeholder; replace it and import nvngx_dlssd.dll (310.9.1.0).")
+                    : L("需要 nvngx_dlssd.dll (310.9.1.0)，可点击下方导入或放入启动器目录。", "Requires nvngx_dlssd.dll (310.9.1.0); import below or place in the launcher folder.");
                 _openRrStatusText.Foreground = WarningBrush;
             }
             if (_openRrImportButton != null)
@@ -385,6 +389,7 @@ namespace OptScalerNR.Launcher
                         "Requires OptiPatcher enabled to reduce global GPU spoofing (OptiPatcher is unsupported or unchecked; full spoofing stays active).");
             }
             RefreshGpuHints();
+            RefreshOpenRrHotkeyHint(enabled && hasDlssd && !isPlaceholderAsi);
         }
         void RefreshModelImportBar()
         {
@@ -464,7 +469,7 @@ namespace OptScalerNR.Launcher
             }
             bool openRrMissing = _selectedGame != null && _selectedGame.HasExecutable && IsOptiScalerSelectedMode() && !IsOpenRrUnsupportedLocked() && _openRrToggle != null && _openRrToggle.IsChecked == true && !HasValidOpenRrDlssd();
             ((DockPanel)_window.FindName("OpenRrModelImportRow")).Visibility = openRrMissing ? Visibility.Visible : Visibility.Collapsed;
-            SetLabel("OpenRrModelImportText", "缺少 OpenRR 模型源", "OpenRR model source missing");
+            SetLabel("OpenRrModelImportText", "缺少 OpenRR 模型源（需要 nvngx_dlssd.dll 310.9.1.0）", "OpenRR model source missing (needs nvngx_dlssd.dll 310.9.1.0)");
             ((TextBlock)_window.FindName("OpenRrModelImportText")).ToolTip = "nvngx_dlssd.dll 310.9.1.0";
             bool locked = _selectedGame != null && _selectedGame.HasExecutable && IsOpenRrUnsupportedLocked();
             ((Border)_window.FindName("OpenRrUnsupportedBar")).Visibility = locked ? Visibility.Visible : Visibility.Collapsed;
@@ -498,7 +503,7 @@ namespace OptScalerNR.Launcher
                     Directory.CreateDirectory(root);
                     File.Copy(source, destination, true);
                 }
-                if (_statusText != null) SetStatus("已导入 nvngx_dlssd.dll (310.9.1.0)，OpenRR 已就绪。", "Imported nvngx_dlssd.dll (310.9.1.0); OpenRR is ready.");
+                if (_statusText != null) SetStatus("已导入 nvngx_dlssd.dll (310.9.1.0)，OpenRR 就绪。", "Imported nvngx_dlssd.dll (310.9.1.0); OpenRR is ready.");
                 RefreshModelImportBar();
                 if (_selectedGame != null && _selectedGame.HasExecutable) InspectGame(_selectedGame);
             } catch (Exception ex) {
@@ -846,7 +851,7 @@ namespace OptScalerNR.Launcher
             return new[] { mochi };
         }
 
-        bool TryFastInspect(GameInfo game, string fastProxy)
+        bool TryFastInspect(GameInfo game, string fastProxy, bool preserveCompletionStatus)
         {
             if (game == null || !game.HasExecutable || !HasLocalPackage()) return false;
             var pkgRoot = _packageRoot;
@@ -905,7 +910,7 @@ namespace OptScalerNR.Launcher
             if (_progress != null && (_session == null || !_session.IsRunning)) _progress.IsIndeterminate = false;
             if (_session == null || !_session.IsRunning) SetBusy(false, "");
             if (_statusLed != null) _statusLed.Fill = ReadyBrush;
-            if (_statusText != null && (_session == null || !_session.IsRunning))
+            if (!preserveCompletionStatus && _statusText != null && (_session == null || !_session.IsRunning))
                 SetStatus("", "");
             ApplyInspect(immediateResult, pkgRoot);
             var resume = _resumeInstallAction;

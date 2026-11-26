@@ -268,19 +268,162 @@ namespace OptScalerNR.Launcher
         };
 
         Button _mochiHotkeysButton;
+        StackPanel _mochiHotkeyHint, _mochiHotkeyHintCaps;
+        TextBlock _mochiHotkeyHintPrefix, _mochiHotkeyHintSuffix;
+        StackPanel _openRrHotkeyHint, _openRrHotkeyHintCaps;
+        TextBlock _openRrHotkeyHintPrefix, _openRrHotkeyHintSuffix;
 
         void InitMochiHotkeys()
         {
             _mochiHotkeysButton = _window.FindName("MochiHotkeysButton") as Button;
             if (_mochiHotkeysButton != null) _mochiHotkeysButton.Click += delegate { ShowMochiHotkeysDialog(); };
+            _mochiHotkeyHint = _window.FindName("MochiHotkeyHint") as StackPanel;
+            _mochiHotkeyHintPrefix = _window.FindName("MochiHotkeyHintPrefix") as TextBlock;
+            _mochiHotkeyHintCaps = _window.FindName("MochiHotkeyHintCaps") as StackPanel;
+            _mochiHotkeyHintSuffix = _window.FindName("MochiHotkeyHintSuffix") as TextBlock;
+            _openRrHotkeyHint = _window.FindName("OpenRrHotkeyHint") as StackPanel;
+            _openRrHotkeyHintPrefix = _window.FindName("OpenRrHotkeyHintPrefix") as TextBlock;
+            _openRrHotkeyHintCaps = _window.FindName("OpenRrHotkeyHintCaps") as StackPanel;
+            _openRrHotkeyHintSuffix = _window.FindName("OpenRrHotkeyHintSuffix") as TextBlock;
         }
 
         void RefreshMochiHotkeys(bool enabled)
         {
-            if (_mochiHotkeysButton == null) return;
-            _mochiHotkeysButton.Content = KeyboardLabel(L("快捷键", "Hotkeys"));
-            _mochiHotkeysButton.ToolTip = L("在启动器中修改 Mochizuki 当前游戏或默认模板的快捷键", "Edit Mochizuki hotkeys for the current game or launcher templates");
-            _mochiHotkeysButton.IsEnabled = enabled;
+            if (_mochiHotkeysButton != null) {
+                _mochiHotkeysButton.Content = KeyboardLabel(L("快捷键", "Hotkeys"));
+                _mochiHotkeysButton.ToolTip = L("在启动器中修改 Mochizuki 当前游戏或默认模板的快捷键", "Edit Mochizuki hotkeys for the current game or launcher templates");
+                _mochiHotkeysButton.IsEnabled = enabled;
+            }
+        }
+
+        string[] ResolveActiveMochiHotkeys()
+        {
+            var exePath = _selectedGame != null ? _selectedGame.Exe : null;
+            var gameDir = !string.IsNullOrEmpty(exePath) ? Path.GetDirectoryName(exePath) : null;
+            var gameIniPath = !string.IsNullOrEmpty(gameDir) ? DlssnrLocalData.ResolveActiveDlssnrIni(gameDir, exePath) : null;
+            return LoadHotkeysFromFile(gameIniPath, FindActiveTemplateIni());
+        }
+
+        string ResolveActiveOptiMenuKey()
+        {
+            var exePath = _selectedGame != null ? _selectedGame.Exe : null;
+            var gameDir = !string.IsNullOrEmpty(exePath) ? Path.GetDirectoryName(exePath) : null;
+            return !string.IsNullOrEmpty(gameDir) ? MochizukiHotkeysIni.ReadOptiScalerMenuKey(gameDir) : "Insert";
+        }
+
+        static readonly FontFamily KeycapFont = new FontFamily("Cascadia Mono, Consolas, Segoe UI");
+
+        static void BuildInlineKeycaps(Panel host, string hotkey)
+        {
+            if (host == null) return;
+            host.Children.Clear();
+            if (string.IsNullOrEmpty(hotkey)) return;
+            var tokens = hotkey.Split('+');
+            for (int i = 0; i < tokens.Length; i++) {
+                if (i > 0) {
+                    var plus = HotkeyText("+", 10, "ThemeMuted", false, false);
+                    plus.Margin = new Thickness(2, 0, 2, 0);
+                    plus.VerticalAlignment = VerticalAlignment.Center;
+                    host.Children.Add(plus);
+                }
+                var tb = HotkeyText(tokens[i], 10.5, "ThemeInk", true, false);
+                tb.FontFamily = KeycapFont;
+                tb.VerticalAlignment = VerticalAlignment.Center;
+                var cap = ThemedBorder(4, "ThemeSubtle", "ThemeBorder", tb);
+                cap.BorderThickness = new Thickness(1, 1, 1, 1.5);
+                cap.Padding = new Thickness(5, 0.5, 5, 1);
+                cap.VerticalAlignment = VerticalAlignment.Center;
+                cap.Margin = new Thickness(i == 0 ? 4 : 0, 0, i == tokens.Length - 1 ? 4 : 0, 0);
+                host.Children.Add(cap);
+            }
+        }
+
+        void RefreshMochiHotkeyHint()
+        {
+            if (_mochiHotkeyHint == null) return;
+            if (!IsBackendSelected("mochizuki")) {
+                _mochiHotkeyHint.Visibility = Visibility.Collapsed;
+                return;
+            }
+            var mochiValues = ResolveActiveMochiHotkeys();
+            if (GetSelectedBaseMode() == "reshade") {
+                var toggleKey = mochiValues.Length > 1 ? mochiValues[1] : "";
+                if (string.IsNullOrEmpty(toggleKey)) {
+                    _mochiHotkeyHint.Visibility = Visibility.Collapsed;
+                } else {
+                    _mochiHotkeyHintPrefix.Text = L("游戏内按", "Press");
+                    BuildInlineKeycaps(_mochiHotkeyHintCaps, toggleKey);
+                    _mochiHotkeyHintSuffix.Text = L("开关 NR", "to toggle NR");
+                    _mochiHotkeyHint.ToolTip = L("ReShade 模式下按 Home 打开 ReShade 菜单，可在右上角「快捷键」中修改热键", "In ReShade mode, press Home for ReShade; edit NR hotkeys via Hotkeys.");
+                    _mochiHotkeyHint.Visibility = Visibility.Visible;
+                }
+            } else {
+                var menuKey = mochiValues.Length > 0 ? mochiValues[0] : "";
+                if (string.IsNullOrEmpty(menuKey)) {
+                    _mochiHotkeyHintPrefix.Text = L("菜单键未绑定", "Menu key unbound");
+                    BuildInlineKeycaps(_mochiHotkeyHintCaps, "");
+                    _mochiHotkeyHintSuffix.Text = "";
+                    _mochiHotkeyHint.ToolTip = L("可在右上角「快捷键」中重新绑定 NR Control 菜单键", "Rebind the NR Control menu key via Hotkeys.");
+                    _mochiHotkeyHint.Visibility = Visibility.Visible;
+                } else {
+                    _mochiHotkeyHintPrefix.Text = L("游戏内按", "Press");
+                    BuildInlineKeycaps(_mochiHotkeyHintCaps, menuKey);
+                    _mochiHotkeyHintSuffix.Text = L("打开面板", "for menu");
+                    _mochiHotkeyHint.ToolTip = L("游戏内按此键打开 / 关闭 Mochizuki NR Control 面板（可在右上角「快捷键」修改）", "Press in game to open/close Mochizuki NR Control (edit via Hotkeys).");
+                    _mochiHotkeyHint.Visibility = Visibility.Visible;
+                }
+            }
+        }
+
+        void RefreshOpenRrHotkeyHint(bool openRrReady)
+        {
+            if (_openRrHotkeyHint == null) return;
+            var optiKey = openRrReady ? ResolveActiveOptiMenuKey() : "";
+            if (string.IsNullOrEmpty(optiKey)) {
+                _openRrHotkeyHint.Visibility = Visibility.Collapsed;
+            } else {
+                _openRrHotkeyHintPrefix.Text = L("随", "Opens with");
+                BuildInlineKeycaps(_openRrHotkeyHintCaps, optiKey);
+                _openRrHotkeyHintSuffix.Text = L("打开", "menu");
+                _openRrHotkeyHint.ToolTip = L("OpenRR 面板会停靠在 OptiScaler 菜单内，随此键同步打开", "OpenRR docks inside the OptiScaler menu and opens with this key.");
+                _openRrHotkeyHint.Visibility = Visibility.Visible;
+            }
+        }
+
+        void SetInstallCompleteStatus(bool updated)
+        {
+            var baseMode = GetSelectedBaseMode();
+            bool isOpti = IsOptiScalerSelectedMode();
+            bool isReShade = baseMode == "reshade";
+            bool mochiOn = IsBackendSelected("mochizuki") || !isOpti;
+            bool openRrOn = isOpti && !IsOpenRrUnsupportedLocked() && _openRrToggle != null && _openRrToggle.IsChecked == true;
+            var mochiKeys = mochiOn ? ResolveActiveMochiHotkeys() : null;
+            var menuKey = mochiOn ? mochiKeys[0] : "";
+            var toggleKey = mochiOn ? mochiKeys[1] : "";
+            var optiKey = isOpti ? ResolveActiveOptiMenuKey() : "";
+            var zhParts = new List<string>();
+            var enParts = new List<string>();
+            if (isOpti && !string.IsNullOrEmpty(optiKey)) {
+                zhParts.Add(openRrOn ? ("按 " + optiKey + " 打开 OptiScaler / OpenRR") : ("按 " + optiKey + " 打开 OptiScaler"));
+                enParts.Add(openRrOn ? ("press " + optiKey + " for OptiScaler / OpenRR") : ("press " + optiKey + " for OptiScaler"));
+            }
+            if (isReShade) {
+                if (!string.IsNullOrEmpty(toggleKey)) {
+                    zhParts.Add("按 " + toggleKey + " 开关 NR（Home 打开 ReShade）");
+                    enParts.Add("press " + toggleKey + " to toggle NR (Home for ReShade)");
+                } else {
+                    zhParts.Add("按 Home 打开 ReShade");
+                    enParts.Add("press Home for ReShade");
+                }
+            } else if (mochiOn && !string.IsNullOrEmpty(menuKey)) {
+                zhParts.Add("按 " + menuKey + " 打开 Mochizuki 面板");
+                enParts.Add("press " + menuKey + " for Mochizuki");
+            }
+            string zh = updated ? "更新完成" : "安装完成";
+            string en = updated ? "Update complete" : "Installation complete";
+            if (zhParts.Count > 0) zh += " · 游戏内" + string.Join("，", zhParts.ToArray());
+            if (enParts.Count > 0) en += " · In game: " + string.Join(", ", enParts.ToArray());
+            SetStatus(zh, en);
         }
 
         static object KeyboardLabel(string text)
@@ -296,6 +439,24 @@ namespace OptScalerNR.Launcher
             panel.Children.Add(icon);
             panel.Children.Add(new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center });
             return panel;
+        }
+
+        string FindActiveTemplateIni()
+        {
+            var root = ResolveImportRoot();
+            var mode = GetSelectedBaseMode();
+            string[] names;
+            if (mode == "reshade") names = new[] { "dlssnr-amd-addon.ini" };
+            else if (mode == "standalone") names = new[] { "dlssnr-amd-standalone.ini" };
+            else if (GetSelectedRenoDx() == "on") names = new[] { "dlssnr-amd-optiscaler-renodx.ini", "dlssnr-amd-optiscaler.ini" };
+            else names = new[] { "dlssnr-amd-optiscaler.ini" };
+            foreach (var name in names) {
+                var path = Path.Combine(root, "ini", name);
+                if (File.Exists(path)) return path;
+                path = Path.Combine(root, name);
+                if (File.Exists(path)) return path;
+            }
+            return null;
         }
 
         string[] FindLauncherTemplateInis()
@@ -449,7 +610,7 @@ namespace OptScalerNR.Launcher
             bool hasGameIni = !string.IsNullOrEmpty(gameIniPath) && File.Exists(gameIniPath);
             var templatePaths = FindLauncherTemplateInis();
             bool hasTemplates = templatePaths.Length > 0;
-            string primaryTemplate = hasTemplates ? templatePaths[0] : null;
+            string primaryTemplate = FindActiveTemplateIni();
             string optiMenuKey = hasGameIni ? MochizukiHotkeysIni.ReadOptiScalerMenuKey(gameDir) : "Insert";
 
             if (!hasGameIni && !hasTemplates) {
@@ -460,7 +621,7 @@ namespace OptScalerNR.Launcher
             var win = DialogTheme.Create(_window, L("Mochizuki 快捷键设置", "Mochizuki Hotkeys"), 630);
             DialogTheme.SetSuppressEscapeClose(win, false);
             var ghostStyle = win.FindResource("GhostButton") as Style;
-            var currentValues = LoadHotkeysFromFile(hasGameIni ? gameIniPath : primaryTemplate, primaryTemplate);
+            var currentValues = LoadHotkeysFromFile(gameIniPath, primaryTemplate);
             int capturingIndex = -1;
             string transientNote = null;
 
@@ -582,8 +743,10 @@ namespace OptScalerNR.Launcher
                 stopCapture();
                 bool applyGame = gameScopeCheck.IsChecked == true && hasGameIni;
                 bool applyTpl = tplScopeCheck.IsChecked == true && hasTemplates;
-                if ((applyGame || applyTpl) && SaveMochiHotkeys(win, gameDir, gameIniPath, templatePaths, currentValues, applyGame, applyTpl))
+                if ((applyGame || applyTpl) && SaveMochiHotkeys(win, gameDir, gameIniPath, templatePaths, currentValues, applyGame, applyTpl)) {
+                    RefreshMochiHotkeyHint();
                     win.DialogResult = true;
+                }
             };
 
             refreshUi();

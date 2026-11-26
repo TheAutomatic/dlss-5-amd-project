@@ -419,6 +419,7 @@ namespace OptScalerNR.Launcher
                         if (!locked) { SetIniStatus("locked", ""); return false; }
                         SetBusy(true, "asi-profile"); busy = true; RefreshProfileActions();
                         var backup = _asiProfiles.Apply(Path.GetDirectoryName(target), source);
+                        RefreshMochiHotkeyHint();
                         SetIniStatus("asi-imported", Path.GetFileName(backup)); return true;
                     default: return false;
                 }
@@ -562,6 +563,7 @@ namespace OptScalerNR.Launcher
                 busy = true;
                 RefreshProfileActions();
                 var backup = _iniProfiles.Apply(game.Directory, name);
+                RefreshOpenRrCard();
                 SetIniStatus("applied", Path.GetFileName(backup));
                 return true;
             }

@@ -675,9 +675,17 @@
                       </DockPanel>
                       <TextBlock x:Name="MochiDescription" Grid.Row="1" Style="{StaticResource Caption}" Margin="52,6,0,0"/>
                       <TextBlock x:Name="MochiMcWarningText" Grid.Row="2" FontSize="12" Foreground="{DynamicResource ThemeMuted}" Margin="52,6,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
-                      <Border x:Name="MochiBadge" Grid.Row="3" Style="{StaticResource Badge}" Margin="52,10,0,0" HorizontalAlignment="Left">
-                        <StackPanel Orientation="Horizontal"><Ellipse Width="6" Height="6" Margin="0,0,5,0" Fill="{Binding Foreground, ElementName=MochiReason}"/><TextBlock x:Name="MochiReason" FontSize="11" Foreground="{DynamicResource ThemeMuted}"/></StackPanel>
-                      </Border>
+                      <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="52,10,0,0">
+                        <Border x:Name="MochiBadge" Style="{StaticResource Badge}" HorizontalAlignment="Left" VerticalAlignment="Center">
+                          <StackPanel Orientation="Horizontal"><Ellipse Width="6" Height="6" Margin="0,0,5,0" Fill="{Binding Foreground, ElementName=MochiReason}"/><TextBlock x:Name="MochiReason" FontSize="11" Foreground="{DynamicResource ThemeMuted}"/></StackPanel>
+                        </Border>
+                        <StackPanel x:Name="MochiHotkeyHint" Orientation="Horizontal" VerticalAlignment="Center" Visibility="Collapsed">
+                          <TextBlock Text="·" FontSize="11" Foreground="{DynamicResource ThemeFaint}" Margin="7,0,7,0" VerticalAlignment="Center"/>
+                          <TextBlock x:Name="MochiHotkeyHintPrefix" FontSize="11" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center"/>
+                          <StackPanel x:Name="MochiHotkeyHintCaps" Orientation="Horizontal" VerticalAlignment="Center"/>
+                          <TextBlock x:Name="MochiHotkeyHintSuffix" FontSize="11" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                      </StackPanel>
                     </Grid>
                   </Border>
                 </Grid>
@@ -698,15 +706,23 @@
                         </Border>
                         <Button x:Name="RelockOpenRrBtn" Style="{DynamicResource CardAction}" Margin="0,0,8,0" Content="重新锁定" Visibility="Collapsed"
                                 local:DialogTheme.Icon="M 3.75 7.25 H 12.25 V 13.75 H 3.75 Z M 5.5 7.25 V 5 A 2.5 2.5 0 0 1 10.5 5 V 7.25"/>
-                        <Border x:Name="OpenRrBadge" Style="{StaticResource Badge}">
-                          <StackPanel Orientation="Horizontal"><Ellipse Width="6" Height="6" Margin="0,0,5,0" Fill="{Binding Foreground, ElementName=OpenRrStatusText}"/><TextBlock x:Name="OpenRrStatusText" FontSize="11" Foreground="{DynamicResource ThemeMuted}"/></StackPanel>
-                        </Border>
                       </StackPanel>
                       <CheckBox x:Name="OpenRrToggle" Style="{DynamicResource ToggleSwitch}" IsChecked="False" FontWeight="SemiBold" FontSize="13.5" VerticalAlignment="Center"/>
                     </DockPanel>
                     <TextBlock x:Name="OpenRrDescription" Style="{StaticResource Caption}" Margin="52,6,0,0"/>
                     <TextBlock x:Name="OpenRrNoDlssdWarningText" FontSize="12" Foreground="{DynamicResource ThemeMuted}" Margin="52,6,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
-                    <CheckBox x:Name="OpenRrAutoSpoofToggle" Style="{DynamicResource ToggleSwitch}" IsChecked="False" FontSize="12" Foreground="{DynamicResource ThemeMuted}" Margin="52,12,0,0" Visibility="Collapsed" ToolTipService.ShowOnDisabled="True"/>
+                    <StackPanel Orientation="Horizontal" Margin="52,10,0,0">
+                      <Border x:Name="OpenRrBadge" Style="{StaticResource Badge}" HorizontalAlignment="Left" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal"><Ellipse Width="6" Height="6" Margin="0,0,5,0" Fill="{Binding Foreground, ElementName=OpenRrStatusText}"/><TextBlock x:Name="OpenRrStatusText" FontSize="11" Foreground="{DynamicResource ThemeMuted}"/></StackPanel>
+                      </Border>
+                      <StackPanel x:Name="OpenRrHotkeyHint" Orientation="Horizontal" VerticalAlignment="Center" Visibility="Collapsed">
+                        <TextBlock Text="·" FontSize="11" Foreground="{DynamicResource ThemeFaint}" Margin="7,0,7,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="OpenRrHotkeyHintPrefix" FontSize="11" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center"/>
+                        <StackPanel x:Name="OpenRrHotkeyHintCaps" Orientation="Horizontal" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="OpenRrHotkeyHintSuffix" FontSize="11" Foreground="{DynamicResource ThemeMuted}" VerticalAlignment="Center"/>
+                      </StackPanel>
+                    </StackPanel>
+                    <CheckBox x:Name="OpenRrAutoSpoofToggle" Style="{DynamicResource ToggleSwitch}" IsChecked="False" FontSize="12" Foreground="{DynamicResource ThemeMuted}" Margin="52,10,0,0" Visibility="Collapsed" ToolTipService.ShowOnDisabled="True"/>
                   </StackPanel>
                 </Border>
                 <Border x:Name="OpenRrCollapsedBar" Style="{StaticResource InfoBar}" Margin="0,8,0,0" Visibility="Collapsed">
@@ -1005,7 +1021,7 @@
       </Grid.ColumnDefinitions>
       <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
         <Ellipse x:Name="StatusLed" Visibility="{Binding Visibility, ElementName=StatusText}" Width="7" Height="7" VerticalAlignment="Center" Fill="{DynamicResource ThemeSuccess}" Margin="0,0,8,0"/>
-        <TextBlock x:Name="StatusText" VerticalAlignment="Center" Foreground="{DynamicResource ThemeMuted}" FontSize="11.5" MaxWidth="420" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}">
+        <TextBlock x:Name="StatusText" VerticalAlignment="Center" Foreground="{DynamicResource ThemeMuted}" FontSize="11.5" MaxWidth="540" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}">
           <TextBlock.Style>
             <Style TargetType="TextBlock"><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger></Style.Triggers></Style>
           </TextBlock.Style>

@@ -810,13 +810,14 @@ namespace OptScalerNR.Launcher
             if (!IsBackendSelected(id))
             {
                 ready = false;
-                reason = L("未选择", "Not selected");
+                reason = L("已关闭", "Off");
             }
             if (_mochiReason != null)
             {
                 _mochiReason.Text = reason;
                 _mochiReason.Foreground = ready ? ReadyBrush : IsBackendSelected(id) ? WarningBrush : MissingBrush;
             }
+            RefreshMochiHotkeyHint();
         }
 
         void RefreshInspectionText()
@@ -930,7 +931,7 @@ namespace OptScalerNR.Launcher
         void RefreshStatusLanguage()
         {
             if (_statusText == null) return;
-            if (_session != null && _session.IsRunning)
+            if (_session != null && _session.IsRunning && !_session.PreserveCompletionStatus)
             {
                 _statusText.Text = StageText(_eventStage ?? _session.Action);
                 return;
@@ -1945,7 +1946,7 @@ namespace OptScalerNR.Launcher
             if (_progress != null) _progress.IsIndeterminate = false;
         }
 
-        void InspectGame(GameInfo game)
+        void InspectGame(GameInfo game, bool preserveCompletionStatus = false)
         {
             if (_writeBusy) return;
             if (game == null || !game.HasExecutable) { RefreshInspectionText(); return; }
@@ -1956,7 +1957,7 @@ namespace OptScalerNR.Launcher
             UpdateProxyRecommendation(fastProxy);
             _decisions.OptiPatcher = (_optiPatcherToggle != null && _optiPatcherToggle.IsEnabled && _optiPatcherToggle.IsChecked == true) ? "install" : "skip";
             _decisions.OpenRr = (!IsOpenRrUnsupportedLocked() && _openRrToggle != null && _openRrToggle.IsChecked == true) ? "install" : "skip";
-            if (TryFastInspect(game, fastProxy)) return;
+            if (TryFastInspect(game, fastProxy, preserveCompletionStatus)) return;
 
             if (_session != null)
             {
@@ -1986,6 +1987,7 @@ namespace OptScalerNR.Launcher
             try
             {
                 _session = WorkerSession.Start(WorkerScript, req, work, canKill: true);
+                _session.PreserveCompletionStatus = preserveCompletionStatus;
                 _session.EventReceived += OnEvent;
                 _session.Completed += OnCompleted;
             }
@@ -2929,7 +2931,8 @@ namespace OptScalerNR.Launcher
             _window.Dispatcher.BeginInvoke(new Action(() =>
             {
                 if (stage != "log") _eventStage = stage;
-                if (_statusText != null) _statusText.Text = StageText(_eventStage);
+                if (_statusText != null && _session != null && !_session.PreserveCompletionStatus)
+                    _statusText.Text = StageText(_eventStage);
                 AppendLog((stage ?? "") + ": " + (message ?? ""));
             }));
         }
@@ -2982,9 +2985,9 @@ namespace OptScalerNR.Launcher
                     if (_statusLed != null) _statusLed.Fill = ReadyBrush;
                     if (_statusText != null) {
                         if (result.Status == "success") {
-                            if (action == "install") SetStatus("安装完成", "Installation complete");
+                            if (action == "install" || action == "update") SetInstallCompleteStatus(action == "update");
                             else if (action == "uninstall") SetStatus("卸载完成", "Uninstall complete");
-                            else SetStatus("", "");
+                            else if (!source.PreserveCompletionStatus) SetStatus("", "");
                         } else _statusText.Text = result.Status + (string.IsNullOrEmpty(result.Error) ? "" : (": " + result.Error));
                     }
                     RefreshStatusLanguage();
@@ -3004,7 +3007,7 @@ namespace OptScalerNR.Launcher
                         return;
                     }
                 }
-                else if (result != null && string.Equals(result.Status, "success", StringComparison.OrdinalIgnoreCase))
+                else if (code == 0 && result != null && string.Equals(result.Status, "success", StringComparison.OrdinalIgnoreCase))
                 {
                     if (action == "repairXess" || action == "restoreXess" || action == "keepXess") {
                         if (_lastInspectResult != null) _lastInspectResult.Compatibility = result.Compatibility;
@@ -3030,7 +3033,7 @@ namespace OptScalerNR.Launcher
                         SelectGameProfiles();
                         _modeAppliedForKey = "";
                         RefreshGameListView();
-                        if (_selectedGame != null) InspectGame(_selectedGame);
+                        if (_selectedGame != null) InspectGame(_selectedGame, preserveCompletionStatus: true);
                     }
 
                 }

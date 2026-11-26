@@ -23,6 +23,7 @@ namespace OptScalerNR.Launcher
         public event Action<WorkerSession, LauncherResult, int> Completed;
 
         public bool IsRunning { get { return _process != null && !_process.HasExited; } }
+        internal bool PreserveCompletionStatus { get; set; }
         public bool CanKill { get; private set; }
         public string Action { get; private set; }
         public string GameExe { get; private set; }

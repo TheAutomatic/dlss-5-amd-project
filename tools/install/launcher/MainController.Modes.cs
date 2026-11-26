@@ -655,6 +655,7 @@ namespace OptScalerNR.Launcher
             RefreshBackendHints();
             UpdateModeBanners();
             RefreshModelImportBar();
+            RefreshMochiHotkeyHint();
             UpdatePrimaryActionText();
             UpdatePrimaryButtonState();
             RefreshProxySummary();

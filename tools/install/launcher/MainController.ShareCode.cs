@@ -509,6 +509,7 @@ namespace OptScalerNR.Launcher
                 using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { stream.Write(bytes, 0, bytes.Length); stream.Flush(true); }
                 string backup = path + ".bak-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff") + "-" + Guid.NewGuid().ToString("N").Substring(0, 8);
                 File.Replace(temporary, path, backup);
+                RefreshMochiHotkeyHint();
                 SetIniStatus("share-imported", Path.GetFileName(backup)); return true;
             } catch (Exception ex) { SetIniStatus("share-error", ShareError(ex)); return false; }
             finally {
