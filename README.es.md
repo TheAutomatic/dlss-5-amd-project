@@ -59,7 +59,7 @@ La serie `2.x` deja atrás las compilaciones modificadas de `OptiScaler.dll` y a
 
 ### Lanzador gráfico en Linux / SteamOS (Proton, experimental)
 
-Descargue `OptiScaler-NR-Linux-x86_64-<version>.tar.gz` (juegos de 64 bits: OptiScaler con Mochizuki NR + OpenRR `0.1.7.1plus` + OptiPatcher + ReShade) o `OptiScaler-NR-Linux-i686-<version>.tar.gz` (juegos de 32 bits: solo ReShade Feeder):
+Descargue `OptiScaler-NR-Linux-x86_64-<version>.tar.gz` (juegos de 64 bits: OptiScaler con Mochizuki NR + OpenRR `0.1.7.1plus2` + OptiPatcher + ReShade) o `OptiScaler-NR-Linux-i686-<version>.tar.gz` (juegos de 32 bits: solo ReShade Feeder):
 
 ```bash
 tar -xzf OptiScaler-NR-Linux-x86_64-<version>.tar.gz && cd OptiScaler-NR-Linux-x86_64-<version>

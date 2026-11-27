@@ -485,7 +485,7 @@ def apply_optiscaler_addons(
             cjk_font_path = _to_wine_path(cjk_font)
 
         _append_manifest(game, OPENRR_MANIFEST_ENTRIES)
-        log("out", "OpenRR %s installed (spoof: %s)." % (pkg.openrr_version or "0.1.7.1plus", "auto" if openrr_spoof == "auto" else "full"))
+        log("out", "OpenRR %s installed (spoof: %s)." % (pkg.openrr_version or "0.1.7.1plus2", "auto" if openrr_spoof == "auto" else "full"))
 
     apply_plugin_language(game, lang=lang, want_nr=want_nr, want_openrr=want_openrr)
 

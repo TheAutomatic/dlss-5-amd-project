@@ -118,7 +118,7 @@ class Package:
     def openrr_version(self) -> str:
         if self.meta.get("openrrVersion"):
             return str(self.meta["openrrVersion"])
-        return "0.1.7.1plus" if self.has_openrr else ""
+        return "0.1.7.1plus2" if self.has_openrr else ""
 
     @property
     def has_optipatcher(self) -> bool:
