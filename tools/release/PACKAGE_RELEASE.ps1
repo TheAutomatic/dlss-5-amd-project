@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Stage and zip the standalone OptiScaler ASI Launcher package from pinned upstream releases
   (defined in tools/build/upstream-pins.json; reuses matching archives in dist/upstream/ or cache/downloads/):
@@ -16,6 +16,7 @@ param(
     [string]$OptiArchive = '',
     [string]$OptiDir = '',
     [string]$MochiArchive = '',
+    [string]$MochiArchive32 = '',
     [string]$MochiLangArchive = '',
     [string]$MochiDir = '',
     [string]$OpenRrArchive = '',
@@ -179,7 +180,7 @@ if (-not $Version) {
     }
     if (-not $Version) { $Version = '2.0.0' }
 }
-if (-not $Name) { $Name = "OptiScaler-NR-Win-$Version" }
+if (-not $Name) { $Name = "OptiScaler-NR-Windows-$Version" }
 
 $stage = Join-Path $root (Join-Path $OutDir $Name)
 $zip   = Join-Path $root (Join-Path $OutDir ($Name + '.zip'))
@@ -194,6 +195,7 @@ $fetchUpstreamScript = Join-Path $root 'tools/build/fetch-upstream.ps1'
 $upstreamInfo = & $fetchUpstreamScript `
     -UpstreamDir $UpstreamDir `
     -MochiArchive $MochiArchive `
+    -MochiArchive32 $MochiArchive32 `
     -MochiLangArchive $MochiLangArchive `
     -MochiDir $MochiDir `
     -OpenRrArchive $OpenRrArchive `
@@ -237,11 +239,13 @@ foreach ($required in @(
     'vulkan/Vulkan-Loader-LICENSE.txt',
     'model-tools/dlssnr_extract_model.exe',
     'model-tools/dlssnr-int4-weights.exe',
-    'model-tools/dlssnr-int4.sha256',
-    'experimental/dlssnr-small-experimental.delta',
-    'experimental/CC_SMALL_FP8_EXPERIMENTAL.bin.sha256',
-    'optimized/dlssnr-optimized.delta',
-    'optimized/CC_SILVER_AARDWOLD_OPTIMIZED.bin.sha256'
+    'model-tools/CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin.sha256',
+    'model-tools/CC_SMALL_FP8_OPTIMIZED_INT4.bin.sha256',
+    'model-tools/CC_SMALL_FP8_OPTIMIZED_INT4_SINK.bin.sha256',
+    'CC_SMALL_FP8_OPTIMIZED/CC_SMALL_FP8_OPTIMIZED.delta',
+    'CC_SMALL_FP8_OPTIMIZED/CC_SMALL_FP8_OPTIMIZED.bin.sha256',
+    'CC_SILVER_AARDWOLD_OPTIMIZED/CC_SILVER_AARDWOLD_OPTIMIZED.delta',
+    'CC_SILVER_AARDWOLD_OPTIMIZED/CC_SILVER_AARDWOLD_OPTIMIZED.bin.sha256'
 ) + $reShade32Entries) {
     if (-not (Test-Path -LiteralPath (Join-Path $asiPayload $required) -PathType Leaf)) {
         throw "dlssnr-amd payload incomplete: $required"
@@ -276,7 +280,6 @@ foreach ($reqOpenRrDir in @(
     }
 }
 foreach ($reqOpenRrFile in @(
-    'OptiScaler/plugins/openrr-ngx-host.dll',
     'openrr-amd/aco/gfx1201/openrr-d3d12-v1/manifest.msgpack',
     'openrr-amd/aco/gfx1200/openrr-d3d12-v1/manifest.msgpack',
     'openrr-amd/lang/zh-CN.txt',
@@ -380,7 +383,7 @@ $optiPatcherSourceText = @(
 # 6. Stage ASI 1: dlssnr-amd.asi + resources
 Initialize-ParallelPackageTool
 $mzAssets = Join-Path $stage 'dlssnr-amd'
-New-Item -ItemType Directory -Force $mzAssets, (Join-Path $stage 'model-tools'), (Join-Path $stage 'experimental') | Out-Null
+New-Item -ItemType Directory -Force $mzAssets, (Join-Path $stage 'model-tools'), (Join-Path $stage 'CC_SMALL_FP8_OPTIMIZED'), (Join-Path $stage 'CC_SILVER_AARDWOLD_OPTIMIZED') | Out-Null
 [OptiScaler.ParallelPackageTool]::CopyDirectoryTree((Join-Path $asiPayload 'dlssnr-amd'), $mzAssets)
 Copy-Item -LiteralPath (Join-Path $asiPayload 'OptiScaler/plugins/dlssnr-amd.asi') -Destination (Join-Path $optiPluginDst 'dlssnr-amd.asi') -Force
 Copy-Item -LiteralPath (Join-Path $asiPayload 'nr_present_probe.exe') -Destination $mzAssets -Force
@@ -398,10 +401,11 @@ foreach ($routeDirName in @('standalone', 'reshade', 'dxvk', 'vulkan')) {
         }
     }
 }
-Get-ChildItem -LiteralPath (Join-Path $asiPayload 'experimental') -File | Copy-Item -Destination (Join-Path $stage 'experimental') -Force
-if (Test-Path -LiteralPath (Join-Path $asiPayload 'optimized') -PathType Container) {
-    New-Item -ItemType Directory -Force (Join-Path $stage 'optimized') | Out-Null
-    Get-ChildItem -LiteralPath (Join-Path $asiPayload 'optimized') -File | Copy-Item -Destination (Join-Path $stage 'optimized') -Force
+foreach ($deltaDirName in @('CC_SMALL_FP8_OPTIMIZED', 'CC_SILVER_AARDWOLD_OPTIMIZED')) {
+    $deltaSrc = Join-Path $asiPayload $deltaDirName
+    if (Test-Path -LiteralPath $deltaSrc -PathType Container) {
+        Get-ChildItem -LiteralPath $deltaSrc -File | Copy-Item -Destination (Join-Path $stage $deltaDirName) -Force
+    }
 }
 Get-ChildItem -LiteralPath (Join-Path $asiPayload 'model-tools') -File | Copy-Item -Destination (Join-Path $stage 'model-tools') -Force
 Get-ChildItem -LiteralPath (Join-Path $asiPayload 'Licenses') -File | Copy-Item -Destination (Join-Path $stage 'Licenses') -Force
@@ -437,17 +441,13 @@ if not exist "%SOURCE%" (
 "%~dp0model-tools\dlssnr_extract_model.exe" "%SOURCE%" "%~dp0dlssnr-amd"
 set "RC=%ERRORLEVEL%"
 if not "%RC%"=="0" echo Model extraction failed ^(exit code %RC%^).
-echo Base models only: Setup generates Experimental from Small and Optimized from Original.
+echo Base models only: Setup generates CC_SMALL_FP8_OPTIMIZED from CC_SMALL_FP8 and CC_SILVER_AARDWOLD_OPTIMIZED from CC_SILVER_AARDWOLD.
 pause
 exit /b %RC%
 '@ | Set-Content -LiteralPath (Join-Path $stage 'Mochizuki-Model.bat') -Encoding ASCII
 
-# 7. Stage ASI 2: openrr-amd.asi + openrr-ngx-host.dll + openrr-amd/{shaders,shaders-gfx11,aco,lang}
+# 7. Stage ASI 2: openrr-amd.asi + openrr-amd/{shaders,shaders-gfx11,aco,lang}
 Copy-Item -LiteralPath $openRrAsiSrc -Destination (Join-Path $optiPluginDst 'openrr-amd.asi') -Force
-$openRrHostSrc = Join-Path $openRrPayload 'OptiScaler/plugins/openrr-ngx-host.dll'
-if (Test-Path -LiteralPath $openRrHostSrc -PathType Leaf) {
-    Copy-Item -LiteralPath $openRrHostSrc -Destination (Join-Path $optiPluginDst 'openrr-ngx-host.dll') -Force
-}
 $openRrIniSrc = $null
 foreach ($cand in @('openrr-amd.ini', 'OptiScaler/openrr-amd.ini')) {
     $p = Join-Path $openRrPayload $cand
@@ -488,6 +488,7 @@ $installShSrc = Join-Path $root 'tools/install/install.sh'
 $installShContent = [IO.File]::ReadAllText($installShSrc, [Text.Encoding]::UTF8).Replace("`r`n", "`n")
 [IO.File]::WriteAllText((Join-Path $stage 'install.sh'), $installShContent, [Text.UTF8Encoding]::new($false))
 Copy-Item -LiteralPath (Join-Path $root 'assets/compatibility/proxy-profiles.json') -Destination $stage -Force
+Copy-Item -LiteralPath (Join-Path $root 'assets/compatibility/launcher-overrides.json') -Destination $stage -Force
 Copy-Item -LiteralPath (Join-Path $root 'assets/compatibility/README.md') -Destination (Join-Path $stage 'Licenses/OptiScaler-wiki-profiles.md') -Force
 Copy-Item -LiteralPath (Join-Path $root 'LICENSE'), (Join-Path $root 'NOTICE') -Destination $stage -Force
 foreach ($doc in @('README.md', 'README.en.md', 'README.es.md')) {
@@ -523,7 +524,7 @@ if ($LocalTest) {
 }
 
 # 9. Forbidden proprietary/model file gate
-$forbidden = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr(?:-int4|-small)?\.bin|CC_(?:SMALL_FP8|SMALL_FP8_EXPERIMENTAL|SILVER_AARDWOLD|SILVER_AARDWOLD_OPTIMIZED|SILVER_AARDWOLD_OPTIMIZED_INT4)\.bin|version\.dll|dlssnr_on_amd_setup\.exe)$'
+$forbidden = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr(?:-int4|-small)?\.bin|CC_(?:SMALL_FP8|SMALL_FP8_EXPERIMENTAL|SMALL_FP8_OPTIMIZED|SMALL_FP8_OPTIMIZED_INT4|SMALL_FP8_OPTIMIZED_INT4_SINK|SILVER_AARDWOLD|SILVER_AARDWOLD_OPTIMIZED|SILVER_AARDWOLD_OPTIMIZED_INT4)\.bin|version\.dll|dlssnr_on_amd_setup\.exe)$'
 $badAll = Get-ChildItem -LiteralPath $stage -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match $forbidden }
 if ($badAll) {
     throw "Refusing to package proprietary/user-supplied file: $(($badAll | ForEach-Object { $_.FullName.Substring($stage.Length+1) }) -join ', ')"
@@ -551,7 +552,7 @@ $expectedEntries['SHA256SUMS.txt'] = Get-Sha256 (Join-Path $stage 'SHA256SUMS.tx
 
 New-Item -ItemType Directory -Force -Path (Join-Path $root $OutDir) | Out-Null
 if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
-$requiredZipEntries = [string[]]@('OptiScaler.dll', 'OptiScaler.ini', 'Setup.ps1', 'install.sh', 'OptiScalerNRLauncher.exe', 'launcher-worker.ps1', 'proxy-probe.ps1', 'library-scan.ps1', 'install-capabilities.ps1', 'xess-compat.ps1', 'proxy-profiles.json', 'OptiScaler/plugins/dlssnr-amd.asi', 'OptiScaler/plugins/openrr-amd.asi', 'OptiScaler/plugins/openrr-ngx-host.dll', 'rtx-remix-mc/remixbridge.dll', 'Licenses/OptiScaler_LICENSE.txt', 'Licenses/OptiScaler_SOURCE.txt', 'Licenses/OptiPatcher_SOURCE.txt', 'Licenses/OpenRR_LICENSE.txt', 'Licenses/OpenRR_THIRD_PARTY.md', 'Licenses/RTX-Remix-Minecraft-AMD-Patch_LICENSE.txt', 'Licenses/RTX-Remix-Minecraft-AMD-Patch_NOTICE.txt', 'Licenses/NVIDIA-rtx-remix-minecraft-Apache-2.0.txt', 'openrr-amd/aco/gfx1201/openrr-d3d12-v1/manifest.msgpack', 'openrr-amd/aco/gfx1200/openrr-d3d12-v1/manifest.msgpack', 'openrr-amd/lang/zh-CN.txt', 'openrr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf', 'dlssnr-amd/nr_present_probe.exe', 'dlssnr-amd/aco/d3d12_outer.nra', 'dlssnr-amd/aco/rdna3/d3d12_outer.nra', 'dlssnr-amd/lang/zh-CN.txt', 'dlssnr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf', 'model-tools/dlssnr_extract_model.exe', 'experimental/dlssnr-small-experimental.delta', 'optimized/dlssnr-optimized.delta', 'dlssnr-amd-optiscaler.ini', 'dlssnr-amd-optiscaler-renodx.ini', 'dlssnr-amd-standalone.ini', 'dlssnr-amd-addon.ini', 'standalone/dxgi.dll', 'standalone/vk-override/implicit_layer/dlssnr_standalone.json', 'reshade/ReShade64.dll', 'reshade/dlssnr_amd.addon64', 'reshade/ReShade.ini', 'reshade/ReShadePreset.ini', 'reshade/ReShadePreset-d3d9.ini', 'reshade/vk-override/implicit_layer/ReShade64.json', 'reshade/reshade-shaders/Shaders/DLSS5_Feed.fx', 'dxvk/d3d9.dll', 'dxvk/dxgi.dll', 'vulkan/vulkan-1.dll', 'mochizuki-owned.txt')
+$requiredZipEntries = [string[]]@('OptiScaler.dll', 'OptiScaler.ini', 'Setup.ps1', 'install.sh', 'OptiScalerNRLauncher.exe', 'launcher-worker.ps1', 'proxy-probe.ps1', 'library-scan.ps1', 'install-capabilities.ps1', 'xess-compat.ps1', 'proxy-profiles.json', 'launcher-overrides.json', 'OptiScaler/plugins/dlssnr-amd.asi', 'OptiScaler/plugins/openrr-amd.asi', 'rtx-remix-mc/remixbridge.dll', 'Licenses/OptiScaler_LICENSE.txt', 'Licenses/OptiScaler_SOURCE.txt', 'Licenses/OptiPatcher_SOURCE.txt', 'Licenses/OpenRR_LICENSE.txt', 'Licenses/OpenRR_THIRD_PARTY.md', 'Licenses/RTX-Remix-Minecraft-AMD-Patch_LICENSE.txt', 'Licenses/RTX-Remix-Minecraft-AMD-Patch_NOTICE.txt', 'Licenses/NVIDIA-rtx-remix-minecraft-Apache-2.0.txt', 'openrr-amd/aco/gfx1201/openrr-d3d12-v1/manifest.msgpack', 'openrr-amd/aco/gfx1200/openrr-d3d12-v1/manifest.msgpack', 'openrr-amd/lang/zh-CN.txt', 'openrr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf', 'dlssnr-amd/nr_present_probe.exe', 'dlssnr-amd/aco/d3d12_outer.nra', 'dlssnr-amd/aco/rdna3/d3d12_outer.nra', 'dlssnr-amd/lang/zh-CN.txt', 'dlssnr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf', 'model-tools/dlssnr_extract_model.exe', 'CC_SMALL_FP8_OPTIMIZED/CC_SMALL_FP8_OPTIMIZED.delta', 'CC_SILVER_AARDWOLD_OPTIMIZED/CC_SILVER_AARDWOLD_OPTIMIZED.delta', 'dlssnr-amd-optiscaler.ini', 'dlssnr-amd-optiscaler-renodx.ini', 'dlssnr-amd-standalone.ini', 'dlssnr-amd-addon.ini', 'standalone/dxgi.dll', 'standalone/vk-override/implicit_layer/dlssnr_standalone.json', 'reshade/ReShade64.dll', 'reshade/dlssnr_amd.addon64', 'reshade/ReShade32.dll', 'reshade/dlssnr_amd.addon32', 'reshade/ReShade.ini', 'reshade/ReShadePreset.ini', 'reshade/ReShadePreset-d3d9.ini', 'reshade/vk-override/implicit_layer/ReShade64.json', 'reshade/vk-override/implicit_layer/ReShade32.json', 'reshade/reshade-shaders/Shaders/DLSS5_Feed.fx', 'dxvk/d3d9.dll', 'dxvk/dxgi.dll', 'dxvk/x86/d3d9.dll', 'dxvk/x86/dxgi.dll', 'vulkan/vulkan-1.dll', 'vulkan/x86/vulkan-1.dll', 'mochizuki-owned.txt')
 try {
     $sevenZip = Find-SevenZip
     if ($sevenZip) {

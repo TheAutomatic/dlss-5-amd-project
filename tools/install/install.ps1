@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Install official OptiScaler together with dlssnr-amd.asi and openrr-amd.asi into a game folder.
   Run OptiScalerNRLauncher.exe, or pass -GameDir to Setup.ps1.
@@ -1213,7 +1213,7 @@ if ($installMochizuki) {
                 Write-Host 'Select the Mochizuki network to install and start with:' -ForegroundColor Yellow
                 Write-Host '  1. Both base models (recommended)'
                 Write-Host '  2. CC_SMALL_FP8'
-                Write-Host '  3. CC_SMALL_FP8_EXPERIMENTAL (made from CC_SMALL_FP8)'
+                Write-Host '  3. CC_SMALL_FP8_OPTIMIZED (made from CC_SMALL_FP8)'
                 Write-Host '  4. CC_SILVER_AARDWOLD'
                 Write-Host '  5. CC_SILVER_AARDWOLD_OPTIMIZED (made from CC_SILVER_AARDWOLD)'
                 Write-Host '  0. Cancel'
@@ -1747,7 +1747,7 @@ $preservedGameModels = @{}
 $preservedUserInis = @{}
 if ($uninstallFirst) {
     try {
-        foreach ($binName in @('CC_SILVER_AARDWOLD.bin', 'CC_SMALL_FP8.bin', 'CC_SMALL_FP8_EXPERIMENTAL.bin', 'CC_SILVER_AARDWOLD_OPTIMIZED.bin', 'CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin')) {
+        foreach ($binName in @('CC_SILVER_AARDWOLD.bin', 'CC_SMALL_FP8.bin', 'CC_SMALL_FP8_OPTIMIZED.bin', 'CC_SMALL_FP8_OPTIMIZED_INT4.bin', 'CC_SMALL_FP8_OPTIMIZED_INT4_SINK.bin', 'CC_SILVER_AARDWOLD_OPTIMIZED.bin', 'CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin')) {
             $existingBin = Join-Path $game (Join-Path 'dlssnr-amd' $binName)
             if ((Test-Path -LiteralPath $existingBin -PathType Leaf) -and (Get-Item -LiteralPath $existingBin).Length -gt 0) {
                 $preservedGameModels[$binName] = Save-ReinstallSource $existingBin
@@ -1791,7 +1791,15 @@ if ($uninstallFirst) {
             $mochizukiTools = Save-ReinstallSource $mochizukiTools
             if ($mochizukiInt4Tool) { $mochizukiInt4Tool = Save-ReinstallSource $mochizukiInt4Tool }
             if ($mochizukiProbe) { $mochizukiProbe = Save-ReinstallSource $mochizukiProbe }
-            foreach ($deltaName in @('experimental\dlssnr-small-experimental.delta', 'experimental\CC_SMALL_FP8_EXPERIMENTAL.bin.sha256', 'optimized\dlssnr-optimized.delta', 'optimized\CC_SILVER_AARDWOLD_OPTIMIZED.bin.sha256', 'model-tools\dlssnr-int4.sha256')) {
+            foreach ($deltaName in @(
+                'CC_SMALL_FP8_OPTIMIZED\CC_SMALL_FP8_OPTIMIZED.delta',
+                'CC_SMALL_FP8_OPTIMIZED\CC_SMALL_FP8_OPTIMIZED.bin.sha256',
+                'CC_SILVER_AARDWOLD_OPTIMIZED\CC_SILVER_AARDWOLD_OPTIMIZED.delta',
+                'CC_SILVER_AARDWOLD_OPTIMIZED\CC_SILVER_AARDWOLD_OPTIMIZED.bin.sha256',
+                'model-tools\CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin.sha256',
+                'model-tools\CC_SMALL_FP8_OPTIMIZED_INT4.bin.sha256',
+                'model-tools\CC_SMALL_FP8_OPTIMIZED_INT4_SINK.bin.sha256'
+            )) {
                 $dCand = Join-Path $Root $deltaName
                 if (Test-Path -LiteralPath $dCand -PathType Leaf) { $null = Save-ReinstallSource $dCand }
             }
@@ -2154,11 +2162,19 @@ function Get-PluginsTargetDirectory([string]$gameDir, [string]$iniPath) {
 $ini = Join-Path $release 'OptiScaler.ini'
 $gameIni = Join-Path $game 'OptiScaler.ini'
 $iniFromTemplate = $false
-$uiLanguage = $null
 $asiMenuLanguage = $null
 if ($launcherDecisions -and $launcherDecisions.PSObject.Properties['language']) {
-    if ($launcherDecisions.language -eq 'zh') { $uiLanguage = 'zh-CN'; $asiMenuLanguage = 'zh-CN' }
-    elseif ($launcherDecisions.language -eq 'en') { $uiLanguage = 'en'; $asiMenuLanguage = 'English' }
+    if ($launcherDecisions.language -eq 'zh') { $asiMenuLanguage = 'zh-CN' }
+    elseif ($launcherDecisions.language -eq 'en') { $asiMenuLanguage = 'English' }
+}
+if (-not $asiMenuLanguage) {
+    try {
+        $uiCultureName = [System.Globalization.CultureInfo]::CurrentUICulture.Name
+        if ($uiCultureName -like 'zh*') { $asiMenuLanguage = 'zh-CN' }
+        else { $asiMenuLanguage = 'English' }
+    } catch {
+        $asiMenuLanguage = 'English'
+    }
 }
 
 $rtxBridgeManifestLines = New-Object System.Collections.Generic.List[string]
@@ -2218,9 +2234,6 @@ if ($isOptiMode) {
         } else {
             Write-Host 'Keeping the existing OptiScaler.ini.' -ForegroundColor Cyan
         }
-    }
-    if ($iniFromTemplate -and $uiLanguage -and (Test-Path -LiteralPath $gameIni -PathType Leaf)) {
-        Set-IniSettings $gameIni 'Menu' ([ordered]@{ 'Language' = $uiLanguage })
     }
     $deps = Join-Path $release 'OptiScaler'
     if (Test-Path -LiteralPath $deps) {
@@ -2493,23 +2506,32 @@ if ($installMochizuki) {
         try { return ((Get-Sha256 $BinPath).ToUpperInvariant() -eq $expected) } catch { if ($ThrowOnError) { throw }; return $false }
     }
     $expShaFile = Find-FirstFile @(
-        (Join-Path $Root 'experimental/CC_SMALL_FP8_EXPERIMENTAL.bin.sha256'),
-        (Join-Path $release 'experimental/CC_SMALL_FP8_EXPERIMENTAL.bin.sha256')
+        (Join-Path $Root 'CC_SMALL_FP8_OPTIMIZED/CC_SMALL_FP8_OPTIMIZED.bin.sha256'),
+        (Join-Path $release 'CC_SMALL_FP8_OPTIMIZED/CC_SMALL_FP8_OPTIMIZED.bin.sha256')
     )
     $optShaFile = Find-FirstFile @(
-        (Join-Path $Root 'optimized/CC_SILVER_AARDWOLD_OPTIMIZED.bin.sha256'),
-        (Join-Path $release 'optimized/CC_SILVER_AARDWOLD_OPTIMIZED.bin.sha256')
+        (Join-Path $Root 'CC_SILVER_AARDWOLD_OPTIMIZED/CC_SILVER_AARDWOLD_OPTIMIZED.bin.sha256'),
+        (Join-Path $release 'CC_SILVER_AARDWOLD_OPTIMIZED/CC_SILVER_AARDWOLD_OPTIMIZED.bin.sha256')
     )
     $int4ShaFile = Find-FirstFile @(
-        (Join-Path $Root 'model-tools/dlssnr-int4.sha256'),
-        (Join-Path $release 'model-tools/dlssnr-int4.sha256')
+        (Join-Path $Root 'model-tools/CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin.sha256'),
+        (Join-Path $release 'model-tools/CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin.sha256')
+    )
+    $smallInt4ShaFile = Find-FirstFile @(
+        (Join-Path $Root 'model-tools/CC_SMALL_FP8_OPTIMIZED_INT4.bin.sha256'),
+        (Join-Path $release 'model-tools/CC_SMALL_FP8_OPTIMIZED_INT4.bin.sha256')
+    )
+    $smallInt4SinkShaFile = Find-FirstFile @(
+        (Join-Path $Root 'model-tools/CC_SMALL_FP8_OPTIMIZED_INT4_SINK.bin.sha256'),
+        (Join-Path $release 'model-tools/CC_SMALL_FP8_OPTIMIZED_INT4_SINK.bin.sha256')
     )
 
     $resourceRoot = Join-Path $mochizukiAssets ''
     $modelNames = @(
         'CC_SILVER_AARDWOLD.bin', 'CC_SMALL_FP8.bin',
-        'CC_SMALL_FP8_EXPERIMENTAL.bin', 'CC_SILVER_AARDWOLD_OPTIMIZED.bin',
-        'CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin',
+        'CC_SMALL_FP8_OPTIMIZED.bin', 'CC_SMALL_FP8_OPTIMIZED_INT4.bin', 'CC_SMALL_FP8_OPTIMIZED_INT4_SINK.bin',
+        'CC_SILVER_AARDWOLD_OPTIMIZED.bin', 'CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin',
+        'CC_SMALL_FP8_EXPERIMENTAL.bin',
         'dlssnr.bin', 'dlssnr-small.bin', 'dlssnr-int4.bin', 'dlssnr-small-experimental.bin'
     )
 
@@ -2542,13 +2564,15 @@ if ($installMochizuki) {
                 ($mochizukiSmallModel -and $cand -ieq [IO.Path]::GetFullPath($mochizukiSmallModel))
             if (-not $preserveModel) {
                 switch ($modelFile) {
-                    'CC_SMALL_FP8_EXPERIMENTAL.bin' {
+                    'CC_SMALL_FP8_OPTIMIZED.bin' {
                         $magic = New-Object byte[] 8
                         $stream = [IO.File]::OpenRead($cand)
                         try { $read = $stream.Read($magic, 0, 8) } finally { $stream.Dispose() }
                         $preserveModel = ($read -eq 8) -and ([Text.Encoding]::ASCII.GetString($magic) -eq 'NRMODEL1') -and
                             (Test-MatchesSha256File $cand $expShaFile -ThrowOnError)
                     }
+                    'CC_SMALL_FP8_OPTIMIZED_INT4.bin' { $preserveModel = Test-MatchesSha256File $cand $smallInt4ShaFile -ThrowOnError }
+                    'CC_SMALL_FP8_OPTIMIZED_INT4_SINK.bin' { $preserveModel = Test-MatchesSha256File $cand $smallInt4SinkShaFile -ThrowOnError }
                     'CC_SILVER_AARDWOLD_OPTIMIZED.bin' { $preserveModel = Test-MatchesSha256File $cand $optShaFile -ThrowOnError }
                     'CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin' { $preserveModel = Test-MatchesSha256File $cand $int4ShaFile -ThrowOnError }
                 }
@@ -2695,68 +2719,44 @@ if ($installMochizuki) {
     # Save-GameModelForNextInstall. A new game gets that real cache instead of
     # regenerating (and failing when the package tools are unavailable),
     # provided the cached weights still match the packaged .sha256 pin.
-    $expCandidates = @()
-    if ($preservedGameModels.ContainsKey('CC_SMALL_FP8_EXPERIMENTAL.bin')) { $expCandidates += $preservedGameModels['CC_SMALL_FP8_EXPERIMENTAL.bin'] }
-    $expCandidates += @(
-        (Join-Path $mochizukiAssets 'CC_SMALL_FP8_EXPERIMENTAL.bin'),
-        (Join-Path $Root 'dlssnr-amd/CC_SMALL_FP8_EXPERIMENTAL.bin')
-    )
-    foreach ($ld in $dlssnrLocalDataDirs) {
-        $expCandidates += (Join-Path $ld 'CC_SMALL_FP8_EXPERIMENTAL.bin')
-        $expCandidates += (Join-Path $ld 'dlssnr-amd/CC_SMALL_FP8_EXPERIMENTAL.bin')
-    }
-    $cachedExperimental = Find-FirstFile $expCandidates
-    $cachedExperimentalTarget = Join-Path $game 'dlssnr-amd/CC_SMALL_FP8_EXPERIMENTAL.bin'
-    if ($generateExperimental -and $cachedExperimental -and
-        [IO.Path]::GetFullPath($cachedExperimental) -ne [IO.Path]::GetFullPath($cachedExperimentalTarget) -and
-        -not (Test-Path -LiteralPath $cachedExperimentalTarget -PathType Leaf) -and
-        (Test-MatchesSha256File $cachedExperimental $expShaFile)) {
-        Copy-Item -LiteralPath $cachedExperimental -Destination $cachedExperimentalTarget -Force
-        Write-Host 'Copied cached CC_SMALL_FP8_EXPERIMENTAL weights.' -ForegroundColor Green
-    }
-    $optCandidates = @()
-    if ($preservedGameModels.ContainsKey('CC_SILVER_AARDWOLD_OPTIMIZED.bin')) { $optCandidates += $preservedGameModels['CC_SILVER_AARDWOLD_OPTIMIZED.bin'] }
-    $optCandidates += @(
-        (Join-Path $mochizukiAssets 'CC_SILVER_AARDWOLD_OPTIMIZED.bin'),
-        (Join-Path $Root 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED.bin')
-    )
-    foreach ($ld in $dlssnrLocalDataDirs) {
-        $optCandidates += (Join-Path $ld 'CC_SILVER_AARDWOLD_OPTIMIZED.bin')
-        $optCandidates += (Join-Path $ld 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED.bin')
-    }
-    $cachedOptimized = Find-FirstFile $optCandidates
-    $cachedOptimizedTarget = Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED.bin'
-    if ($generateInt4 -and $cachedOptimized -and
-        [IO.Path]::GetFullPath($cachedOptimized) -ne [IO.Path]::GetFullPath($cachedOptimizedTarget) -and
-        -not (Test-Path -LiteralPath $cachedOptimizedTarget -PathType Leaf) -and
-        (Test-MatchesSha256File $cachedOptimized $optShaFile)) {
-        Copy-Item -LiteralPath $cachedOptimized -Destination $cachedOptimizedTarget -Force
-        Write-Host 'Copied cached CC_SILVER_AARDWOLD_OPTIMIZED weights.' -ForegroundColor Green
-    }
-    $int4Candidates = @()
-    if ($preservedGameModels.ContainsKey('CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin')) { $int4Candidates += $preservedGameModels['CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin'] }
-    $int4Candidates += @(
-        (Join-Path $mochizukiAssets 'CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin'),
-        (Join-Path $Root 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin')
-    )
-    foreach ($ld in $dlssnrLocalDataDirs) {
-        $int4Candidates += (Join-Path $ld 'CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin')
-        $int4Candidates += (Join-Path $ld 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin')
-    }
-    $cachedInt4 = Find-FirstFile $int4Candidates
-    $cachedInt4Target = Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin'
-    if ($generateInt4 -and $cachedInt4 -and
-        [IO.Path]::GetFullPath($cachedInt4) -ne [IO.Path]::GetFullPath($cachedInt4Target) -and
-        -not (Test-Path -LiteralPath $cachedInt4Target -PathType Leaf) -and
-        (Test-MatchesSha256File $cachedInt4 $int4ShaFile)) {
-        Copy-Item -LiteralPath $cachedInt4 -Destination $cachedInt4Target -Force
-        Write-Host 'Copied cached CC_SILVER_AARDWOLD_OPTIMIZED_INT4 weights.' -ForegroundColor Green
+    foreach ($derivedCache in @(
+        @{ Flag = $generateExperimental; Name = 'CC_SMALL_FP8_OPTIMIZED.bin'; Sha = $expShaFile },
+        @{ Flag = $generateExperimental; Name = 'CC_SMALL_FP8_OPTIMIZED_INT4.bin'; Sha = $smallInt4ShaFile },
+        @{ Flag = $generateExperimental; Name = 'CC_SMALL_FP8_OPTIMIZED_INT4_SINK.bin'; Sha = $smallInt4SinkShaFile },
+        @{ Flag = $generateInt4; Name = 'CC_SILVER_AARDWOLD_OPTIMIZED.bin'; Sha = $optShaFile },
+        @{ Flag = $generateInt4; Name = 'CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin'; Sha = $int4ShaFile }
+    )) {
+        if (-not $derivedCache.Flag) { continue }
+        $dName = $derivedCache.Name
+        $dTarget = Join-Path $game ("dlssnr-amd/$dName")
+        if (Test-Path -LiteralPath $dTarget -PathType Leaf) { continue }
+        $dCandidates = @()
+        if ($preservedGameModels.ContainsKey($dName)) { $dCandidates += $preservedGameModels[$dName] }
+        $dCandidates += @(
+            (Join-Path $mochizukiAssets $dName),
+            (Join-Path $Root ("dlssnr-amd/$dName"))
+        )
+        foreach ($ld in $dlssnrLocalDataDirs) {
+            $dCandidates += (Join-Path $ld $dName)
+            $dCandidates += (Join-Path $ld ("dlssnr-amd/$dName"))
+        }
+        $cachedDerived = Find-FirstFile $dCandidates
+        if ($cachedDerived -and
+            [IO.Path]::GetFullPath($cachedDerived) -ne [IO.Path]::GetFullPath($dTarget) -and
+            (Test-MatchesSha256File $cachedDerived $derivedCache.Sha)) {
+            Copy-Item -LiteralPath $cachedDerived -Destination $dTarget -Force
+            Write-Host "Copied cached $dName weights." -ForegroundColor Green
+        }
     }
 
-    # CC_SILVER_AARDWOLD_OPTIMIZED is generated from CC_SILVER_AARDWOLD.bin and optimized/dlssnr-optimized.delta,
-    # then its INT4 layers (CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin) are generated from it using dlssnr-int4-weights.exe.
+    # CC_SILVER_AARDWOLD_OPTIMIZED is generated from CC_SILVER_AARDWOLD.bin and
+    # CC_SILVER_AARDWOLD_OPTIMIZED/CC_SILVER_AARDWOLD_OPTIMIZED.delta, then its INT4 layers
+    # (CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin) are generated from it using dlssnr-int4-weights.exe.
     $optOutFile = Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED.bin'
-    $int4Data = Join-Path $game 'dlssnr-amd/int4-ultra'
+    $int4Data = Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED-ultra'
+    if (-not (Test-Path -LiteralPath $int4Data -PathType Container)) {
+        $int4Data = Join-Path $game 'dlssnr-amd/int4-ultra'
+    }
     if (-not (Test-Path -LiteralPath $int4Data -PathType Container)) {
         $int4Data = Join-Path $game 'dlssnr-amd/int4'
     }
@@ -2780,8 +2780,8 @@ if ($installMochizuki) {
         Write-Host 'Reused existing CC_SILVER_AARDWOLD_OPTIMIZED weights.' -ForegroundColor Green
     } elseif ($generateInt4) {
         $optimizedDelta = Find-FirstFile @(
-            (Join-Path $Root 'optimized/dlssnr-optimized.delta'),
-            (Join-Path $release 'optimized/dlssnr-optimized.delta')
+            (Join-Path $Root 'CC_SILVER_AARDWOLD_OPTIMIZED/CC_SILVER_AARDWOLD_OPTIMIZED.delta'),
+            (Join-Path $release 'CC_SILVER_AARDWOLD_OPTIMIZED/CC_SILVER_AARDWOLD_OPTIMIZED.delta')
         )
         if (-not (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/CC_SILVER_AARDWOLD.bin') -PathType Leaf)) {
             Fail 'CC_SILVER_AARDWOLD_OPTIMIZED needs the original model, which is not installed.'
@@ -2811,11 +2811,11 @@ if ($installMochizuki) {
             Fail 'CC_SILVER_AARDWOLD_OPTIMIZED was requested, but model-tools/dlssnr-int4-weights.exe is missing. Re-extract the complete package.'
         }
         if (-not (Test-Path -LiteralPath $int4Data -PathType Container)) {
-            Fail 'CC_SILVER_AARDWOLD_OPTIMIZED was requested, but dlssnr-amd/int4-ultra is missing. Re-extract the complete package.'
+            Fail 'CC_SILVER_AARDWOLD_OPTIMIZED was requested, but dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED-ultra is missing. Re-extract the complete package.'
         }
         $int4Out = Join-Path ([IO.Path]::GetTempPath()) ('dlssnr-int4-' + [guid]::NewGuid().ToString('N') + '.bin')
         try {
-            & $mochizukiInt4Tool $optOutFile $int4Data $int4Out
+            & $mochizukiInt4Tool --network CC_SILVER_AARDWOLD_OPTIMIZED $optOutFile $int4Data $int4Out
             if ($LASTEXITCODE -ne 0) {
                 Fail "CC_SILVER_AARDWOLD_OPTIMIZED_INT4 generation failed (exit code $LASTEXITCODE)."
             }
@@ -2839,10 +2839,10 @@ if ($installMochizuki) {
             (Get-Item -LiteralPath $optOutFile).Length -gt 0
     }
 
-    # CC_SMALL_FP8_EXPERIMENTAL is made from the installed small model and the
-    # packaged delta. A requested network whose generation fails is an install
-    # failure, never a quiet fallback or a stale file.
-    $experimentalOut = Join-Path $game 'dlssnr-amd/CC_SMALL_FP8_EXPERIMENTAL.bin'
+    # CC_SMALL_FP8_OPTIMIZED is made from the installed small model and the
+    # packaged delta, followed by optional INT4 and INT4_SINK weight generation.
+    # A requested network whose base delta fails is an install failure, never a quiet fallback.
+    $experimentalOut = Join-Path $game 'dlssnr-amd/CC_SMALL_FP8_OPTIMIZED.bin'
     $experimentalReusable = $false
     if ($generateExperimental -and (Test-Path -LiteralPath $experimentalOut -PathType Leaf)) {
         $smallPathForTime = Join-Path $game 'dlssnr-amd/CC_SMALL_FP8.bin'
@@ -2851,43 +2851,43 @@ if ($installMochizuki) {
             $smallInfo = Get-Item -LiteralPath $smallPathForTime
             if ($expInfo.Length -gt 0 -and $expInfo.LastWriteTimeUtc -ge $smallInfo.LastWriteTimeUtc -and
                 (Test-MatchesSha256File $experimentalOut $expShaFile)) {
-            try {
-                $stream = [IO.File]::OpenRead($experimentalOut)
-                try { $magic = New-Object byte[] 8; $read = $stream.Read($magic, 0, 8) } finally { $stream.Dispose() }
-                $experimentalReusable = $read -eq 8 -and [Text.Encoding]::ASCII.GetString($magic) -eq 'NRMODEL1'
+                try {
+                    $stream = [IO.File]::OpenRead($experimentalOut)
+                    try { $magic = New-Object byte[] 8; $read = $stream.Read($magic, 0, 8) } finally { $stream.Dispose() }
+                    $experimentalReusable = $read -eq 8 -and [Text.Encoding]::ASCII.GetString($magic) -eq 'NRMODEL1'
                 } catch { $experimentalReusable = $false }
             }
         }
     }
     if ($generateExperimental -and $experimentalReusable) {
         $experimentalReady = $true
-        Write-Host 'Reused existing CC_SMALL_FP8_EXPERIMENTAL weights.' -ForegroundColor Green
+        Write-Host 'Reused existing CC_SMALL_FP8_OPTIMIZED weights.' -ForegroundColor Green
     } elseif ($generateExperimental) {
         $experimentalDelta = Find-FirstFile @(
-            (Join-Path $Root 'experimental/dlssnr-small-experimental.delta'),
-            (Join-Path $release 'experimental/dlssnr-small-experimental.delta')
+            (Join-Path $Root 'CC_SMALL_FP8_OPTIMIZED/CC_SMALL_FP8_OPTIMIZED.delta'),
+            (Join-Path $release 'CC_SMALL_FP8_OPTIMIZED/CC_SMALL_FP8_OPTIMIZED.delta')
         )
         if (-not $experimentalDelta) {
-            Fail 'CC_SMALL_FP8_EXPERIMENTAL was requested, but experimental/dlssnr-small-experimental.delta is missing. Re-extract the complete package.'
+            Fail 'CC_SMALL_FP8_OPTIMIZED was requested, but CC_SMALL_FP8_OPTIMIZED/CC_SMALL_FP8_OPTIMIZED.delta is missing. Re-extract the complete package.'
         }
         if (-not (Test-Path -LiteralPath (Join-Path $game 'dlssnr-amd/CC_SMALL_FP8.bin') -PathType Leaf)) {
-            Fail 'CC_SMALL_FP8_EXPERIMENTAL needs the small model, which is not installed.'
+            Fail 'CC_SMALL_FP8_OPTIMIZED needs the small model, which is not installed.'
         }
-        $expOut = Join-Path ([IO.Path]::GetTempPath()) ('dlssnr-small-experimental-' + [guid]::NewGuid().ToString('N') + '.bin')
+        $expOut = Join-Path ([IO.Path]::GetTempPath()) ('dlssnr-small-optimized-' + [guid]::NewGuid().ToString('N') + '.bin')
         try {
             New-MochizukiExperimentalWeights (Join-Path $game 'dlssnr-amd/CC_SMALL_FP8.bin') $experimentalDelta $expOut
             if (-not (Test-Path -LiteralPath $expOut -PathType Leaf) -or (Get-Item -LiteralPath $expOut).Length -le 0) {
-                Fail 'CC_SMALL_FP8_EXPERIMENTAL generation produced no weights.'
+                Fail 'CC_SMALL_FP8_OPTIMIZED generation produced no weights.'
             }
             if (-not (Test-MatchesSha256File $expOut $expShaFile)) {
-                Fail 'CC_SMALL_FP8_EXPERIMENTAL weights checksum mismatch (model or package incomplete?).'
+                Fail 'CC_SMALL_FP8_OPTIMIZED weights checksum mismatch (model or package incomplete?).'
             }
             Copy-Item -LiteralPath $expOut -Destination $experimentalOut -Force
             $experimentalReady = $true
-            Write-Host 'CC_SMALL_FP8_EXPERIMENTAL weights generated.' -ForegroundColor Green
+            Write-Host 'CC_SMALL_FP8_OPTIMIZED weights generated.' -ForegroundColor Green
         } catch {
-            if ($_.Exception.Message -like 'CC_SMALL_FP8_EXPERIMENTAL*') { throw }
-            Fail "CC_SMALL_FP8_EXPERIMENTAL generation failed: $($_.Exception.Message)"
+            if ($_.Exception.Message -like 'CC_SMALL_FP8_OPTIMIZED*') { throw }
+            Fail "CC_SMALL_FP8_OPTIMIZED generation failed: $($_.Exception.Message)"
         } finally {
             Remove-Item -LiteralPath $expOut -Force -ErrorAction SilentlyContinue
         }
@@ -2896,11 +2896,52 @@ if ($installMochizuki) {
             (Get-Item -LiteralPath $experimentalOut).Length -gt 0
     }
 
-    # Migrate or remove legacy 0.0.8.1 model filenames once current CC_*.bin names are in place.
+    # Generate optional CC_SMALL_FP8_OPTIMIZED INT4 / INT4_SINK weights when tool & data exist.
+    $smallInt4Data = Join-Path $game 'dlssnr-amd/CC_SMALL_FP8_OPTIMIZED-ultra'
+    if ($generateExperimental -and $experimentalReady -and $mochizukiInt4Tool -and
+        (Test-Path -LiteralPath $smallInt4Data -PathType Container)) {
+        foreach ($smallInt4Spec in @(
+            @{ Out = (Join-Path $game 'dlssnr-amd/CC_SMALL_FP8_OPTIMIZED_INT4.bin'); Sha = $smallInt4ShaFile; Sink = $false; Label = 'CC_SMALL_FP8_OPTIMIZED_INT4' },
+            @{ Out = (Join-Path $game 'dlssnr-amd/CC_SMALL_FP8_OPTIMIZED_INT4_SINK.bin'); Sha = $smallInt4SinkShaFile; Sink = $true; Label = 'CC_SMALL_FP8_OPTIMIZED_INT4_SINK' }
+        )) {
+            $sReuse = $false
+            if (Test-Path -LiteralPath $smallInt4Spec.Out -PathType Leaf) {
+                $sInfo = Get-Item -LiteralPath $smallInt4Spec.Out
+                $baseInfo = Get-Item -LiteralPath $experimentalOut
+                $sReuse = ($sInfo.Length -gt 0) -and ($sInfo.LastWriteTimeUtc -ge $baseInfo.LastWriteTimeUtc) -and
+                    (Test-MatchesSha256File $smallInt4Spec.Out $smallInt4Spec.Sha)
+            }
+            if ($sReuse) {
+                Write-Host "Reused existing $($smallInt4Spec.Label) weights." -ForegroundColor Green
+                continue
+            }
+            $sTmp = Join-Path ([IO.Path]::GetTempPath()) ('dlssnr-small-int4-' + [guid]::NewGuid().ToString('N') + '.bin')
+            try {
+                if ($smallInt4Spec.Sink) {
+                    & $mochizukiInt4Tool --network CC_SMALL_FP8_OPTIMIZED --sink $experimentalOut $smallInt4Data $sTmp
+                } else {
+                    & $mochizukiInt4Tool --network CC_SMALL_FP8_OPTIMIZED $experimentalOut $smallInt4Data $sTmp
+                }
+                if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $sTmp -PathType Leaf) -or (Get-Item -LiteralPath $sTmp).Length -le 0) {
+                    Write-Host "NOTE: $($smallInt4Spec.Label) generation failed (exit code $LASTEXITCODE); continuing with FP8/FP16 layers." -ForegroundColor Yellow
+                } elseif (-not (Test-MatchesSha256File $sTmp $smallInt4Spec.Sha)) {
+                    Write-Host "NOTE: $($smallInt4Spec.Label) weights checksum mismatch; skipped." -ForegroundColor Yellow
+                } else {
+                    Copy-Item -LiteralPath $sTmp -Destination $smallInt4Spec.Out -Force
+                    Write-Host "$($smallInt4Spec.Label) weights generated." -ForegroundColor Green
+                }
+            } catch {
+                Write-Host "NOTE: $($smallInt4Spec.Label) generation failed: $($_.Exception.Message)" -ForegroundColor Yellow
+            } finally {
+                Remove-Item -LiteralPath $sTmp -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    # Migrate or remove legacy 0.0.8.1 / 0.0.9 model filenames once current CC_*.bin names are in place.
     foreach ($pair in @(
         @('dlssnr-amd/dlssnr.bin', 'dlssnr-amd/CC_SILVER_AARDWOLD.bin'),
-        @('dlssnr-amd/dlssnr-small.bin', 'dlssnr-amd/CC_SMALL_FP8.bin'),
-        @('dlssnr-amd/dlssnr-small-experimental.bin', 'dlssnr-amd/CC_SMALL_FP8_EXPERIMENTAL.bin')
+        @('dlssnr-amd/dlssnr-small.bin', 'dlssnr-amd/CC_SMALL_FP8.bin')
     )) {
         foreach ($baseDir in @($game, $Root)) {
             if (-not $baseDir) { continue }
@@ -2921,12 +2962,14 @@ if ($installMochizuki) {
     }
     foreach ($baseDir in @($game, $Root)) {
         if (-not $baseDir) { continue }
-        $oldInt4 = Join-Path $baseDir 'dlssnr-amd/dlssnr-int4.bin'
-        if (Test-Path -LiteralPath $oldInt4 -PathType Leaf) {
-            try {
-                Remove-Item -LiteralPath $oldInt4 -Force -ErrorAction Stop
-                Write-Host 'Removed retired legacy model dlssnr-amd/dlssnr-int4.bin' -ForegroundColor DarkGray
-            } catch { }
+        foreach ($retiredRel in @('dlssnr-amd/dlssnr-int4.bin', 'dlssnr-amd/dlssnr-small-experimental.bin', 'dlssnr-amd/CC_SMALL_FP8_EXPERIMENTAL.bin')) {
+            $oldRetired = Join-Path $baseDir $retiredRel
+            if (Test-Path -LiteralPath $oldRetired -PathType Leaf) {
+                try {
+                    Remove-Item -LiteralPath $oldRetired -Force -ErrorAction Stop
+                    Write-Host "Removed retired legacy model $retiredRel" -ForegroundColor DarkGray
+                } catch { }
+            }
         }
     }
     $retiredPersonDir = Join-Path $game 'person-model'
@@ -3070,7 +3113,7 @@ if ($installMochizuki) {
             }
         }
         if ($activeModelName -eq 'experimental' -and -not $experimentalReady) {
-            Fail 'The selected startup network CC_SMALL_FP8_EXPERIMENTAL is not available; generation did not complete.'
+            Fail 'The selected startup network CC_SMALL_FP8_OPTIMIZED is not available; generation did not complete.'
         }
         if ($activeModelName -in @('int4', 'optimized') -and -not $int4Ready) {
             Fail 'The selected startup network CC_SILVER_AARDWOLD_OPTIMIZED is not available; generation did not complete.'
@@ -3084,7 +3127,7 @@ if ($installMochizuki) {
         if ($activeModelName) {
             $networkName = switch ($activeModelName) {
                 'small' { 'CC_SMALL_FP8' }
-                'experimental' { 'CC_SMALL_FP8_EXPERIMENTAL' }
+                'experimental' { 'CC_SMALL_FP8_OPTIMIZED' }
                 'original' { 'CC_SILVER_AARDWOLD' }
                 'int4' { 'CC_SILVER_AARDWOLD_OPTIMIZED' }
                 'optimized' { 'CC_SILVER_AARDWOLD_OPTIMIZED' }
@@ -3102,6 +3145,15 @@ if ($installMochizuki) {
                 Set-IniSettings $asiIni ("Layer" + $firstLayer) ([ordered]@{ 'Network' = $networkName })
             }
             $mochizukiActiveNetwork = $activeModelName
+        }
+    }
+    # Migrate retired 0.0.9 network name CC_SMALL_FP8_EXPERIMENTAL -> CC_SMALL_FP8_OPTIMIZED in kept dlssnr-amd.ini.
+    if (Test-Path -LiteralPath $asiIni -PathType Leaf) {
+        $asiTextRaw = [System.IO.File]::ReadAllText($asiIni)
+        if ($asiTextRaw -match '(?im)\bCC_SMALL_FP8_EXPERIMENTAL\b') {
+            $asiTextMigrated = [regex]::Replace($asiTextRaw, '(?i)\bCC_SMALL_FP8_EXPERIMENTAL\b', 'CC_SMALL_FP8_OPTIMIZED')
+            [System.IO.File]::WriteAllText($asiIni, $asiTextMigrated, [Text.UTF8Encoding]::new($false))
+            Write-Host 'Migrated CC_SMALL_FP8_EXPERIMENTAL -> CC_SMALL_FP8_OPTIMIZED in dlssnr-amd.ini.' -ForegroundColor Cyan
         }
     }
     # Strip any UTF-8 BOM before dlssnr-amd.asi's native C++ INI parser reads it or
@@ -3426,36 +3478,19 @@ if ($wantOpenRr) {
             Write-Host 'NOTE: openrr-amd.asi is currently a 0-byte placeholder; skipped copying empty .asi into plugins directory.' -ForegroundColor Cyan
         }
     }
-    # OptiFG DLSSD host: the ASI probes for openrr-ngx-host.dll beside itself.
-    $openRrHostSrc = $null
-    foreach ($cand in @(
-        (Join-Path $release 'OptiScaler\plugins\openrr-ngx-host.dll'),
-        (Join-Path $release 'plugins\openrr-ngx-host.dll'),
-        (Join-Path $Root 'OptiScaler\plugins\openrr-ngx-host.dll'),
-        (Join-Path $Root 'plugins\openrr-ngx-host.dll'),
-        (Join-Path $Root 'openrr-ngx-host.dll')
+    # OpenRR v0.1.7.1plus+ registers natively via OptiScaler Plugin API v3 and no longer uses openrr-ngx-host.dll.
+    # Proactively remove any legacy openrr-ngx-host.dll left over from <= v0.1.7plus6 upgrades.
+    foreach ($staleHostPath in @(
+        (Join-Path $openRrPluginDir 'openrr-ngx-host.dll'),
+        (Join-Path $game 'OptiScaler\plugins\openrr-ngx-host.dll'),
+        (Join-Path $game 'plugins\openrr-ngx-host.dll'),
+        (Join-Path $game 'openrr-ngx-host.dll')
     )) {
-        if (Test-Path -LiteralPath $cand -PathType Leaf) { $openRrHostSrc = $cand; break }
-    }
-    if ($openRrHostSrc) {
-        $openRrHostTargetFull = [IO.Path]::GetFullPath((Join-Path $openRrPluginDir 'openrr-ngx-host.dll'))
-        foreach ($staleHostPath in @(
-            (Join-Path $game 'OptiScaler\plugins\openrr-ngx-host.dll'),
-            (Join-Path $game 'plugins\openrr-ngx-host.dll'),
-            (Join-Path $game 'openrr-ngx-host.dll')
-        )) {
-            if ([IO.Path]::GetFullPath($staleHostPath) -ine $openRrHostTargetFull -and (Test-Path -LiteralPath $staleHostPath -PathType Leaf)) {
-                [void](Remove-PluginFileChecked $staleHostPath)
+        if (Test-Path -LiteralPath $staleHostPath -PathType Leaf) {
+            if (Remove-PluginFileChecked $staleHostPath) {
+                Write-Host "Removed legacy openrr-ngx-host.dll ($staleHostPath)." -ForegroundColor Cyan
             }
         }
-        if ($openRrHostTargetFull.StartsWith($gameFullPrefixForRr, [StringComparison]::OrdinalIgnoreCase)) {
-            Install-One $openRrHostSrc $openRrHostTargetFull.Substring($gameFullPrefixForRr.Length)
-        } else {
-            Copy-Item -LiteralPath $openRrHostSrc -Destination $openRrHostTargetFull -Force
-            if (-not $script:installedExternalPlugins) { $script:installedExternalPlugins = New-Object System.Collections.Generic.List[string] }
-            $script:installedExternalPlugins.Add(("{0}|{1}" -f (Get-Sha256 $openRrHostTargetFull).ToLowerInvariant(), $openRrHostTargetFull))
-        }
-        Write-Host 'Installed openrr-ngx-host.dll (OptiFG DLSSD host; enable OptiFGHost in openrr-amd.ini).' -ForegroundColor Green
     }
     $openRrIniSrc = Find-FirstFile @((Join-Path $release 'openrr-amd.ini'), (Join-Path $Root 'openrr-amd.ini'))
     $gameOpenRrIni = Join-Path $game 'openrr-amd.ini'
@@ -3571,6 +3606,28 @@ if ($wantOpenRr) {
             }
         }
     }
+    # Configure OptiScaler's native PLUGINS -> OpenRR menu font unconditionally when OpenRR is installed:
+    # set UseHQFont=true, absolute TTFFontPath, and FontSize=16 only when TTFFontPath / FontSize are unset/auto.
+    $cjkFontFile = Join-Path $game 'openrr-amd\lang\fonts\NotoSansCJKsc-Regular.ttf'
+    if ((Test-Path -LiteralPath $cjkFontFile -PathType Leaf) -and
+        (Test-Path -LiteralPath $gameIni -PathType Leaf)) {
+        $curTtfFont = Get-IniSetting $gameIni 'Menu' 'TTFFontPath'
+        $curTtfTrim = if ($curTtfFont) { $curTtfFont.Trim().Trim('"', "'") } else { '' }
+        if (-not $curTtfTrim -or $curTtfTrim -match '^(?i)auto(?:\s*[;#].*)?$') {
+            $cjkFontFull = [IO.Path]::GetFullPath($cjkFontFile)
+            $menuFontPatch = [ordered]@{
+                'UseHQFont'   = 'true'
+                'TTFFontPath' = $cjkFontFull
+            }
+            $curFontSize = Get-IniSetting $gameIni 'Menu' 'FontSize'
+            $curFontSizeTrim = if ($curFontSize) { $curFontSize.Trim().Trim('"', "'") } else { '' }
+            if (-not $curFontSizeTrim -or $curFontSizeTrim -match '^(?i)auto(?:\s*[;#].*)?$') {
+                $menuFontPatch['FontSize'] = '16'
+            }
+            Set-IniSettings $gameIni 'Menu' $menuFontPatch
+            Write-Host "Configured OpenRR menu font in OptiScaler.ini ([Menu] UseHQFont=true, TTFFontPath=$cjkFontFull$(if ($menuFontPatch.Contains('FontSize')) { ', FontSize=16' } else { '' }))." -ForegroundColor Green
+        }
+    }
 } else {
     if ($isOptiMode -and $priorOpenRrInstalled) { Set-OpenRrSpoof $gameIni 'auto' } # OpenRR was installed before: hand spoofing back.
     foreach ($stalePluginAsi in @(
@@ -3592,6 +3649,13 @@ if ($wantOpenRr) {
     Remove-OwnedTreeSafe (Join-Path $game 'opennr-rr')
 
     Write-Host 'Removed/skipped OpenRR ASI plugin (unchecked).' -ForegroundColor Cyan
+}
+if ($isOptiMode -and (Test-Path -LiteralPath $gameIni -PathType Leaf)) {
+    $curNvngxPath = Get-IniSetting $gameIni 'Libraries' 'NvngxPath'
+    if ($curNvngxPath -and $curNvngxPath -match '(?i)openrr-ngx-host') {
+        Set-IniSettings $gameIni 'Libraries' ([ordered]@{ 'NvngxPath' = 'auto' })
+        Write-Host 'Reset legacy [Libraries] NvngxPath referencing openrr-ngx-host to auto in OptiScaler.ini.' -ForegroundColor Green
+    }
 }
 if ($isRtxRemixMc -and (Test-Path -LiteralPath $gameIni -PathType Leaf)) {
     Set-IniSettings $gameIni 'Spoofing' ([ordered]@{ 'VulkanExtensionSpoofing' = 'true' })
@@ -3683,7 +3747,8 @@ try {
 # Cache game models even when their backend was not selected for this install.
 # Publish only complete copies; never merge into or replace an existing package model.
 function Save-GameModelForNextInstall([ValidateSet('mochizuki', 'mochizuki-small',
-        'mochizuki-experimental', 'mochizuki-optimized', 'mochizuki-int4')][string]$Kind) {
+        'mochizuki-experimental', 'mochizuki-small-int4', 'mochizuki-small-int4-sink',
+        'mochizuki-optimized', 'mochizuki-int4')][string]$Kind) {
     $stage = $null
     $cacheBaseRoot = $null
     try {
@@ -3692,7 +3757,9 @@ function Save-GameModelForNextInstall([ValidateSet('mochizuki', 'mochizuki-small
         if ($packageRoot.TrimEnd('\', '/') -ieq $gameRoot.TrimEnd('\', '/')) { return }
         $relative = switch ($Kind) {
             'mochizuki-small' { 'dlssnr-amd/CC_SMALL_FP8.bin' }
-            'mochizuki-experimental' { 'dlssnr-amd/CC_SMALL_FP8_EXPERIMENTAL.bin' }
+            'mochizuki-experimental' { 'dlssnr-amd/CC_SMALL_FP8_OPTIMIZED.bin' }
+            'mochizuki-small-int4' { 'dlssnr-amd/CC_SMALL_FP8_OPTIMIZED_INT4.bin' }
+            'mochizuki-small-int4-sink' { 'dlssnr-amd/CC_SMALL_FP8_OPTIMIZED_INT4_SINK.bin' }
             'mochizuki-optimized' { 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED.bin' }
             'mochizuki-int4' { 'dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin' }
             default { 'dlssnr-amd/CC_SILVER_AARDWOLD.bin' }
@@ -3762,6 +3829,8 @@ function Save-GameModelForNextInstall([ValidateSet('mochizuki', 'mochizuki-small
 Save-GameModelForNextInstall 'mochizuki'
 Save-GameModelForNextInstall 'mochizuki-small'
 Save-GameModelForNextInstall 'mochizuki-experimental'
+Save-GameModelForNextInstall 'mochizuki-small-int4'
+Save-GameModelForNextInstall 'mochizuki-small-int4-sink'
 Save-GameModelForNextInstall 'mochizuki-optimized'
 Save-GameModelForNextInstall 'mochizuki-int4'
 

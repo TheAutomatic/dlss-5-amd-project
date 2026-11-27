@@ -19,7 +19,7 @@ MODEL_SHA256 = "2b41c888cf4155b8958c665ba64018ab0bd25c85fc71a2b6db86d0d04d1f7fbd
 SMALL_SHA256 = "7e966e2639dbec6596aa0bac3b8761137d2c40ca8cb4aca30df7ca10043c6e33"  # CC_SMALL_FP8.bin
 
 ROUTES = ("optiscaler", "reshade-feeder", "reshade-feeder-vulkan", "reshade-feeder-dx9")
-MODELS = ("CC_SMALL_FP8", "CC_SMALL_FP8_EXPERIMENTAL", "CC_SILVER_AARDWOLD", "CC_SILVER_AARDWOLD_OPTIMIZED")
+MODELS = ("CC_SMALL_FP8", "CC_SMALL_FP8_OPTIMIZED", "CC_SILVER_AARDWOLD", "CC_SILVER_AARDWOLD_OPTIMIZED")
 
 _hash_cache = {}
 _hash_lock = threading.Lock()
@@ -118,7 +118,7 @@ class Package:
     def openrr_version(self) -> str:
         if self.meta.get("openrrVersion"):
             return str(self.meta["openrrVersion"])
-        return "0.1.7plus6" if self.has_openrr else ""
+        return "0.1.7.1plus" if self.has_openrr else ""
 
     @property
     def has_optipatcher(self) -> bool:
@@ -161,7 +161,7 @@ class Package:
             try:
                 text = (self.root / "install.sh").read_text(encoding="utf-8", errors="replace")
                 m = re.search(r"^model_sha256=([0-9a-f]{64})\s*$", text, re.M)
-                s = re.search(r"^small_sha256=([0-9a-f]{64})\s*$", text, re.M)
+                s = re.search(r"^small(?:_fp8)?_sha256=([0-9a-f]{64})\s*$", text, re.M)
                 model = m.group(1) if m else model
                 small = s.group(1) if s else small
             except OSError:

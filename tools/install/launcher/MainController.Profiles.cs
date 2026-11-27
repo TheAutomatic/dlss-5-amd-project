@@ -307,9 +307,16 @@ namespace OptScalerNR.Launcher
                 var item = _asiProfileCombo.SelectedItem as ComboBoxItem;
                 if (item == null || !CanUseAsiProfileGame(game)) return;
                 try {
-                    _asiProfiles.SetSelection(game.Key, (string)item.Tag);
-                    _asiSelectedProfile = (string)item.Tag;
-                    SetIniStatus("pending", "");
+                    var tag = (string)item.Tag ?? "";
+                    var preset = BuiltInAsiPresets.FindByTag(tag);
+                    if (preset != null) {
+                        _asiSelectedProfile = tag;
+                        SetIniStatus("preset-pending", L(preset.TitleZh, preset.TitleEn));
+                    } else {
+                        _asiProfiles.SetSelection(game.Key, tag);
+                        _asiSelectedProfile = tag;
+                        SetIniStatus("pending", "");
+                    }
                 } catch (Exception ex) { IniFailure(ex); }
                 RefreshAsiProfiles();
             };
@@ -347,6 +354,8 @@ namespace OptScalerNR.Launcher
             var available = _asiProfiles != null && !IniBusy();
             var path = ActiveAsiProfilePath(game);
             var hasIni = available && path != null && File.Exists(path);
+            var isBuiltIn = BuiltInAsiPresets.IsBuiltInTag(_asiSelectedProfile);
+            bool zh = L("zh", "en") == "zh";
             _asiUpdating = true;
             try {
                 _asiProfileCombo.Items.Clear();
@@ -358,21 +367,133 @@ namespace OptScalerNR.Launcher
                     _asiProfileCombo.Items.Add(item);
                     if (name == _asiSelectedProfile) _asiProfileCombo.SelectedItem = item;
                 }
+                foreach (var preset in BuiltInAsiPresets.All) {
+                    var item = new ComboBoxItem {
+                        Content = preset.DropdownLabel(zh),
+                        Tag = preset.Tag,
+                        ToolTip = zh ? preset.SubtitleZh : preset.SubtitleEn
+                    };
+                    _asiProfileCombo.Items.Add(item);
+                    if (string.Equals(preset.Tag, _asiSelectedProfile, StringComparison.OrdinalIgnoreCase))
+                        _asiProfileCombo.SelectedItem = item;
+                }
             } catch (Exception ex) { IniFailure(ex); }
             finally { _asiUpdating = false; }
             _asiProfileCombo.IsEnabled = hasIni;
             foreach (var name in new[] { "AsiProfileApplyButton", "AsiProfileSaveButton", "AsiProfileQuickSaveButton", "IniAsiImportButton", "IniAsiExportButton" })
                 ((Button)_window.FindName(name)).IsEnabled = hasIni;
             foreach (var name in new[] { "AsiProfileRenameButton", "AsiProfileDeleteButton" })
-                ((Button)_window.FindName(name)).IsEnabled = hasIni && !string.IsNullOrEmpty(_asiSelectedProfile);
+                ((Button)_window.FindName(name)).IsEnabled = hasIni && !string.IsNullOrEmpty(_asiSelectedProfile) && !isBuiltIn;
             ((Button)_window.FindName("AsiProfileFolderButton")).IsEnabled = available;
+        }
+        bool ConfirmBuiltInAsiPreset(IniGameIdentity game, BuiltInAsiPreset preset)
+        {
+            bool zh = L("zh", "en") == "zh";
+            var decoded = MochizukiShareCode.Decode(preset.GetShareCode());
+            var dialog = DialogTheme.Create(_window, L("应用内置预设", "Apply built-in preset"), 560);
+            var panel = new StackPanel { Margin = new Thickness(22) };
+            var notice = zh ? preset.GameNoticeZh : preset.GameNoticeEn;
+            if (!string.IsNullOrEmpty(notice)) {
+                var noticeBorder = new Border {
+                    Background = TryFindResourceString("ThemeWarningBg"),
+                    BorderBrush = TryFindResourceString("ThemeWarning"),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(8),
+                    Padding = new Thickness(12, 9, 12, 9),
+                    Margin = new Thickness(0, 0, 0, 12)
+                };
+                noticeBorder.Child = new TextBlock {
+                    Text = "⚠ " + notice,
+                    Foreground = TryFindResourceString("ThemeWarning"),
+                    FontWeight = FontWeights.SemiBold,
+                    TextWrapping = TextWrapping.Wrap
+                };
+                panel.Children.Add(noticeBorder);
+            }
+            panel.Children.Add(new TextBlock {
+                Text = zh ? preset.TitleZh : preset.TitleEn,
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = TryFindResourceString("ThemeInk")
+            });
+            panel.Children.Add(new TextBlock {
+                Text = L("预设作者：", "Preset author: ") + preset.Author + "  ·  " + MochizukiShareCode.Summary(decoded, zh),
+                FontSize = 11.5,
+                Foreground = TryFindResourceString("ThemeMuted"),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 3, 0, 10)
+            });
+            var missingWarning = MissingModelWarning(game.Directory, decoded).TrimStart('\r', '\n');
+            if (!string.IsNullOrEmpty(missingWarning)) {
+                panel.Children.Add(new TextBlock {
+                    Text = missingWarning,
+                    Foreground = TryFindResourceString("ThemeWarning"),
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 10)
+                });
+            }
+            var tips = zh ? preset.TipsZh : preset.TipsEn;
+            if (!string.IsNullOrEmpty(tips)) {
+                var tipsBorder = new Border {
+                    Background = TryFindResourceString("ThemeLayer"),
+                    BorderBrush = TryFindResourceString("ThemeBorder"),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(8),
+                    Padding = new Thickness(12, 10, 12, 10),
+                    Margin = new Thickness(0, 0, 0, 12)
+                };
+                tipsBorder.Child = new TextBlock {
+                    Text = tips,
+                    FontSize = 12,
+                    LineHeight = 19,
+                    TextWrapping = TextWrapping.Wrap,
+                    Foreground = TryFindResourceString("ThemeInk")
+                };
+                panel.Children.Add(tipsBorder);
+            }
+            panel.Children.Add(new TextBlock {
+                Text = L("应用后将保留你原有的快捷键与语言设置，并自动备份当前 dlssnr-amd.ini（重启游戏后生效）。",
+                         "Your existing hotkeys and language settings are preserved, and the current dlssnr-amd.ini is backed up automatically (restart the game to take effect)."),
+                FontSize = 11.5,
+                Foreground = TryFindResourceString("ThemeMuted"),
+                TextWrapping = TextWrapping.Wrap
+            });
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+            var cancel = new Button { Content = L("取消", "Cancel"), IsCancel = true, MinWidth = 85, Margin = new Thickness(4) };
+            var accept = new Button { Content = L("确认应用", "Apply preset"), MinWidth = 100, Margin = new Thickness(4) };
+            accept.Click += delegate { dialog.DialogResult = true; };
+            DialogTheme.Primary(dialog, accept);
+            buttons.Children.Add(cancel);
+            buttons.Children.Add(accept);
+            DialogTheme.SetContent(dialog, panel, buttons);
+            return dialog.ShowDialog() == true;
+        }
+        static string ApplyBuiltInAsiPresetBytes(string target, BuiltInAsiPreset preset)
+        {
+            if ((File.GetAttributes(target) & FileAttributes.ReparsePoint) != 0) throw new IniProfileException("invalid");
+            var bytes = MochizukiShareCode.Apply(File.ReadAllBytes(target), preset.GetShareCode());
+            var temporary = target + ".stage-" + Guid.NewGuid().ToString("N");
+            var backup = target + ".bak-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff", System.Globalization.CultureInfo.InvariantCulture) + "-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            try {
+                using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None)) {
+                    stream.Write(bytes, 0, bytes.Length);
+                    stream.Flush(true);
+                }
+                File.Replace(temporary, target, backup);
+                return backup;
+            } finally {
+                if (File.Exists(temporary)) { try { File.Delete(temporary); } catch { } }
+            }
         }
         void AsiProfileAction(string operation)
         {
             var game = CaptureIniGame();
             if (!CanUseAsiProfileGame(game)) return;
             var source = _asiSelectedProfile;
+            var builtIn = BuiltInAsiPresets.FindByTag(source);
             string value = "";
+            if ((operation == "rename" || operation == "delete") && builtIn != null) return;
             if (operation == "save" || operation == "rename") {
                 value = PromptIniName(operation == "save" ? L("保存 dlssnr-amd.ini 配置", "Save dlssnr-amd.ini profile") : L("重命名配置", "Rename profile"),
                     operation == "save" ? game.Name + L(" 保存配置", " profile") : source);
@@ -388,6 +509,11 @@ namespace OptScalerNR.Launcher
                 value = picker.FileName;
             } else if (operation == "delete" && DialogTheme.Show(_window,
                 L("删除已保存方案？游戏 INI 不会改变。", "Delete this saved profile? The game INI will not change."), L("删除配置", "Delete profile"), MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+            else if (operation == "apply" && builtIn != null) {
+                var target = ActiveAsiProfilePath(game);
+                if (target == null || !File.Exists(target)) { SetIniStatus("noasi", ""); return; }
+                if (!ConfirmBuiltInAsiPreset(game, builtIn)) return;
+            }
             RunAsiProfileAction(game, operation, value, source);
         }
         bool RunAsiProfileAction(IniGameIdentity game, string operation, string value, string source)
@@ -402,22 +528,34 @@ namespace OptScalerNR.Launcher
                 }
                 var target = ActiveAsiProfilePath(game);
                 if (target == null || !File.Exists(target)) { SetIniStatus("noasi", ""); return false; }
+                var builtIn = BuiltInAsiPresets.FindByTag(source);
                 var status = "";
                 switch (operation) {
                     case "save": case "quick-save":
                         _asiSelectedProfile = _asiProfiles.Save(target, operation == "save" ? value : game.Name + L(" 保存配置", " profile"));
                         status = "saved"; break;
                     case "import": _asiSelectedProfile = _asiProfiles.Import(source, value); status = "imported"; break;
-                    case "rename": _asiProfiles.Rename(source, value); _asiSelectedProfile = _asiProfiles.GetSelection(game.Key); status = "renamed"; break;
-                    case "delete": _asiProfiles.Delete(source); _asiSelectedProfile = ""; status = "deleted"; break;
+                    case "rename":
+                        if (builtIn != null) return false;
+                        _asiProfiles.Rename(source, value); _asiSelectedProfile = _asiProfiles.GetSelection(game.Key); status = "renamed"; break;
+                    case "delete":
+                        if (builtIn != null) return false;
+                        _asiProfiles.Delete(source); _asiSelectedProfile = ""; status = "deleted"; break;
                     case "export":
-                        if (string.IsNullOrEmpty(source)) File.WriteAllBytes(value, File.ReadAllBytes(target));
+                        if (builtIn != null) File.WriteAllBytes(value, MochizukiShareCode.Apply(File.ReadAllBytes(target), builtIn.GetShareCode()));
+                        else if (string.IsNullOrEmpty(source)) File.WriteAllBytes(value, File.ReadAllBytes(target));
                         else _asiProfiles.Export(source, value);
                         SetIniStatus("asi-exported", Path.GetFileName(value)); return true;
                     case "apply":
                         locked = TryLockTarget(game.Directory);
                         if (!locked) { SetIniStatus("locked", ""); return false; }
                         SetBusy(true, "asi-profile"); busy = true; RefreshProfileActions();
+                        if (builtIn != null) {
+                            var presetBackup = ApplyBuiltInAsiPresetBytes(target, builtIn);
+                            RefreshMochiHotkeyHint();
+                            SetIniStatus("preset-applied", L(builtIn.TitleZh, builtIn.TitleEn) + " · " + Path.GetFileName(presetBackup));
+                            return true;
+                        }
                         var backup = _asiProfiles.Apply(Path.GetDirectoryName(target), source);
                         RefreshMochiHotkeyHint();
                         SetIniStatus("asi-imported", Path.GetFileName(backup)); return true;
@@ -621,6 +759,8 @@ namespace OptScalerNR.Launcher
                 case "name": text = L("请输入有效的配置名称。", "Enter a valid profile name."); break;
                 case "exists": text = L("已有同名配置，请使用其他名称。", "That profile name already exists. Choose another name."); break;
                 case "pending": text = L("已保存选择；点击“应用”后修改游戏 INI。", "Selection saved; click Apply to change the game INI."); break;
+                case "preset-pending": text = L("已选择内置预设：", "Selected built-in preset: ") + _iniStatusDetail + L("；点击“应用”查看提示并写入游戏 INI。", "; click Apply to review notes and write to the game INI."); break;
+                case "preset-applied": text = L("已应用内置预设，重启游戏后生效：", "Built-in preset applied; restart the game: ") + _iniStatusDetail; break;
                 case "saved": text = L("已保存方案：", "Saved profile: ") + _iniStatusDetail; break;
                 case "imported": text = L("已导入：", "Imported: ") + _iniStatusDetail + L("。点击“应用”切换。", ". Click Apply to switch."); break;
                 case "renamed": text = L("已重命名：", "Renamed: ") + _iniStatusDetail; break;

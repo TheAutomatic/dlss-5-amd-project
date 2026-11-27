@@ -7,7 +7,7 @@
 #                   [--proxy dxgi.dll|winmm.dll|d3d12.dll|winhttp.dll|wininet.dll|dbghelp.dll|version.dll]
 #                   [--nr on|off] [--openrr on|off] [--openrr-spoof full|auto] [--optipatcher on|off] [--overwrite-ini]
 #                   [--dll <nvngx_dlssnr.dll or .zip>] [--dlssd <nvngx_dlssd.dll>]
-#                   [--model CC_SMALL_FP8|CC_SMALL_FP8_EXPERIMENTAL|CC_SILVER_AARDWOLD|CC_SILVER_AARDWOLD_OPTIMIZED]
+#                   [--model CC_SMALL_FP8|CC_SMALL_FP8_OPTIMIZED|CC_SILVER_AARDWOLD|CC_SILVER_AARDWOLD_OPTIMIZED]
 #                   [--renodx|--wilsjo2]
 set -euo pipefail
 
@@ -206,7 +206,11 @@ remove_legacy_tree() {
             ;;
         dlssnr-amd)
             rm -rf -- "$game/dlssnr-amd/shaders" "$game/dlssnr-amd/aco" "$game/dlssnr-amd/lang" "$game/dlssnr-amd/int4-ultra" "$game/dlssnr-amd/int4" \
-                "$game/dlssnr-amd/experimental" "$game/dlssnr-amd/optimized" "$game/dlssnr-amd/int4-performance" "$game/dlssnr-amd/aco-cache"
+                "$game/dlssnr-amd/experimental" "$game/dlssnr-amd/optimized" "$game/dlssnr-amd/int4-performance" "$game/dlssnr-amd/aco-cache" \
+                "$game/dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED" "$game/dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED-ultra" \
+                "$game/dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED-performance" "$game/dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED-balanced" \
+                "$game/dlssnr-amd/CC_SMALL_FP8_OPTIMIZED" "$game/dlssnr-amd/CC_SMALL_FP8_OPTIMIZED-ultra" \
+                "$game/dlssnr-amd/CC_SMALL_FP8_OPTIMIZED-performance" "$game/dlssnr-amd/CC_SMALL_FP8_OPTIMIZED-balanced"
             rm -f -- "$game/dlssnr-amd/nr_present_probe.exe" "$game/dlssnr-amd/dlssnr-amd.default.ini"
             ;;
         openrr-amd|opennr-rr)
@@ -337,22 +341,22 @@ if [[ -z "$proxy" ]]; then
     fi
 fi
 
-# 2. Ask whether to install dlssnr-amd.asi (Mochizuki 0.0.9m12)
+# 2. Ask whether to install dlssnr-amd.asi (Mochizuki 0.1.0m2)
 if [[ -z "$want_nr" ]]; then
     want_nr="on"
     if [[ -t 0 ]]; then
         echo
-        read -r -p "Install dlssnr-amd.asi (Mochizuki 0.0.9m12 DLSS Neural Rendering)? [Y/n]: " pick || pick=""
+        read -r -p "Install dlssnr-amd.asi (Mochizuki 0.1.0m2 DLSS Neural Rendering)? [Y/n]: " pick || pick=""
         [[ "$pick" == "n" || "$pick" == "N" ]] && want_nr="off"
     fi
 fi
 
-# 3. Ask whether to install openrr-amd.asi (OpenRR v0.1.7plus6 Ray Reconstruction)
+# 3. Ask whether to install openrr-amd.asi (OpenRR v0.1.7.1plus Ray Reconstruction)
 if [[ -z "$want_openrr" ]]; then
     want_openrr="on"
     if [[ -t 0 ]]; then
         echo
-        read -r -p "Install openrr-amd.asi (OpenRR v0.1.7plus6 DLSS Ray Reconstruction)? [Y/n]: " pick || pick=""
+        read -r -p "Install openrr-amd.asi (OpenRR v0.1.7.1plus DLSS Ray Reconstruction)? [Y/n]: " pick || pick=""
         [[ "$pick" == "n" || "$pick" == "N" ]] && want_openrr="off"
     fi
 fi
@@ -368,12 +372,13 @@ if [[ -z "$want_optipatcher" ]]; then
 fi
 
 # 5. Prepare Mochizuki models if want_nr == on
-model_src="" small_src="" exp_tmp="" opt_tmp="" int4_tmp="" ini_preserve_tmp=""
-exp_weights=0 opt_weights=0 int4_weights=0 have_small=0
+model_src="" small_src="" exp_tmp="" opt_tmp="" int4_tmp="" small_int4_tmp="" ini_preserve_tmp=""
+exp_weights=0 opt_weights=0 int4_weights=0 small_int4_weights=0 small_int4_sink_weights=0 have_small=0
 cleanup_temps() {
     [[ -n "$exp_tmp" ]] && rm -rf -- "$exp_tmp" || true
     [[ -n "$opt_tmp" ]] && rm -rf -- "$opt_tmp" || true
     [[ -n "$int4_tmp" ]] && rm -rf -- "$int4_tmp" || true
+    [[ -n "$small_int4_tmp" ]] && rm -rf -- "$small_int4_tmp" || true
     [[ -n "$ini_preserve_tmp" ]] && rm -rf -- "$ini_preserve_tmp" || true
 }
 trap cleanup_temps EXIT
@@ -467,16 +472,18 @@ if [[ "$want_nr" == "on" ]]; then
             echo
             echo "Choose the starting network for dlssnr-amd.asi (can be switched in game with End / Ctrl+F11):"
             echo "  1) CC_SMALL_FP8 (default)"
-            echo "  2) CC_SMALL_FP8_EXPERIMENTAL (ACO Mode: RX 9000 / RX 7000)"
+            echo "  2) CC_SMALL_FP8_OPTIMIZED (ACO Mode: RX 9000 / RX 7000)"
             echo "  3) CC_SILVER_AARDWOLD"
             echo "  4) CC_SILVER_AARDWOLD_OPTIMIZED (ACO Mode: RX 9000 / RX 7000)"
             def=1; [[ $have_small == 0 ]] && def=3
             read -r -p "Start with which one? [1-4, Enter = $def]: " pick || pick=""
             case "${pick:-$def}" in
-                1) model="CC_SMALL_FP8";; 2) model="CC_SMALL_FP8_EXPERIMENTAL";;
+                1) model="CC_SMALL_FP8";; 2) model="CC_SMALL_FP8_OPTIMIZED";;
                 3) model="CC_SILVER_AARDWOLD";; 4) model="CC_SILVER_AARDWOLD_OPTIMIZED";;
             esac
         fi
+    elif [[ "$model" == "CC_SMALL_FP8_EXPERIMENTAL" ]]; then
+        model="CC_SMALL_FP8_OPTIMIZED"
     fi
 
     if [[ -z "$renodx" ]]; then
@@ -490,21 +497,30 @@ if [[ "$want_nr" == "on" ]]; then
         fi
     fi
 
-    if [[ $have_small == 1 && -f "$here/experimental/dlssnr-small-experimental.delta" ]]; then
-        echo "Making CC_SMALL_FP8_EXPERIMENTAL weights ..."
+    if [[ $have_small == 1 && -f "$here/CC_SMALL_FP8_OPTIMIZED/CC_SMALL_FP8_OPTIMIZED.delta" ]]; then
+        echo "Making CC_SMALL_FP8_OPTIMIZED weights ..."
         exp_tmp=$(mktemp -d)
-        if apply_xor_delta "${small_src:-$pkg_small}" "$here/experimental/dlssnr-small-experimental.delta" "$exp_tmp/CC_SMALL_FP8_EXPERIMENTAL.bin"; then
+        if apply_xor_delta "${small_src:-$pkg_small}" "$here/CC_SMALL_FP8_OPTIMIZED/CC_SMALL_FP8_OPTIMIZED.delta" "$exp_tmp/CC_SMALL_FP8_OPTIMIZED.bin"; then
             exp_weights=1
+            if command -v wine >/dev/null 2>&1 && [[ -f "$here/model-tools/dlssnr-int4-weights.exe" && -d "$here/dlssnr-amd/CC_SMALL_FP8_OPTIMIZED-ultra" ]]; then
+                small_int4_tmp=$(mktemp -d)
+                if WINEDEBUG=-all wine "$here/model-tools/dlssnr-int4-weights.exe" --network CC_SMALL_FP8_OPTIMIZED "$exp_tmp/CC_SMALL_FP8_OPTIMIZED.bin" "$here/dlssnr-amd/CC_SMALL_FP8_OPTIMIZED-ultra" "$small_int4_tmp/CC_SMALL_FP8_OPTIMIZED_INT4.bin" >/dev/null 2>&1; then
+                    small_int4_weights=1
+                fi
+                if WINEDEBUG=-all wine "$here/model-tools/dlssnr-int4-weights.exe" --network CC_SMALL_FP8_OPTIMIZED --sink "$exp_tmp/CC_SMALL_FP8_OPTIMIZED.bin" "$here/dlssnr-amd/CC_SMALL_FP8_OPTIMIZED-ultra" "$small_int4_tmp/CC_SMALL_FP8_OPTIMIZED_INT4_SINK.bin" >/dev/null 2>&1; then
+                    small_int4_sink_weights=1
+                fi
+            fi
         fi
     fi
-    if model_ok "${model_src:-$pkg_model}" && [[ -f "$here/optimized/dlssnr-optimized.delta" ]]; then
+    if model_ok "${model_src:-$pkg_model}" && [[ -f "$here/CC_SILVER_AARDWOLD_OPTIMIZED/CC_SILVER_AARDWOLD_OPTIMIZED.delta" ]]; then
         echo "Making CC_SILVER_AARDWOLD_OPTIMIZED weights ..."
         opt_tmp=$(mktemp -d)
-        if apply_xor_delta "${model_src:-$pkg_model}" "$here/optimized/dlssnr-optimized.delta" "$opt_tmp/CC_SILVER_AARDWOLD_OPTIMIZED.bin"; then
+        if apply_xor_delta "${model_src:-$pkg_model}" "$here/CC_SILVER_AARDWOLD_OPTIMIZED/CC_SILVER_AARDWOLD_OPTIMIZED.delta" "$opt_tmp/CC_SILVER_AARDWOLD_OPTIMIZED.bin"; then
             opt_weights=1
-            if command -v wine >/dev/null 2>&1 && [[ -f "$here/model-tools/dlssnr-int4-weights.exe" ]]; then
+            if command -v wine >/dev/null 2>&1 && [[ -f "$here/model-tools/dlssnr-int4-weights.exe" && -d "$here/dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED-ultra" ]]; then
                 int4_tmp=$(mktemp -d)
-                if WINEDEBUG=-all wine "$here/model-tools/dlssnr-int4-weights.exe" "$opt_tmp/CC_SILVER_AARDWOLD_OPTIMIZED.bin" "$here/dlssnr-amd/int4-ultra" "$int4_tmp/CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin" >/dev/null 2>&1; then
+                if WINEDEBUG=-all wine "$here/model-tools/dlssnr-int4-weights.exe" --network CC_SILVER_AARDWOLD_OPTIMIZED "$opt_tmp/CC_SILVER_AARDWOLD_OPTIMIZED.bin" "$here/dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED-ultra" "$int4_tmp/CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin" >/dev/null 2>&1; then
                     int4_weights=1
                 fi
             fi
@@ -565,10 +581,8 @@ if [[ "$want_openrr" == "on" && -f "$here/OptiScaler/plugins/openrr-amd.asi" ]];
 elif [[ "$want_openrr" == "on" && -f "$here/OptiScaler/plugins/openrr.asi" ]]; then
     put_file "$here/OptiScaler/plugins/openrr.asi" "OptiScaler/plugins/openrr-amd.asi"
 fi
-if [[ "$want_openrr" == "on" && -f "$here/OptiScaler/plugins/openrr-ngx-host.dll" ]]; then
-    put_file "$here/OptiScaler/plugins/openrr-ngx-host.dll" "OptiScaler/plugins/openrr-ngx-host.dll"
-fi
-rm -f -- "$game/openrr-ngx-host.dll"
+# Proactively remove legacy openrr-ngx-host.dll left over from OpenRR <= v0.1.7plus6.
+rm -f -- "$game/OptiScaler/plugins/openrr-ngx-host.dll" "$game/plugins/openrr-ngx-host.dll" "$game/openrr-ngx-host.dll"
 if [[ "$want_optipatcher" == "on" && -f "$here/OptiScaler/plugins/OptiPatcher.asi" ]]; then
     put_file "$here/OptiScaler/plugins/OptiPatcher.asi" "OptiScaler/plugins/OptiPatcher.asi"
 elif [[ "$want_optipatcher" == "on" && -f "$here/plugins/OptiPatcher.asi" ]]; then
@@ -594,11 +608,15 @@ sec, seen = None, set()
 for i, line in enumerate(lines):
     m = re.match(r"^\s*\[([^\]]+)\]", line.lstrip("\ufeff"))
     if m: sec = m.group(1).casefold(); continue
-    e = re.match(r"^\s*([A-Za-z0-9_]+)\s*=", line)
+    e = re.match(r"^\s*([A-Za-z0-9_]+)\s*=(.*)$", line)
     if e and sec:
-        k = (sec, e.group(1).casefold())
+        key_name, key_val = e.group(1), e.group(2)
+        k = (sec, key_name.casefold())
+        # Sanitize legacy OpenRR <= v0.1.7plus6 host DLL paths in [Libraries] NvngxPath.
+        if k == ("libraries", "nvngxpath") and "openrr-ngx-host" in key_val.casefold():
+            lines[i] = f"{key_name}=auto"; seen.add(k); continue
         if k in lookup and k not in seen:
-            lines[i] = f"{e.group(1)}={lookup[k]}"; seen.add(k)
+            lines[i] = f"{key_name}={lookup[k]}"; seen.add(k)
 # Kept/older INIs may omit the entire section or individual spoofing keys.
 if spoof:
     missing = [key for key in ("Dxgi", "Vulkan", "VulkanExtensionSpoofing") if ("spoofing", key.casefold()) not in seen]
@@ -614,13 +632,64 @@ if spoof:
 open(path, "wb").write(nl.join(lines).encode("utf-8", errors="surrogateescape"))
 PY
 
+# Detect system language: Chinese locales configure both plugin INIs to zh-CN; others stay default English.
+sys_locale="${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}"
+want_zh_plugins=0
+if [[ "${sys_locale,,}" == zh* ]]; then
+    want_zh_plugins=1
+fi
+
+set_ini_key() {
+    python3 - "$1" "$2" "$3" "$4" "$5" <<'PY'
+import re, sys
+path, section, key, value, only_missing = sys.argv[1:6]
+only_missing = (only_missing == "1")
+raw = open(path, "rb").read().decode("utf-8", errors="surrogateescape")
+nl = "\r\n" if "\r\n" in raw else "\n"
+lines = raw.split(nl)
+sec, found_sec, replaced = None, False, False
+for i, line in enumerate(lines):
+    m = re.match(r"^\s*\[([^\]]+)\]", line.lstrip("\ufeff"))
+    if m:
+        sec = m.group(1).casefold()
+        if sec == section.casefold():
+            found_sec = True
+        continue
+    if sec == section.casefold():
+        e = re.match(rf"^(\s*{re.escape(key)}\s*=).*$", line, re.IGNORECASE)
+        if e:
+            if not only_missing:
+                lines[i] = f"{e.group(1)} {value}"
+            replaced = True
+            break
+if not replaced:
+    if not found_sec:
+        if lines and lines[-1] != "":
+            lines.append("")
+        lines.append(f"[{section}]")
+        lines.append(f"{key} = {value}")
+    else:
+        start = next(i for i, l in enumerate(lines) if re.match(rf"^\s*\[{re.escape(section)}\]\s*$", l.lstrip("\ufeff"), re.IGNORECASE))
+        end = next((i for i in range(start + 1, len(lines)) if re.match(r"^\s*\[", lines[i])), len(lines))
+        lines.insert(end, f"{key} = {value}")
+open(path, "wb").write(nl.join(lines).encode("utf-8", errors="surrogateescape"))
+PY
+}
+
 # 7. Install dlssnr-amd.asi resources if enabled
 if [[ "$want_nr" == "on" ]]; then
     put_tree "$here/dlssnr-amd" "dlssnr-amd"
     [[ -n "$model_src" ]] && put_file "$model_src" "dlssnr-amd/CC_SILVER_AARDWOLD.bin"
     [[ -n "$small_src" ]] && put_file "$small_src" "dlssnr-amd/CC_SMALL_FP8.bin"
     if [[ $exp_weights == 1 ]]; then
-        put_file "$exp_tmp/CC_SMALL_FP8_EXPERIMENTAL.bin" "dlssnr-amd/CC_SMALL_FP8_EXPERIMENTAL.bin"
+        put_file "$exp_tmp/CC_SMALL_FP8_OPTIMIZED.bin" "dlssnr-amd/CC_SMALL_FP8_OPTIMIZED.bin"
+        rm -f -- "$game/dlssnr-amd/CC_SMALL_FP8_EXPERIMENTAL.bin" "$game/dlssnr-amd/dlssnr-small-experimental.bin"
+    fi
+    if [[ $small_int4_weights == 1 ]]; then
+        put_file "$small_int4_tmp/CC_SMALL_FP8_OPTIMIZED_INT4.bin" "dlssnr-amd/CC_SMALL_FP8_OPTIMIZED_INT4.bin"
+    fi
+    if [[ $small_int4_sink_weights == 1 ]]; then
+        put_file "$small_int4_tmp/CC_SMALL_FP8_OPTIMIZED_INT4_SINK.bin" "dlssnr-amd/CC_SMALL_FP8_OPTIMIZED_INT4_SINK.bin"
     fi
     if [[ $opt_weights == 1 ]]; then
         put_file "$opt_tmp/CC_SILVER_AARDWOLD_OPTIMIZED.bin" "dlssnr-amd/CC_SILVER_AARDWOLD_OPTIMIZED.bin"
@@ -631,11 +700,17 @@ if [[ "$want_nr" == "on" ]]; then
 
     ini_src="$here/dlssnr-amd-optiscaler-renodx.ini"
     [[ "$renodx" == "0" ]] && ini_src="$here/dlssnr-amd-optiscaler.ini"
+    nr_ini_fresh=0
     if [[ $is_update == 1 && $overwrite_ini == 0 && -n "$ini_preserve_tmp" && -f "$ini_preserve_tmp/dlssnr-amd.ini" ]]; then
         put_file "$ini_preserve_tmp/dlssnr-amd.ini" "dlssnr-amd.ini"
+        sed -i 's/CC_SMALL_FP8_EXPERIMENTAL/CC_SMALL_FP8_OPTIMIZED/g' "$game/dlssnr-amd.ini"
     else
         put_file "$ini_src" "dlssnr-amd.ini"
         sed -i "/^\[Network\]/,/^\[/ s/^Model = .*/Model = $model/" "$game/dlssnr-amd.ini"
+        nr_ini_fresh=1
+    fi
+    if [[ $want_zh_plugins == 1 && -f "$game/dlssnr-amd.ini" ]]; then
+        set_ini_key "$game/dlssnr-amd.ini" "NRControl" "Language" "zh-CN" "$([[ $nr_ini_fresh == 1 ]] && echo 0 || echo 1)"
     fi
     put_file "$game/dlssnr-amd.ini" "dlssnr-amd/dlssnr-amd.default.ini"
     record "L dlssnr-amd.log"; record "L dlssnr-amd-crash.dmp"
@@ -645,10 +720,15 @@ fi
 if [[ "$want_openrr" == "on" ]]; then
     put_tree "$here/openrr-amd" "openrr-amd"
     rm -rf -- "$game/openrr-amd/aco"
+    rr_ini_fresh=0
     if [[ $is_update == 1 && $overwrite_ini == 0 && -n "$ini_preserve_tmp" && -f "$ini_preserve_tmp/openrr-amd.ini" ]]; then
         put_file "$ini_preserve_tmp/openrr-amd.ini" "openrr-amd.ini"
     elif [[ -f "$here/openrr-amd.ini" ]]; then
         put_file "$here/openrr-amd.ini" "openrr-amd.ini"
+        rr_ini_fresh=1
+    fi
+    if [[ $want_zh_plugins == 1 && -f "$game/openrr-amd.ini" ]]; then
+        set_ini_key "$game/openrr-amd.ini" "OpenRR" "Language" "zh-CN" "$([[ $rr_ini_fresh == 1 ]] && echo 0 || echo 1)"
     fi
     if [[ -z "$dlssd" ]]; then
         for cand in "$here/nvngx_dlssd.dll" "$here/openrr-amd/nvngx_dlssd.dll" "$game/nvngx_dlssd.dll"; do
@@ -658,6 +738,65 @@ if [[ "$want_openrr" == "on" ]]; then
     if [[ -n "$dlssd" && -f "$dlssd" ]]; then
         cp -f -- "$dlssd" "$game/openrr-amd/nvngx_dlssd.dll"
         record "F openrr-amd/nvngx_dlssd.dll"
+    fi
+    # Configure OptiScaler's native PLUGINS -> OpenRR menu font unconditionally when OpenRR is installed
+    # (only when TTFFontPath / FontSize are currently unset or auto).
+    if [[ -f "$game/OptiScaler.ini" && -f "$game/openrr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf" ]]; then
+        python3 - "$game/OptiScaler.ini" "$game/openrr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf" <<'PY'
+import os, re, sys
+opti_ini, font_file = sys.argv[1:3]
+def strip_q(v):
+    v = v.strip()
+    if len(v) >= 2 and ((v[0] == '"' and v[-1] == '"') or (v[0] == "'" and v[-1] == "'")):
+        return v[1:-1].strip()
+    return v
+def is_unset(v):
+    if v is None: return True
+    v = strip_q(v)
+    return (not v) or bool(re.match(r"^auto(?:\s*[;#].*)?$", v, re.IGNORECASE))
+raw = open(opti_ini, "rb").read().decode("utf-8", errors="surrogateescape")
+nl = "\r\n" if "\r\n" in raw else "\n"
+lines = raw.split(nl)
+sec, cur_ttf, cur_size = None, None, None
+for line in lines:
+    m = re.match(r"^\s*\[([^\]]+)\]", line.lstrip("\ufeff"))
+    if m: sec = m.group(1).casefold(); continue
+    if sec == "menu":
+        e = re.match(r"^\s*([A-Za-z0-9_]+)\s*=(.*)$", line)
+        if e:
+            kl = e.group(1).casefold()
+            if kl == "ttffontpath" and cur_ttf is None: cur_ttf = e.group(2)
+            elif kl == "fontsize" and cur_size is None: cur_size = e.group(2)
+if not is_unset(cur_ttf):
+    sys.exit(0)
+abs_font = os.path.realpath(font_file)
+wine_font = ("Z:" + abs_font.replace("/", "\\")) if abs_font.startswith("/") else abs_font
+updates = {"UseHQFont": "true", "TTFFontPath": wine_font}
+if is_unset(cur_size):
+    updates["FontSize"] = "16"
+lookup = {k.casefold(): v for k, v in updates.items()}
+sec, seen = None, set()
+for i, line in enumerate(lines):
+    m = re.match(r"^\s*\[([^\]]+)\]", line.lstrip("\ufeff"))
+    if m: sec = m.group(1).casefold(); continue
+    if sec == "menu":
+        e = re.match(r"^\s*([A-Za-z0-9_]+)\s*=", line)
+        if e:
+            kl = e.group(1).casefold()
+            if kl in lookup and kl not in seen:
+                lines[i] = f"{e.group(1)}={lookup[kl]}"; seen.add(kl)
+missing = [(k, v) for k, v in updates.items() if k.casefold() not in seen]
+if missing:
+    start = next((i for i, l in enumerate(lines) if re.match(r"^\s*\[Menu\]\s*$", l.lstrip("\ufeff"), re.IGNORECASE)), None)
+    if start is None:
+        if lines and lines[-1] != "": lines.append("")
+        lines.append("[Menu]")
+        end = len(lines)
+    else:
+        end = next((i for i in range(start + 1, len(lines)) if re.match(r"^\s*\[", lines[i])), len(lines))
+    lines[end:end] = [f"{k}={v}" for k, v in missing]
+open(opti_ini, "wb").write(nl.join(lines).encode("utf-8", errors="surrogateescape"))
+PY
     fi
     record "L openrr-amd.log"; record "L openrr-control.bin"; record "L openrr-amd-crash.dmp"
 fi
@@ -675,5 +814,5 @@ echo
 echo "Steam Launch Options (required for Proton to load $proxy):"
 echo "  WINEDLLOVERRIDES=\"${proxy_stem}=n,b\" %command%"
 echo
-echo "In game: Insert opens OptiScaler (+ OpenRR panel); End opens NR Control."
+echo "In game: Insert opens OptiScaler (PLUGINS -> OpenRR); End opens NR Control."
 echo "Uninstall: bash install.sh \"$game\" remove"

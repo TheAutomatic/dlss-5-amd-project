@@ -46,7 +46,7 @@
 
 ### Windows 图形化启动器安装（推荐）
 
-1. **下载解压**：从 [Release 页](https://github.com/TheAutomatic/dlss-5-amd-project/releases) 下载 `OptiScaler-NR-Win-<版本>.zip` 并完整解压。
+1. **下载解压**：从 [Release 页](https://github.com/TheAutomatic/dlss-5-amd-project/releases) 下载 `OptiScaler-NR-Windows-<版本>.zip` 并完整解压。
 2. **启动安装器**：双击运行解压目录下的 **`OptiScalerNRLauncher.exe`**，自动打开 **`OptiScaler NR` 图形化启动器**。
 3. **选择游戏与部署模式**：
    - 在左侧游戏库中选择目标游戏（也可点击右上角 **`+`** 手动添加游戏渲染 `.exe` 或 RTX Remix MC 实例；注意虚幻引擎游戏通常位于 `<Game>\Binaries\Win64\*-Shipping.exe`）；
@@ -63,11 +63,11 @@
 
 ### Linux / SteamOS (Proton) 图形启动器（实验性）
 
-从 [Release 页](https://github.com/TheAutomatic/dlss-5-amd-project/releases) 下载 Linux 包（基于 Mochizuki 上游 [DLSSNR-AMD Linux 版](https://gitlab.com/mochizuki0323/DLSSNR-AMD/-/releases)，与上游一样分为两个架构版本）：
+从 [Release 页](https://github.com/TheAutomatic/dlss-5-amd-project/releases) 下载 Linux 包（基于 [TheAutomatic / DLSSNR-AMD Linux 版](https://github.com/TheAutomatic/DLSSNR-AMD/releases) 构建，衍生自 Mochizuki 上游，与上游一样分为两个架构版本）：
 
 | 包 | 适用 | 安装路线 |
 | --- | --- | --- |
-| `OptiScaler-NR-Linux-x86_64-<版本>.tar.gz` | 64 位游戏 | OptiScaler（含 Mochizuki NR + OpenRR 0.1.7plus6 + OptiPatcher）+ 三条 ReShade Feeder 路线 |
+| `OptiScaler-NR-Linux-x86_64-<版本>.tar.gz` | 64 位游戏 | OptiScaler（含 Mochizuki NR + OpenRR 0.1.7.1plus + OptiPatcher）+ 三条 ReShade Feeder 路线 |
 | `OptiScaler-NR-Linux-i686-<版本>.tar.gz` | 32 位游戏 | 仅 ReShade Feeder 路线（OptiScaler 与 OpenRR 只有 64 位） |
 
 ```bash
@@ -87,7 +87,7 @@ WINEDLLOVERRIDES="dxgi=n,b" %command%
 
 ### 一、`dlssnr-amd.asi`（Mochizuki · DLSS 神经渲染）
 - **支持显卡**：
-  - **AMD Radeon RX 9000 系列 (RDNA4)**：支持全部 4 套网络（`CC_SMALL_FP8`、`CC_SMALL_FP8_EXPERIMENTAL`、`CC_SILVER_AARDWOLD`、`CC_SILVER_AARDWOLD_OPTIMIZED` 含 INT4 加速层）。
+  - **AMD Radeon RX 9000 系列 (RDNA4)**：支持全部 4 套网络（`CC_SMALL_FP8`、`CC_SMALL_FP8_OPTIMIZED`、`CC_SILVER_AARDWOLD`、`CC_SILVER_AARDWOLD_OPTIMIZED` 含 INT4 加速层）。
   - **AMD Radeon RX 7000 系列 & Radeon 700M / 800M / 8000S (RDNA3 / RDNA3.5)**：同样支持全部 4 套网络（需通过预编译 RDNA3 ACO 机器码运行）。
 - **多渲染后端与兼容路线**：支持 **D3D12 Direct-ELF**（零跨设备拷贝原生命令列表执行）、**D3D11 → D3D12 桥接** 与 **Vulkan 桥接/原生路径**，覆盖 OptiScaler / Standalone / 32 & 64 位 ReShade Feeder 路线。
 - **双后处理风格**：支持 **RenoDX 风格**（默认，还原 RenoDX 色调映射）与 **wilsjo2 风格**（原版 OptiScaler-NR 风格），支持在启动器中一键导入/导出 **`MZ5` 画风分享码**。

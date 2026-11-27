@@ -385,7 +385,7 @@ namespace OptScalerNR.Launcher
                 _openRrHotkeyHintPrefix.Text = L("随", "Opens with");
                 BuildInlineKeycaps(_openRrHotkeyHintCaps, optiKey);
                 _openRrHotkeyHintSuffix.Text = L("打开", "menu");
-                _openRrHotkeyHint.ToolTip = L("OpenRR 面板会停靠在 OptiScaler 菜单内，随此键同步打开", "OpenRR docks inside the OptiScaler menu and opens with this key.");
+                _openRrHotkeyHint.ToolTip = L("OpenRR 已原生集成在 OptiScaler 菜单左侧 PLUGINS -> OpenRR 标签页内", "OpenRR is natively integrated under the PLUGINS -> OpenRR tab on the left side of the OptiScaler menu.");
                 _openRrHotkeyHint.Visibility = Visibility.Visible;
             }
         }

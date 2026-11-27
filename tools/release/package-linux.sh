@@ -48,6 +48,19 @@ esac
 for tool in curl tar gzip python3 sha256sum; do
     command -v "$tool" > /dev/null || { echo "$tool is required" >&2; exit 1; }
 done
+sevenz=""
+for candidate in 7z 7zz 7za; do
+    if command -v "$candidate" > /dev/null 2>&1; then
+        sevenz="$candidate"
+        break
+    fi
+done
+for a in "${arches[@]}"; do
+    if [[ "$a" == x86_64 && -z "$sevenz" ]]; then
+        echo "7z (or 7zz) is required to unpack the pinned official OptiScaler archive for x86_64" >&2
+        exit 1
+    fi
+done
 have_pigz=0
 if command -v pigz > /dev/null 2>&1; then
     have_pigz=1
@@ -167,11 +180,12 @@ decompress_file() {
 
 # Same pattern as the Windows package guard in .github/workflows/release.yml: NVIDIA DLLs, extracted
 # model weights and other user-supplied/proprietary files must never be published.
-forbidden='^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr(-int4|-small)?\.bin|CC_(SMALL_FP8|SMALL_FP8_EXPERIMENTAL|SILVER_AARDWOLD|SILVER_AARDWOLD_OPTIMIZED|SILVER_AARDWOLD_OPTIMIZED_INT4)\.bin|pipeline\.cache|version\.dll|dlssnr_on_amd_setup\.exe)$'
+forbidden='^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr(-int4|-small)?\.bin|CC_(SMALL_FP8|SMALL_FP8_EXPERIMENTAL|SMALL_FP8_OPTIMIZED|SMALL_FP8_OPTIMIZED_INT4|SMALL_FP8_OPTIMIZED_INT4_SINK|SILVER_AARDWOLD|SILVER_AARDWOLD_OPTIMIZED|SILVER_AARDWOLD_OPTIMIZED_INT4)\.bin|pipeline\.cache|version\.dll|dlssnr_on_amd_setup\.exe)$'
 
 upstream_version=$(pin version)
 upstream_release_url=$(pin releaseUrl)
 openrr_version=$(pin_root openrr version)
+optiscaler_version=$(pin_root optiscaler version)
 epoch=${SOURCE_DATE_EPOCH:-$(git -C "$repo" log -1 --format=%ct 2> /dev/null || date +%s)}
 work=$(mktemp -d "${TMPDIR:-/tmp}/optiscaler-nr-linux.XXXXXX")
 
@@ -206,6 +220,17 @@ for a in "${arches[@]}"; do
 done
 for a in "${arches[@]}"; do
     if [[ "$a" == x86_64 ]]; then
+        fetch_keys+=("optiscaler")
+        fetch_kinds+=("pinned")
+        fetch_names+=("$(pin_root optiscaler archiveName)")
+        fetch_urls+=("$(pin_root optiscaler archiveUrl)")
+        fetch_shas+=("$(pin_root optiscaler archiveSha256)")
+        opti_lic_sha=$(pin_root optiscaler licenseSha256)
+        fetch_keys+=("optiscaler_lic")
+        fetch_kinds+=("pinned")
+        fetch_names+=("OptiScaler_LICENSE_${opti_lic_sha:0:12}.txt")
+        fetch_urls+=("$(pin_root optiscaler licenseUrl)")
+        fetch_shas+=("$opti_lic_sha")
         fetch_keys+=("openrr")
         fetch_kinds+=("pinned")
         fetch_names+=("$(pin_root openrr archiveName)")
@@ -312,8 +337,16 @@ if [[ ${#fetch_pids[@]} -gt 0 ]]; then
 fi
 
 lang_zip=$(cat "$work/fetch-lang.path")
+optiscaler_7z=""
+optiscaler_lic=""
 openrr_zip=""
 optipatcher_asi=""
+if [[ -f "$work/fetch-optiscaler.path" ]]; then
+    optiscaler_7z=$(cat "$work/fetch-optiscaler.path")
+fi
+if [[ -f "$work/fetch-optiscaler_lic.path" ]]; then
+    optiscaler_lic=$(cat "$work/fetch-optiscaler_lic.path")
+fi
 if [[ -f "$work/fetch-openrr.path" ]]; then
     openrr_zip=$(cat "$work/fetch-openrr.path")
 fi
@@ -330,7 +363,7 @@ build_arch() {
     local tgz upstream_install_sha tarball
     tgz=$(cat "$work/fetch-arch_$a.path")
 
-    echo "== $name (DLSSNR-AMD $upstream_version$([[ "$a" == x86_64 ]] && echo ", OpenRR $openrr_version" || true); jobs=$arch_jobs, $([[ "$have_pigz" -eq 1 ]] && echo "pigz -$gzip_level" || echo "gzip -$gzip_level"))"
+    echo "== $name (DLSSNR-AMD $upstream_version$([[ "$a" == x86_64 ]] && echo ", OptiScaler $optiscaler_version, OpenRR $openrr_version" || true); jobs=$arch_jobs, $([[ "$have_pigz" -eq 1 ]] && echo "pigz -$gzip_level" || echo "gzip -$gzip_level"))"
 
     # Validate members (refuse absolute paths, .. components, device nodes, escaping links)
     # via fast streaming decompression before extracting anything.
@@ -367,9 +400,54 @@ with zipfile.ZipFile(src) as z:
             shutil.copyfileobj(r, w)
 PY
 
-    # OpenRR (v0.1.7plus6) + OptiPatcher for 64-bit OptiScaler route (Linux Wine / Proton, Mesa RADV >= 26.3).
+    # Official OptiScaler nightly (Plugin API v3 for OpenRR v0.1.7.1plus+) + OpenRR + OptiPatcher
+    # for 64-bit OptiScaler route (Linux Wine / Proton, Mesa RADV >= 26.3).
     # Windows-only openrr-amd/aco/ (amdxc64.dll D3D12 ELFs) is omitted on Linux.
     if [[ "$a" == x86_64 ]]; then
+        opti_stage="$work/optiscaler-release-$a"
+        rm -rf -- "$opti_stage"
+        mkdir -p -- "$opti_stage"
+        "$sevenz" x -y "-o$opti_stage" -- "$optiscaler_7z" > /dev/null
+        python3 - "$pins" "$opti_stage" <<'PY'
+import hashlib, json, os, sys
+pins_path, root = sys.argv[1], sys.argv[2]
+manifest = json.load(open(pins_path, encoding="utf-8"))["optiscaler"]["files"]
+actual = set()
+for dirpath, _, files in os.walk(root):
+    for fn in files:
+        full = os.path.join(dirpath, fn)
+        rel = os.path.relpath(full, root).replace("\\", "/")
+        actual.add(rel)
+        if rel not in manifest:
+            sys.exit(f"unexpected file in OptiScaler archive: {rel}")
+        got = hashlib.sha256(open(full, "rb").read()).hexdigest()
+        if got != manifest[rel].lower():
+            sys.exit(f"SHA-256 mismatch in OptiScaler archive for {rel}: expected {manifest[rel]}, got {got}")
+missing = sorted(set(manifest.keys()) - actual)
+if missing:
+    sys.exit("missing files in OptiScaler archive: " + ", ".join(missing))
+PY
+        rm -rf -- "$stage/optiscaler/release"
+        mv -- "$opti_stage" "$stage/optiscaler/release"
+        cp -- "$optiscaler_lic" "$stage/optiscaler/OptiScaler_LICENSE.txt"
+        opti_url=$(pin_root optiscaler archiveUrl)
+        opti_sha=$(pin_root optiscaler archiveSha256)
+        opti_lic_url=$(pin_root optiscaler licenseUrl)
+        opti_commit=$(python3 -c 'import re,sys; m=re.search(r"OptiScaler/([0-9a-fA-F]{7,40})/LICENSE", sys.argv[1]); print(m.group(1) if m else "")' "$opti_lic_url")
+        cat > "$stage/optiscaler/OptiScaler_SOURCE.txt" <<EOF
+Component: OptiScaler
+License: GNU General Public License v3.0 (see OptiScaler_LICENSE.txt)
+Upstream Repository: https://github.com/optiscaler/OptiScaler
+Bundled Pinned Version: $optiscaler_version
+Pinned Commit: ${opti_commit:-(see tools/build/upstream-pins.json)}
+Archive URL: $opti_url
+Archive SHA-256: $opti_sha
+
+Notice: Unmodified official OptiScaler binaries are distributed as an
+independent aggregate strictly under GPL-3.0 with no additional restrictions
+imposed by this project.
+EOF
+
         python3 - "$openrr_zip" "$stage" <<'PY'
 import os, sys, zipfile, shutil
 src, stage = sys.argv[1], sys.argv[2]
@@ -383,8 +461,6 @@ with zipfile.ZipFile(src) as z:
             sys.exit("unsafe entry in OpenRR archive: %s" % n)
         if n == "OptiScaler/plugins/openrr-amd.asi":
             target = os.path.join(stage, "optiscaler", "asi", "openrr-amd.asi")
-        elif n == "openrr-ngx-host.dll":
-            target = os.path.join(stage, "optiscaler", "asi", "openrr-ngx-host.dll")
         elif n == "openrr-amd.ini":
             target = os.path.join(stage, "openrr-amd.ini")
         elif n.startswith("openrr-amd/"):
@@ -423,9 +499,9 @@ strictly under GPL-3.0 with no additional restrictions imposed by this project.
 EOF
     fi
     printf '%s\n' "$version" > "$stage/VERSION"
-    python3 - "$stage/OptiScaler-NR-package.json" "$a" "$version" "$upstream_version" "$upstream_release_url" "$openrr_version" <<'PY'
+    python3 - "$stage/OptiScaler-NR-package.json" "$a" "$version" "$upstream_version" "$upstream_release_url" "$openrr_version" "$optiscaler_version" <<'PY'
 import json, sys
-path, arch, version, upstream, url, openrr_ver = sys.argv[1:]
+path, arch, version, upstream, url, openrr_ver, opti_ver = sys.argv[1:]
 is64 = arch != "i686"
 meta = {
     "schema": 1,
@@ -433,9 +509,10 @@ meta = {
     "arch": arch,
     "bits": 64 if is64 else 32,
     "version": version,
-    "upstream": "DLSSNR-AMD (Mochizuki)",
+    "upstream": "DLSSNR-AMD (TheAutomatic / Mochizuki)",
     "upstreamVersion": upstream,
     "upstreamRelease": url,
+    "optiscalerVersion": opti_ver if is64 else None,
     "openrrVersion": openrr_ver if is64 else None,
     "optipatcher": is64,
     "routes": (["optiscaler"] if is64 else []) + ["reshade-feeder", "reshade-feeder-vulkan", "reshade-feeder-dx9"],
@@ -456,7 +533,7 @@ stage, arch, forbidden_re = sys.argv[1], sys.argv[2], re.compile(sys.argv[3], re
 required = [
     "install.sh", "README.txt", "OptiScalerNR-Launcher.sh", "uninstall.sh", "README-Linux.md",
     "LICENSE", "NOTICE", "VERSION", "OptiScaler-NR-package.json", "licenses/Mochizuki_MIT.txt",
-    "launcher/__main__.py", "launcher/server.py", "launcher/addons.py",
+    "launcher/__main__.py", "launcher/server.py", "launcher/addons.py", "launcher/presets.py",
     "launcher/web/index.html", "launcher/web/app.js", "launcher/web/app.css",
     "dlssnr-amd/lang/zh-CN.txt", "dlssnr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf",
     "reshade/ReShade.ini", "vulkan/winevulkan.dll", "ini/dlssnr-amd-addon.ini", "model-tools/extract_model.sh",

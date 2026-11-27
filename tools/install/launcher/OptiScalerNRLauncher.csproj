@@ -26,6 +26,7 @@
     <Compile Include="LauncherTheme.cs"/>
     <Compile Include="MainController.Presentation.cs"/>
     <Compile Include="MainController.Profiles.cs"/>
+    <Compile Include="BuiltInAsiPresets.cs"/>
     <Compile Include="MainController.UnlockerPlugin.cs"/>
     <Compile Include="UnlockerPlugin.cs"/>
     <Compile Include="MainController.ShareCode.cs"/>
@@ -42,6 +43,7 @@
     <EmbeddedResource Include="DialogTheme.xaml"><LogicalName>OptScalerNR.Launcher.DialogTheme.xaml</LogicalName></EmbeddedResource>
     <EmbeddedResource Include="app.ico"><LogicalName>OptScalerNR.Launcher.app.ico</LogicalName></EmbeddedResource>
     <EmbeddedResource Include="../../../assets/compatibility/proxy-profiles.json"><LogicalName>OptScalerNR.Launcher.proxy-profiles.json</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="../../../assets/compatibility/launcher-overrides.json"><LogicalName>OptScalerNR.Launcher.launcher-overrides.json</LogicalName></EmbeddedResource>
     <Reference Include="System"/><Reference Include="System.Core"/><Reference Include="System.Xml"/><Reference Include="System.Xaml"/>
     <Reference Include="System.Runtime.Serialization"/><Reference Include="WindowsBase"/>
     <Reference Include="PresentationCore"/><Reference Include="PresentationFramework"/><Reference Include="System.Drawing"/><Reference Include="System.IO.Compression"/><Reference Include="System.IO.Compression.FileSystem"/>

@@ -10,6 +10,12 @@ $src = Join-Path $root 'tools/install/launcher'
 $profileCatalog = Get-Content -LiteralPath (Join-Path $root 'assets/compatibility/proxy-profiles.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 # The embedded catalog is authoritative. Keep PowerShell's parameter/probe aliases in contract.
 $profileExpected = @($profileCatalog.proxies | Sort-Object)
+$overrideCatalogPath = Join-Path $root 'assets/compatibility/launcher-overrides.json'
+if (Test-Path -LiteralPath $overrideCatalogPath -PathType Leaf) {
+    $overrideCatalog = Get-Content -LiteralPath $overrideCatalogPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $overrideProxies = @($overrideCatalog.proxies | Sort-Object)
+    if (($overrideProxies -join '|') -ne ($profileExpected -join '|')) { throw 'Proxy catalog mismatch: assets/compatibility/launcher-overrides.json' }
+}
 foreach ($proxyContract in @(
     @{ Path = 'tools/install/proxy-probe.ps1'; Pattern = '^\$CandidateNames\s*=' },
     @{ Path = 'tools/install/install.ps1'; Pattern = 'ValidateSet.*dxgi\.dll' },
@@ -37,7 +43,7 @@ $cs = @(
     'AssemblyInfo.cs', 'Program.cs', 'MainWindow.cs', 'Protocol.cs', 'WorkerClient.cs', 'GamePaths.cs',
     'DialogTheme.cs', 'FolderGameScanner.cs', 'ProxyRecommendations.cs',
     'MainController.Library.cs', 'MainController.Recommendations.cs', 'MainController.Modes.cs', 'LauncherTheme.cs', 'MainController.Presentation.cs',
-    'MainController.Profiles.cs', 'MainController.ShareCode.cs', 'MainController.Hotkeys.cs', 'MainController.ModelImport.cs', 'MochizukiShareCode.cs', 'ModelDependencyLock.cs', 'MainController.Diagnostics.cs', 'MainController.LogPack.cs', 'IniProfiles.cs', 'LocalArtwork.cs'
+    'MainController.Profiles.cs', 'BuiltInAsiPresets.cs', 'MainController.ShareCode.cs', 'MainController.Hotkeys.cs', 'MainController.ModelImport.cs', 'MochizukiShareCode.cs', 'ModelDependencyLock.cs', 'MainController.Diagnostics.cs', 'MainController.LogPack.cs', 'IniProfiles.cs', 'LocalArtwork.cs',
     'MainController.UnlockerPlugin.cs', 'UnlockerPlugin.cs'
 ) | ForEach-Object { Join-Path $src $_ }
 $versionFile = Join-Path $root 'VERSION'
@@ -79,7 +85,8 @@ $res = @(
     "/resource:`"$(Join-Path $src 'MainWindow.xaml')`",OptScalerNR.Launcher.MainWindow.xaml",
     "/resource:`"$(Join-Path $src 'DialogTheme.xaml')`",OptScalerNR.Launcher.DialogTheme.xaml",
     "/resource:`"$(Join-Path $src 'app.ico')`",OptScalerNR.Launcher.app.ico",
-    "/resource:`"$(Join-Path $root 'assets/compatibility/proxy-profiles.json')`",OptScalerNR.Launcher.proxy-profiles.json"
+    "/resource:`"$(Join-Path $root 'assets/compatibility/proxy-profiles.json')`",OptScalerNR.Launcher.proxy-profiles.json",
+    "/resource:`"$overrideCatalogPath`",OptScalerNR.Launcher.launcher-overrides.json"
 )
 $argFile = Join-Path $obj 'csc.rsp'
 $lines = @(
@@ -110,6 +117,7 @@ Copy-Item -LiteralPath (Join-Path $root 'tools/install/xess-compat.ps1') -Destin
 $srcFiles = Get-ChildItem -LiteralPath $src -File | Where-Object { $_.Extension -match '\.(cs|xaml|manifest|ico|md|ps1)$' }
 if (Test-Path -LiteralPath $versionFile -PathType Leaf) { $srcFiles += Get-Item -LiteralPath $versionFile }
 $srcFiles += Get-Item -LiteralPath (Join-Path $root 'assets/compatibility/proxy-profiles.json')
+$srcFiles += Get-Item -LiteralPath $overrideCatalogPath
 $srcFiles += Get-Item -LiteralPath (Join-Path $root 'tools/install/launcher-worker.ps1')
 $srcFiles += Get-Item -LiteralPath (Join-Path $root 'tools/install/proxy-probe.ps1')
 $srcFiles += Get-Item -LiteralPath (Join-Path $root 'tools/install/library-scan.ps1')

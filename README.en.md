@@ -46,7 +46,7 @@ Version `2.x` retires custom-patched `OptiScaler.dll` builds in favor of a decou
 
 ### Windows GUI Launcher Installation (Recommended)
 
-1. **Download & Extract**: Download `OptiScaler-NR-Win-<version>.zip` from the [Releases page](https://github.com/TheAutomatic/dlss-5-amd-project/releases) and extract all files.
+1. **Download & Extract**: Download `OptiScaler-NR-Windows-<version>.zip` from the [Releases page](https://github.com/TheAutomatic/dlss-5-amd-project/releases) and extract all files.
 2. **Open Launcher**: Double-click **`OptiScalerNRLauncher.exe`** in the extracted folder to open **`OptiScaler NR` Launcher**.
 3. **Select Game & Deployment Mode**:
    - Pick a game from the left-hand library list (or click **`+`** at the top right to manually add a game `.exe` or an RTX Remix Minecraft instance; for Unreal Engine games, pick `<Game>\Binaries\Win64\*-Shipping.exe`);
@@ -63,11 +63,11 @@ Version `2.x` retires custom-patched `OptiScaler.dll` builds in favor of a decou
 
 ### Linux / SteamOS (Proton) Graphical Launcher (Experimental)
 
-Download a Linux package from the [Releases page](https://github.com/TheAutomatic/dlss-5-amd-project/releases). It is built on Mochizuki's upstream [DLSSNR-AMD for Linux](https://gitlab.com/mochizuki0323/DLSSNR-AMD/-/releases) and, like upstream, comes in two architecture builds:
+Download a Linux package from the [Releases page](https://github.com/TheAutomatic/dlss-5-amd-project/releases). It is built on [TheAutomatic / DLSSNR-AMD for Linux](https://github.com/TheAutomatic/DLSSNR-AMD/releases) (derived from Mochizuki's upstream) and comes in two architecture builds:
 
 | Package | For | Install routes |
 | --- | --- | --- |
-| `OptiScaler-NR-Linux-x86_64-<version>.tar.gz` | 64-bit games | OptiScaler (Mochizuki NR + OpenRR 0.1.7plus6 + OptiPatcher) + three ReShade Feeder routes |
+| `OptiScaler-NR-Linux-x86_64-<version>.tar.gz` | 64-bit games | OptiScaler (Mochizuki NR + OpenRR 0.1.7.1plus + OptiPatcher) + three ReShade Feeder routes |
 | `OptiScaler-NR-Linux-i686-<version>.tar.gz` | 32-bit games | ReShade Feeder routes only (OptiScaler and OpenRR are 64-bit only) |
 
 ```bash
@@ -87,7 +87,7 @@ WINEDLLOVERRIDES="dxgi=n,b" %command%
 
 ### 1. `dlssnr-amd.asi` (Mochizuki · DLSS Neural Rendering)
 - **Supported GPUs**:
-  - **AMD Radeon RX 9000 Series (RDNA4)**: Supports all 4 networks (`CC_SMALL_FP8`, `CC_SMALL_FP8_EXPERIMENTAL`, `CC_SILVER_AARDWOLD`, `CC_SILVER_AARDWOLD_OPTIMIZED` with INT4 layers).
+  - **AMD Radeon RX 9000 Series (RDNA4)**: Supports all 4 networks (`CC_SMALL_FP8`, `CC_SMALL_FP8_OPTIMIZED`, `CC_SILVER_AARDWOLD`, `CC_SILVER_AARDWOLD_OPTIMIZED` with INT4 layers).
   - **AMD Radeon RX 7000 Series & Radeon 700M / 800M / 8000S (RDNA3 / RDNA3.5)**: Also supports all 4 networks via pre-compiled RDNA3 ACO machine code.
 - **Multi-Backend & Compatibility Routes**: Supports **D3D12 Direct-ELF** (zero-copy native D3D12 command-list execution), **D3D11 → D3D12 bridge**, and **Vulkan bridge / native Vulkan** across OptiScaler, Standalone, and 32- & 64-bit ReShade Feeder routes.
 - **Dual Processing Styles**: Supports **RenoDX style** (default) and **wilsjo2 style**, with one-click **`MZ5` style share code** import/export in the launcher.

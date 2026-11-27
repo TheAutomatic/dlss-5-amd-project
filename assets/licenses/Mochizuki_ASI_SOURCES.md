@@ -1,15 +1,15 @@
-# Mochizuki NR ASI payload (0.0.9m12)
+# Mochizuki NR ASI payload (0.1.0m2)
 
 Vendored payload for `dlssnr-amd.asi` and Standalone / ReShade / DXVK routes:
 
-- Base resources & build: built from `DLSSNR-AMD` (release `v0.0.9m12` on `TheAutomatic/DLSSNR-AMD` (commit `3c65eb7`, upstream `v0.0.9` base)), preserving the CJK language pack.
+- Base resources & build: built from `DLSSNR-AMD` (release `v0.1.0m2` on `TheAutomatic/DLSSNR-AMD`, `x86_64` + 32-bit `i686` runtime overlay, upstream `v0.1.0` base), preserving the CJK language pack (`DLSSNR-AMD-lang-CJK-0.1.0.zip`).
 - Plugin path: `OptiScaler/plugins/dlssnr-amd.asi` (also reused for Standalone route)
 - Probe path in the release: `dlssnr-amd/nr_present_probe.exe`
-- Resources: `dlssnr-amd/` (SPIR-V shaders, ACO records/shaders, pre-captured D3D12 outer ACO archives `aco/d3d12_outer.nra` & `aco/rdna3/d3d12_outer.nra`, INT4 / performance / ultra data, language files; retired D3D12 HLSL shader sources removed)
+- Resources: `dlssnr-amd/` (SPIR-V shaders, ACO records/shaders, pre-captured D3D12 outer ACO archives `aco/d3d12_outer.nra` & `aco/rdna3/d3d12_outer.nra`, `CC_SILVER_AARDWOLD_OPTIMIZED-{ultra,balanced}` / `CC_SMALL_FP8_OPTIMIZED-{ultra,balanced}` INT4 data, language files; retired D3D12 HLSL shader sources removed)
 - Standalone route: `standalone/dxgi.dll`, `standalone/vk-override/`
 - ReShade / DXVK / Vulkan routes: `reshade/` (`ReShade64.dll`, `ReShade32.dll`, `dlssnr_amd.addon64`, `dlssnr_amd.addon32`, shaders, presets, `vk-override/`), `dxvk/` (`d3d9.dll`, `dxgi.dll`, `x86/`), `vulkan/` (`vulkan-1.dll`, `x86/`)
-- Extraction tools: `model-tools/dlssnr_extract_model.exe`, `model-tools/dlssnr-int4-weights.exe`
-- Weight deltas: `experimental/dlssnr-small-experimental.delta`, `optimized/dlssnr-optimized.delta`
+- Extraction tools: `model-tools/dlssnr_extract_model.exe`, `model-tools/dlssnr-int4-weights.exe`, `model-tools/*_INT4*.bin.sha256`
+- Weight deltas: `CC_SMALL_FP8_OPTIMIZED/CC_SMALL_FP8_OPTIMIZED.delta`, `CC_SILVER_AARDWOLD_OPTIMIZED/CC_SILVER_AARDWOLD_OPTIMIZED.delta`
 - ASI config templates: `ini/dlssnr-amd-optiscaler.ini`, `ini/dlssnr-amd-optiscaler-renodx.ini`, `ini/dlssnr-amd-standalone.ini`, `ini/dlssnr-amd-addon.ini`
 - Extra licenses: `Licenses/DearImGui-LICENSE.txt`, `Licenses/Inter-LICENSE.txt`, `Licenses/ReShade-LICENSE.md`, `Licenses/DXVK-LICENSE.txt`, `Licenses/Vulkan-Loader-LICENSE.txt`, `Licenses/vort-LICENSE.txt`, `Licenses/DLSS5_Feed-LICENSE.txt`
 

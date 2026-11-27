@@ -36,6 +36,10 @@ namespace OptScalerNR.Launcher
         [DataMember(Name="sourceFormat")] public string SourceFormat;
         [DataMember(Name="upstreamVersion")] public string UpstreamVersion;
         [DataMember(Name="optiPatcher")] bool? _optiPatcher;
+        [IgnoreDataMember] public bool InheritedWikiOptiPatcher;
+        public bool HasExplicitOptiPatcher { get { return _optiPatcher.HasValue; } }
+        public bool IsOverride { get { return string.Equals(SourceFormat, "override", StringComparison.OrdinalIgnoreCase); } }
+        public bool OptiPatcherFromOverride { get { return IsOverride && HasExplicitOptiPatcher && !InheritedWikiOptiPatcher; } }
         public bool OptiPatcher
         {
             // Older bundled/cache documents preserve the Wiki column in generated notes.
@@ -58,6 +62,7 @@ namespace OptScalerNR.Launcher
         const int DeadlineMs = 25000; // Whole document must arrive within 25 s; otherwise the current recommendations stay in use.
         static readonly ProxyProfileDocument Seed = ReadSeed();
         public static readonly string[] ProxyNames = Seed.Proxies;
+        static readonly ProxyProfileDocument Overrides = ReadOverrides();
         static readonly Regex CommentExpression = new Regex("<!--.*?-->", RegexOptions.Singleline | RegexOptions.Compiled);
         static readonly Regex AttachmentExpression = new Regex(@"\[[^\]]*\]\(https://github\.com/user-attachments/[^)]*\)", RegexOptions.Compiled);
         static readonly Regex LinkExpression = new Regex(@"\[([^\]]*)\]\(((?:[^()]|\([^()]*\))+)\)", RegexOptions.Compiled);
@@ -189,10 +194,19 @@ namespace OptScalerNR.Launcher
             using (var reader = new StreamReader(stream, Encoding.UTF8))
                 return JsonUtil.Read<ProxyProfileDocument>(reader.ReadToEnd());
         }
+        static ProxyProfileDocument ReadOverrides()
+        {
+            using (var stream = typeof(ProxyRecommendations).Assembly.GetManifestResourceStream("OptScalerNR.Launcher.launcher-overrides.json")) {
+                if (stream == null) return null;
+                using (var reader = new StreamReader(stream, Encoding.UTF8))
+                    return JsonUtil.Read<ProxyProfileDocument>(reader.ReadToEnd());
+            }
+        }
         public ProxyRecommendations(string settingsDirectory) : this(settingsDirectory, null) { }
         public ProxyRecommendations(string settingsDirectory, string updateUrl)
         {
             Validate(Seed);
+            if (Overrides != null) Validate(Overrides);
             _directory = Path.Combine(settingsDirectory, "compatibility");
             _url = !string.IsNullOrEmpty(updateUrl) ? updateUrl : Environment.GetEnvironmentVariable("OPTSCALERNR_WIKI_URL");
             if (string.IsNullOrEmpty(_url) || !Uri.IsWellFormedUriString(_url, UriKind.Absolute)) _url = WikiCompatibilityListUrl;
@@ -213,8 +227,17 @@ namespace OptScalerNR.Launcher
         public string Reviewed { get { lock (_gate) return _current.Reviewed; } }
         public bool UsingCache { get { lock (_gate) return _cached; } }
         public int Count { get { lock (_gate) return CountUnlocked(); } }
+        public static int OverrideCount { get { return Overrides == null || Overrides.Profiles == null ? 0 : Overrides.Profiles.Length; } }
         public string UpdateUrl { get { return _url; } }
-        int CountUnlocked() { return _current == null || _current.Profiles == null ? 0 : _current.Profiles.Length; }
+        int CountUnlocked()
+        {
+            if (_current == null || _current.Profiles == null) return OverrideCount;
+            if (OverrideCount == 0) return _current.Profiles.Length;
+            var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var p in _current.Profiles) if (p != null && !string.IsNullOrEmpty(p.Id)) ids.Add(p.Id);
+            foreach (var p in Overrides.Profiles) if (p != null && !string.IsNullOrEmpty(p.Id)) ids.Add(p.Id);
+            return ids.Count;
+        }
         public static bool Supports(string name) { return Array.Exists(ProxyNames, p => string.Equals(p, name, StringComparison.OrdinalIgnoreCase)); }
 
         static void Validate(ProxyProfileDocument doc)
@@ -251,21 +274,40 @@ namespace OptScalerNR.Launcher
             if (game == null) return null;
             ProxyProfileDocument doc;
             lock (_gate) doc = _current;
-            if (doc == null || doc.Profiles == null) return null;
+            if ((doc == null || doc.Profiles == null) && (Overrides == null || Overrides.Profiles == null)) return null;
+            var revision = doc == null ? 0 : doc.Revision;
             var matchKey = (game.Name ?? "") + "\0" + (game.DisplayName ?? "") + "\0" + (game.Root ?? "") + "\0" + (game.Exe ?? "");
             lock (_gate)
             {
-                if (_lastMatchRevision == doc.Revision && string.Equals(_lastMatchKey, matchKey, StringComparison.Ordinal))
+                if (_lastMatchRevision == revision && string.Equals(_lastMatchKey, matchKey, StringComparison.Ordinal))
                     return _lastMatchProfile;
             }
-            var matched = MatchCore(doc, game);
+            var matched = MatchOverrideOrWiki(doc, game);
             lock (_gate)
             {
-                _lastMatchRevision = doc.Revision;
+                _lastMatchRevision = revision;
                 _lastMatchKey = matchKey;
                 _lastMatchProfile = matched;
             }
             return matched;
+        }
+
+        static ProxyProfile MatchOverrideOrWiki(ProxyProfileDocument doc, GameInfo game)
+        {
+            var overrideMatch = Overrides == null || Overrides.Profiles == null ? null : MatchCore(Overrides, game);
+            if (overrideMatch != null) {
+                if (!overrideMatch.HasExplicitOptiPatcher && doc != null && doc.Profiles != null) {
+                    var wikiMatch = MatchCore(doc, game);
+                    if (wikiMatch != null && wikiMatch.OptiPatcher) {
+                        var merged = CloneProfile(overrideMatch);
+                        merged.OptiPatcher = true;
+                        merged.InheritedWikiOptiPatcher = true;
+                        return merged;
+                    }
+                }
+                return overrideMatch;
+            }
+            return doc == null || doc.Profiles == null ? null : MatchCore(doc, game);
         }
 
         static ProxyProfile MatchCore(ProxyProfileDocument doc, GameInfo game)

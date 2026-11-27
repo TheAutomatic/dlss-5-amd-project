@@ -30,7 +30,7 @@ const STR = {
     current: 'Installed',
     sec_route: 'Install route', sec_plugins: 'ASI plugins (OptiScaler)', sec_options: 'Options', sec_model: 'Model', sec_launch: 'Steam launch options',
     sec_output: 'Installer output',
-    p_nr: 'Mochizuki NR (Neural Rendering)', p_nr_d: 'DLSS 5 Neural Rendering plugin (dlssnr-amd.asi). Requires nvngx_dlssnr.dll on first install.',
+    p_nr: 'Mochizuki NR {ver} (Neural Rendering)', p_nr_d: 'DLSS 5 Neural Rendering plugin (dlssnr-amd.asi). Requires nvngx_dlssnr.dll on first install.',
     p_openrr: 'OpenRR {ver} (Ray Reconstruction)',
     p_openrr_d: 'DLSS Ray Reconstruction on AMD RX 9000 (RDNA4) & experimental RX 7000 (RDNA3), Mesa RADV ≥ 26.3.',
     p_dlssd_yes: 'Native DLSSD detected', p_dlssd_no: 'No native DLSSD detected',
@@ -44,8 +44,23 @@ const STR = {
     dlssd_ph: '/path/to/nvngx_dlssd.dll or .zip', other_dlssd: 'Use another DLL',
     o_model: 'Starting network',
     o_model_d: 'All four networks are installed and switchable in game (Ctrl+F11). This sets the one the game starts with.',
-    m_CC_SMALL_FP8: 'CC_SMALL_FP8 — default (310.9.16)', m_CC_SMALL_FP8_EXPERIMENTAL: 'CC_SMALL_FP8_EXPERIMENTAL — faster, experimental',
-    m_CC_SILVER_AARDWOLD: 'CC_SILVER_AARDWOLD — 310.8.0 network', m_CC_SILVER_AARDWOLD_OPTIMIZED: 'CC_SILVER_AARDWOLD_OPTIMIZED — faster (RX 9000)',
+    m_CC_SMALL_FP8: 'CC_SMALL_FP8 — default (310.9.16)', m_CC_SMALL_FP8_OPTIMIZED: 'CC_SMALL_FP8_OPTIMIZED — faster (RX 7000 / 9000)',
+    m_CC_SILVER_AARDWOLD: 'CC_SILVER_AARDWOLD — 310.8.0 network', m_CC_SILVER_AARDWOLD_OPTIMIZED: 'CC_SILVER_AARDWOLD_OPTIMIZED — faster (RX 7000 / 9000)',
+    sec_presets: 'Built-in presets (dlssnr-amd.ini)',
+    preset_row_t: 'Al菲比 curated presets',
+    preset_need_ini: 'Install Mochizuki NR first to generate dlssnr-amd.ini before applying a preset.',
+    preset_apply: 'Apply', preset_export: 'Export…',
+    preset_dlg_t: 'Apply built-in preset',
+    preset_author: 'Preset author: {author}',
+    preset_missing_t: 'Missing model files',
+    preset_missing_d: '{files} not found in dlssnr-amd/ (applying does not replace the network; install or extract the model first).',
+    preset_keep_note: 'Your existing hotkeys and language settings are preserved, and the current dlssnr-amd.ini is backed up automatically (restart the game to take effect).',
+    preset_ok_btn: 'Apply preset',
+    preset_applied: 'Preset applied',
+    preset_applied_d: 'Applied "{title}". Restart the game to take effect. Original backup: {backup}',
+    preset_exported: 'Exported dlssnr-amd.ini',
+    e_no_dlssnr_ini: 'dlssnr-amd.ini was not found in this game folder. Install Mochizuki NR first.',
+    e_bad_preset: 'Unknown built-in preset.',
     o_style: 'Processing style', o_style_d: 'How the picture is prepared for NR and put back. The network itself is the same.',
     o_lum: 'LumeniteFX motion vectors', o_lum_d: 'ReShade routes. Downloaded once from its author’s GitHub (AGNYA licence); VORT otherwise.',
     o_lum_opti: 'Not used on the OptiScaler route — it uses the game’s own motion vectors.',
@@ -113,7 +128,7 @@ const STR = {
     only64: '仅 x86_64 包提供 —— OptiScaler 只有 64 位。此路线请使用 64 位包。',
     current: '已安装',
     sec_route: '安装路线', sec_plugins: 'ASI 插件选择（神经渲染 & 光线重建）', sec_options: '选项', sec_model: '模型', sec_launch: 'Steam 启动选项', sec_output: '安装程序输出',
-    p_nr: 'Mochizuki NR（神经渲染）', p_nr_d: 'DLSS 5 神经渲染插件（dlssnr-amd.asi），首次安装需要 nvngx_dlssnr.dll。',
+    p_nr: 'Mochizuki NR {ver}（神经渲染）', p_nr_d: 'DLSS 5 神经渲染插件（dlssnr-amd.asi），首次安装需要 nvngx_dlssnr.dll。',
     p_openrr: 'OpenRR {ver}（光线重建）',
     p_openrr_d: '适用于 RX 9000（RDNA4）及实验性 RX 7000（RDNA3），需 Mesa RADV ≥ 26.3（仅限光线重建游戏）。',
     p_dlssd_yes: '已检测到原生 DLSSD', p_dlssd_no: '未检测到原生 DLSSD',
@@ -126,8 +141,23 @@ const STR = {
     dlssd_need_d: '现在可选，但游戏内启用 OpenRR 需要它。选择 nvngx_dlssd.dll（310.9.1.0）或包含它的 zip 即可缓存到此包。',
     dlssd_ph: '/路径/nvngx_dlssd.dll 或 .zip', other_dlssd: '使用其他 DLL',
     o_model: '启动网络', o_model_d: '四个网络都会安装，游戏中可随时切换（Ctrl+F11）。此处仅设置游戏启动时使用的网络。',
-    m_CC_SMALL_FP8: 'CC_SMALL_FP8 —— 默认（310.9.16）', m_CC_SMALL_FP8_EXPERIMENTAL: 'CC_SMALL_FP8_EXPERIMENTAL —— 更快，实验性',
-    m_CC_SILVER_AARDWOLD: 'CC_SILVER_AARDWOLD —— 310.8.0 网络', m_CC_SILVER_AARDWOLD_OPTIMIZED: 'CC_SILVER_AARDWOLD_OPTIMIZED —— 更快（RX 9000）',
+    m_CC_SMALL_FP8: 'CC_SMALL_FP8 —— 默认（310.9.16）', m_CC_SMALL_FP8_OPTIMIZED: 'CC_SMALL_FP8_OPTIMIZED —— 更快（RX 7000 / 9000）',
+    m_CC_SILVER_AARDWOLD: 'CC_SILVER_AARDWOLD —— 310.8.0 网络', m_CC_SILVER_AARDWOLD_OPTIMIZED: 'CC_SILVER_AARDWOLD_OPTIMIZED —— 更快（RX 7000 / 9000）',
+    sec_presets: '内置画面预设（dlssnr-amd.ini）',
+    preset_row_t: 'Al菲比 特调与通用预设',
+    preset_need_ini: '请先安装 Mochizuki NR 生成 dlssnr-amd.ini 后再应用预设。',
+    preset_apply: '应用', preset_export: '导出…',
+    preset_dlg_t: '应用内置预设',
+    preset_author: '预设作者：{author}',
+    preset_missing_t: '缺少模型文件',
+    preset_missing_d: '游戏 dlssnr-amd/ 中未找到 {files}（应用预设不会自动替换网络；请先安装或提取对应模型）。',
+    preset_keep_note: '应用后将保留你原有的快捷键与语言设置，并自动备份当前 dlssnr-amd.ini（重启游戏后生效）。',
+    preset_ok_btn: '确认应用',
+    preset_applied: '已应用内置预设',
+    preset_applied_d: '已应用「{title}」，重启游戏后生效。原文件备份：{backup}',
+    preset_exported: '已导出 dlssnr-amd.ini',
+    e_no_dlssnr_ini: '当前游戏文件夹中没有 dlssnr-amd.ini，请先安装 Mochizuki NR。',
+    e_bad_preset: '未知的内置预设。',
     o_style: '处理风格', o_style_d: 'NR 前后的画面处理方式，NR 网络本身相同。',
     o_lum: 'LumeniteFX 运动矢量', o_lum_d: '仅 ReShade 路线。首次会从作者 GitHub 下载（AGNYA 许可）；关闭时使用 VORT。',
     o_lum_opti: 'OptiScaler 路线不使用 —— 它直接使用游戏自身的运动矢量。',
@@ -182,7 +212,7 @@ const STR = {
 };
 const ROUTE_KEY = { 'optiscaler': 'optiscaler', 'reshade-feeder': 'reshade', 'reshade-feeder-vulkan': 'vulkan', 'reshade-feeder-dx9': 'dx9' };
 const ROUTES = Object.keys(ROUTE_KEY);
-const MODELS = ['CC_SMALL_FP8', 'CC_SMALL_FP8_EXPERIMENTAL', 'CC_SILVER_AARDWOLD', 'CC_SILVER_AARDWOLD_OPTIMIZED'];
+const MODELS = ['CC_SMALL_FP8', 'CC_SMALL_FP8_OPTIMIZED', 'CC_SILVER_AARDWOLD', 'CC_SILVER_AARDWOLD_OPTIMIZED'];
 
 /* ----------------------------------------------------------------------------------------- icons */
 const P = {
@@ -297,6 +327,8 @@ function shortStatus(g) {
   return st.route ? `${t(st.key)} · ${routeName(st.route, true)}` : t(st.key);
 }
 
+const presetsList = () => (S.info && Array.isArray(S.info.presets) ? S.info.presets : []);
+
 function formFor(g) {
   if (!S.forms[g.id]) {
     const p = pkg();
@@ -311,6 +343,7 @@ function formFor(g) {
       st.installed ? !!st.openrr : !!g.hasNativeDlssd
     );
     const defNr = c.nr !== undefined ? !!c.nr : (st.installed && st.route === 'optiscaler' ? !!st.nr : true);
+    const presets = presetsList();
     S.forms[g.id] = {
       route,
       model: c.model || st.model || 'CC_SMALL_FP8',
@@ -320,6 +353,7 @@ function formFor(g) {
       openrr: defOpenRr,
       openrrSpoof: c.openrrSpoof || st.openrrSpoof || 'full',
       optipatcher: !!(p.optipatcher && (c.optipatcher !== undefined ? c.optipatcher : st.optipatcher)),
+      presetId: (presets[0] && presets[0].id) || 'al-feibi-wuwa-hyperreal',
       dll: '', showDll: false,
       dlssd: '', showDlssd: false,
     };
@@ -504,9 +538,9 @@ function renderDetail() {
         <div class="ctl"><button class="switch" role="switch" aria-checked="${wantOptiPatcher}" data-act="optipatcher"><span class="lbl">${esc(wantOptiPatcher ? t('on') : t('off'))}</span><span class="track"><span class="knob"></span></span></button></div></div>` : '';
     pluginsSec = `<section class="section"><div class="section-head"><h3>${esc(t('sec_plugins'))}</h3></div>
       <div class="card">
-        <div class="row">${icon('chip')}<div><div class="t">${esc(t('p_nr'))}</div><div class="d">${esc(t('p_nr_d'))}</div></div>
+        <div class="row">${icon('chip')}<div><div class="t">${esc(t('p_nr', { ver: p.upstreamVersion || '0.1.0m2' }))}</div><div class="d">${esc(t('p_nr_d'))}</div></div>
           <div class="ctl"><button class="switch" role="switch" aria-checked="${f.nr}" data-act="toggle-nr"><span class="lbl">${esc(f.nr ? t('on') : t('off'))}</span><span class="track"><span class="knob"></span></span></button></div></div>
-        <div class="row">${icon('layers')}<div><div class="t">${esc(t('p_openrr', { ver: p.openrr.version || '0.1.7plus6' }))}${dlssdBadge}</div><div class="d">${esc(t('p_openrr_d'))}</div></div>
+        <div class="row">${icon('layers')}<div><div class="t">${esc(t('p_openrr', { ver: p.openrr.version || '0.1.7.1plus' }))}${dlssdBadge}</div><div class="d">${esc(t('p_openrr_d'))}</div></div>
           <div class="ctl"><button class="switch" role="switch" aria-checked="${f.openrr}" data-act="toggle-openrr"><span class="lbl">${esc(f.openrr ? t('on') : t('off'))}</span><span class="track"><span class="knob"></span></span></button></div></div>
         ${dlssdRow}
         ${patcherRow}
@@ -523,6 +557,28 @@ function renderDetail() {
       <div class="row ${opti ? 'dis' : ''}">${icon('motion')}<div><div class="t">${esc(t('o_lum'))}</div><div class="d">${esc(opti ? t('o_lum_opti') : t('o_lum_d'))}</div></div>
         <div class="ctl"><button class="switch" role="switch" aria-checked="${!opti && f.lumenite}" data-act="lumenite" ${opti ? 'disabled' : ''}><span class="lbl">${esc(!opti && f.lumenite ? t('on') : t('off'))}</span><span class="track"><span class="knob"></span></span></button></div></div>
     </div>`;
+
+  // built-in presets (dlssnr-amd.ini)
+  const presets = presetsList();
+  let presetsSec = '';
+  if (presets.length && (wantNr || g.hasDlssnrIni)) {
+    const curPreset = presets.find((pr) => pr.id === f.presetId) || presets[0];
+    if (curPreset && f.presetId !== curPreset.id) f.presetId = curPreset.id;
+    const isZh = S.lang === 'zh';
+    const presetOptLabel = (pr) => `${isZh ? '[预设] ' + pr.titleZh : '[Preset] ' + pr.titleEn} (${pr.author})`;
+    const presetDesc = g.hasDlssnrIni
+      ? (isZh ? curPreset.subtitleZh : curPreset.subtitleEn)
+      : t('preset_need_ini');
+    const canApplyPreset = !!g.hasDlssnrIni && !g.missing && !running;
+    presetsSec = `<section class="section"><div class="section-head"><h3>${esc(t('sec_presets'))}</h3></div>
+      <div class="card"><div class="row stack">${icon('wand')}<div><div class="t">${esc(t('preset_row_t'))}</div><div class="d">${esc(presetDesc)}</div></div>
+        <div class="full">
+          <select class="select" id="sel-preset" style="flex:1;min-width:0" aria-label="${esc(t('sec_presets'))}">${presets.map((pr) => `<option value="${esc(pr.id)}" ${pr.id === curPreset.id ? 'selected' : ''}>${esc(presetOptLabel(pr))}</option>`).join('')}</select>
+          <button class="btn" data-act="export-preset" ${running ? 'disabled' : ''}>${esc(t('preset_export'))}</button>
+          <button class="btn" data-act="apply-preset" ${canApplyPreset ? '' : 'disabled'}>${esc(t('preset_apply'))}</button>
+        </div>
+      </div></div></section>`;
+  }
 
   // model (Mochizuki NR model; only required when NR is enabled)
   let mTitle, mDesc, mIcon, needDll;
@@ -593,6 +649,7 @@ function renderDetail() {
       <section class="section"><div class="section-head"><h3>${esc(t('sec_route'))}</h3></div><div class="modes">${modes}</div></section>
       ${pluginsSec}
       <section class="section"><div class="section-head"><h3>${esc(t('sec_options'))}</h3></div>${options}</section>
+      ${presetsSec}
       ${modelSec}
       ${consoleSec}
     </div>
@@ -624,7 +681,7 @@ function renderStatus() {
     el.innerHTML = `<span class="spinner"></span><span>${esc(t('scanning'))}</span>`;
   } else {
     const inst = S.games.filter((g) => g.status.installed).length;
-    const orr = p.openrr && p.openrr.available ? ` · OpenRR ${p.openrr.version || '0.1.7plus6'}` : '';
+    const orr = p.openrr && p.openrr.available ? ` · OpenRR ${p.openrr.version || '0.1.7.1plus'}` : '';
     el.innerHTML = `<span class="dot ok" style="opacity:${p.ok ? 1 : 0}"></span><span>${esc(t('ready'))} · ${esc(t('games_n', { n: S.games.length }))}${inst ? ` · ${esc(t('inst_n', { n: inst }))}` : ''}${p.upstreamVersion ? ` · DLSSNR-AMD ${esc(p.upstreamVersion)}` : ''}${esc(orr)}</span>`;
   }
 }
@@ -650,6 +707,8 @@ function renderDialog() {
     box.innerHTML = `<div class="dialog-head"><h2>${esc(d.title)}</h2></div>
       <div class="dialog-body"><p>${esc(d.text)}</p></div>
       <div class="dialog-foot"><button class="btn" data-act="dlg-cancel">${esc(t('cancel'))}</button><button class="btn danger" data-act="dlg-ok">${esc(d.ok)}</button></div>`;
+  } else if (d.type === 'preset') {
+    box.innerHTML = presetConfirmHtml(d);
   } else if (d.type === 'settings') {
     box.innerHTML = settingsHtml();
   } else if (d.type === 'browse') {
@@ -658,6 +717,31 @@ function renderDialog() {
   if (scrollers.length) box.querySelectorAll('.dialog-body, .fb-list').forEach((el, i) => { el.scrollTop = scrollers[i] || 0; });
   // Focus the dialog itself (keeps keyboard Tab/Esc inside it without a heavy ring on a button).
   if (fresh) setTimeout(() => { if (root._dlg === d) box.focus({ preventScroll: true }); }, 0);
+}
+
+function presetConfirmHtml(d) {
+  const pr = d.preset;
+  const g = d.game;
+  const isZh = S.lang === 'zh';
+  const title = isZh ? pr.titleZh : pr.titleEn;
+  const summary = isZh ? pr.summaryZh : pr.summaryEn;
+  const notice = isZh ? pr.gameNoticeZh : pr.gameNoticeEn;
+  const tips = isZh ? pr.tipsZh : pr.tipsEn;
+  const haveModels = new Set((g && g.dlssnrModels) || []);
+  const missing = (pr.requiredModels || []).filter((m) => !haveModels.has(m));
+  return `<div class="dialog-head"><h2>${esc(t('preset_dlg_t'))}</h2><button class="icon-btn sm" data-act="dlg-cancel" aria-label="${esc(t('close'))}">${icon('x')}</button></div>
+    <div class="dialog-body">
+      ${notice ? infobar('warn', '', esc(notice)) : ''}
+      <div class="preset-title">${esc(title)}</div>
+      <div class="preset-meta">${esc(t('preset_author', { author: pr.author }))} · ${esc(summary)}</div>
+      ${missing.length ? infobar('warn', t('preset_missing_t'), esc(t('preset_missing_d', { files: missing.join(', ') }))) : ''}
+      ${tips ? `<div class="preset-tips">${esc(tips)}</div>` : ''}
+      <div class="preset-note">${esc(t('preset_keep_note'))}</div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn" data-act="dlg-cancel">${esc(t('cancel'))}</button>
+      <button class="btn primary" data-act="dlg-ok">${esc(t('preset_ok_btn'))}</button>
+    </div>`;
 }
 
 function settingsHtml() {
@@ -687,7 +771,7 @@ function settingsHtml() {
         <dt>${esc(t('set_ver'))}</dt><dd>${esc(p.version || '—')}</dd>
         <dt>${esc(t('set_arch'))}</dt><dd>Linux ${esc(p.arch)} · ${esc(t('bits', { b: p.bits }))}</dd>
         <dt>${esc(t('set_up'))}</dt><dd>${esc(p.upstreamVersion || '—')}</dd>
-        ${hasOpenRr ? `<dt>${esc(t('set_openrr'))}</dt><dd>${esc(p.openrr.version || '0.1.7plus6')}${p.optipatcher ? ' · OptiPatcher' : ''}</dd>` : ''}
+        ${hasOpenRr ? `<dt>${esc(t('set_openrr'))}</dt><dd>${esc(p.openrr.version || '0.1.7.1plus')}${p.optipatcher ? ' · OptiPatcher' : ''}</dd>` : ''}
         <dt>${esc(t('set_path'))}</dt><dd title="${esc(p.root || '')}">${esc(p.root || '—')}</dd>
         <dt>${esc(t('set_model'))}</dt><dd class="wrap">${mc('small')}${mc('aardwold')}${dc}</dd>
       </dl></div></div>
@@ -909,6 +993,53 @@ const ACT = {
       onOk: () => { delete S.flash[g.id]; startJob('/api/uninstall', { id: g.id }); } });
   },
   async logs() { const g = selected(); delete S.flash[g.id]; startJob('/api/logs', { id: g.id }); },
+  async 'apply-preset'() {
+    const g = selected();
+    if (!g) return;
+    const f = formFor(g);
+    const pr = presetsList().find((p) => p.id === f.presetId) || presetsList()[0];
+    if (!pr) return;
+    openDialog({
+      type: 'preset', game: g, preset: pr,
+      onOk: async () => {
+        try {
+          const r = await api('/api/preset/apply', { id: g.id, presetId: pr.id });
+          if (r.game) {
+            const idx = S.games.findIndex((x) => x.id === g.id);
+            if (idx >= 0) S.games[idx] = r.game;
+          }
+          const title = S.lang === 'zh' ? pr.titleZh : pr.titleEn;
+          S.flash[g.id] = { ok: true, title: t('preset_applied'), text: t('preset_applied_d', { title, backup: r.backup || '' }) };
+          renderLibrary(); renderDetail();
+          toast(t('preset_applied'));
+        } catch (e) { toast(errText(e), true); }
+      },
+    });
+  },
+  async 'export-preset'() {
+    const g = selected();
+    if (!g) return;
+    const f = formFor(g);
+    const pr = presetsList().find((p) => p.id === f.presetId) || presetsList()[0];
+    if (!pr) return;
+    try {
+      const url = `/api/preset/export?id=${encodeURIComponent(g.id)}&preset=${encodeURIComponent(pr.id)}`;
+      const res = await fetch(url, { headers: { 'X-NR-Token': TOKEN }, cache: 'no-store' });
+      if (!res.ok) {
+        let data = null;
+        try { data = await res.json(); } catch (e) { /* empty */ }
+        throw new ApiError((data && data.error) || 'http', (data && data.message) || res.statusText, res.status);
+      }
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      const objUrl = URL.createObjectURL(blob);
+      a.href = objUrl;
+      a.download = 'dlssnr-amd.ini';
+      document.body.appendChild(a);
+      try { a.click(); } finally { a.remove(); setTimeout(() => URL.revokeObjectURL(objUrl), 2000); }
+      toast(t('preset_exported'));
+    } catch (e) { toast(errText(e), true); }
+  },
   async 'open-folder'() { const g = selected(); try { await api('/api/open', { id: g.id }); } catch (e) { toast(errText(e), true); } },
   async 'open-logs'(el) { try { await api('/api/open', { target: 'logs', path: el.dataset.path }); } catch (e) { toast(errText(e), true); } },
   async 'open-package'() { try { await api('/api/open', { target: 'package' }); } catch (e) { toast(errText(e), true); } },
@@ -984,6 +1115,7 @@ document.addEventListener('input', (ev) => {
 });
 document.addEventListener('change', (ev) => {
   if (ev.target.id === 'sel-model') { formFor(selected()).model = ev.target.value; }
+  else if (ev.target.id === 'sel-preset') { const g = selected(); if (g) { formFor(g).presetId = ev.target.value; renderDetail(); } }
   else if (ev.target.id === 'fb-hidden') { const d = S.dialog; d.hidden = ev.target.checked; browse(d, d.res ? d.res.path : ''); }
 });
 document.addEventListener('keydown', (ev) => {

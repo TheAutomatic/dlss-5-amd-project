@@ -722,7 +722,7 @@ namespace OptScalerNR.Launcher
                 if (_replaceIni != null) _replaceIni.Content = isZh ? "覆盖现有配置" : "Replace existing configuration";
                 SetLabel("OptiPatcherToggle", "安装 OptiPatcher", "Install OptiPatcher");
                 ApplyOptiPatcherTooltip(IsOptiPatcherSupported(_selectedGame, (_selectedGame == null || _recommendations == null) ? null : _recommendations.Match(_selectedGame)));
-                SetLabel("OpenRrToggle", "OpenRR 0.1.7 Plus 6", "OpenRR 0.1.7 Plus 6");
+                SetLabel("OpenRrToggle", "OpenRR 0.1.7.1 Plus", "OpenRR 0.1.7.1 Plus");
                 SetLabel("OpenRrAutoSpoofToggle",
                     "实验性：减少全局显卡伪装（Dxgi=auto，配合 OptiPatcher 保持真实 A 卡身份）",
                     "Experimental: Reduce global GPU spoofing (Dxgi=auto, keeps native AMD adapter with OptiPatcher)");
@@ -733,7 +733,7 @@ namespace OptScalerNR.Launcher
                 SetLabel("LocalGamesHeading", "游戏库", "Library");
                 SetLabel("ProxyHeading", "注入代理", "Injection proxy");
                 SetLabel("BackendsHeading", "画质插件", "Quality plugins");
-                SetLabel("MochiCheck", "mochizuki 0.0.9 M12", "mochizuki 0.0.9 M12");
+                SetLabel("MochiCheck", "mochizuki 0.1.0 M2", "mochizuki 0.1.0 M2");
                 RefreshGpuHints();
                 SetLabel("DiagnosticsHeading", "安装选项", "Install options");
                 SetLabel("LogHeading", "安装日志", "Install log");
@@ -2281,7 +2281,7 @@ namespace OptScalerNR.Launcher
             var states = new[] {
                 new { Value = "small", Label = L("Small — CC_SMALL_FP8（通用）", "Small — CC_SMALL_FP8 (General)"),
                     State = capability == null ? null : capability.SmallState },
-                new { Value = "experimental", Label = L("Experimental — CC_SMALL_FP8_EXPERIMENTAL（ACO 模式 · RX 7000 / 9000）", "Experimental — CC_SMALL_FP8_EXPERIMENTAL (ACO Mode · RX 7000 / 9000)"),
+                new { Value = "experimental", Label = L("Small Optimized — CC_SMALL_FP8_OPTIMIZED（ACO 模式 · RX 7000 / 9000）", "Small Optimized — CC_SMALL_FP8_OPTIMIZED (ACO Mode · RX 7000 / 9000)"),
                     State = capability == null ? null : capability.ExperimentalState },
                 new { Value = "original", Label = L("Original — CC_SILVER_AARDWOLD（通用）", "Original — CC_SILVER_AARDWOLD (General)"),
                     State = capability == null ? null : capability.OriginalState },

@@ -798,9 +798,9 @@ namespace OptScalerNR.Launcher
             var mochiSmall = FindFirstNonEmpty(pkgRoot, @"dlssnr-amd\CC_SMALL_FP8.bin", @"dlssnr-amd\dlssnr-small.bin")
                 ?? FindFirstNonEmpty(gameDir, @"dlssnr-amd\CC_SMALL_FP8.bin", @"dlssnr-amd\dlssnr-small.bin")
                 ?? findLocalReuse(new[] { "CC_SMALL_FP8.bin", @"dlssnr-amd\CC_SMALL_FP8.bin", "dlssnr-small.bin" });
-            var mochiExperimental = FindFirstNonEmpty(pkgRoot, @"dlssnr-amd\CC_SMALL_FP8_EXPERIMENTAL.bin", @"dlssnr-amd\dlssnr-small-experimental.bin")
-                ?? FindFirstNonEmpty(gameDir, @"dlssnr-amd\CC_SMALL_FP8_EXPERIMENTAL.bin", @"dlssnr-amd\dlssnr-small-experimental.bin")
-                ?? findLocalReuse(new[] { "CC_SMALL_FP8_EXPERIMENTAL.bin", @"dlssnr-amd\CC_SMALL_FP8_EXPERIMENTAL.bin" });
+            var mochiExperimental = FindFirstNonEmpty(pkgRoot, @"dlssnr-amd\CC_SMALL_FP8_OPTIMIZED.bin")
+                ?? FindFirstNonEmpty(gameDir, @"dlssnr-amd\CC_SMALL_FP8_OPTIMIZED.bin")
+                ?? findLocalReuse(new[] { "CC_SMALL_FP8_OPTIMIZED.bin", @"dlssnr-amd\CC_SMALL_FP8_OPTIMIZED.bin" });
             var mochiInt4 = FindFirstNonEmpty(pkgRoot, @"dlssnr-amd\CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin", @"dlssnr-amd\dlssnr-int4.bin")
                 ?? FindFirstNonEmpty(gameDir, @"dlssnr-amd\CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin", @"dlssnr-amd\dlssnr-int4.bin")
                 ?? findLocalReuse(new[] { "CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin", @"dlssnr-amd\CC_SILVER_AARDWOLD_OPTIMIZED_INT4.bin" });
@@ -818,9 +818,14 @@ namespace OptScalerNR.Launcher
             bool expReady = mochiExperimental != null;
             bool int4Ready = mochiInt4 != null;
             bool hasNv = mochiNv != null;
-            bool hasDelta = !string.IsNullOrEmpty(pkgRoot) && File.Exists(Path.Combine(pkgRoot, @"experimental\dlssnr-small-experimental.delta"));
-            bool hasInt4Data = !string.IsNullOrEmpty(pkgRoot) &&
-                (Directory.Exists(Path.Combine(pkgRoot, @"dlssnr-amd\int4-ultra")) || Directory.Exists(Path.Combine(pkgRoot, @"dlssnr-amd\int4")));
+            bool hasDelta = !string.IsNullOrEmpty(pkgRoot) && (
+                File.Exists(Path.Combine(pkgRoot, @"CC_SMALL_FP8_OPTIMIZED\CC_SMALL_FP8_OPTIMIZED.delta")) ||
+                File.Exists(Path.Combine(pkgRoot, @"experimental\dlssnr-small-experimental.delta")));
+            bool hasInt4Data = !string.IsNullOrEmpty(pkgRoot) && (
+                Directory.Exists(Path.Combine(pkgRoot, @"dlssnr-amd\CC_SILVER_AARDWOLD_OPTIMIZED-ultra")) ||
+                Directory.Exists(Path.Combine(pkgRoot, @"dlssnr-amd\CC_SILVER_AARDWOLD_OPTIMIZED-balanced")) ||
+                Directory.Exists(Path.Combine(pkgRoot, @"dlssnr-amd\int4-ultra")) ||
+                Directory.Exists(Path.Combine(pkgRoot, @"dlssnr-amd\int4")));
             bool hasInt4Tool = !string.IsNullOrEmpty(pkgRoot) && File.Exists(Path.Combine(pkgRoot, @"model-tools\dlssnr-int4-weights.exe"));
             bool expPreparable = !expReady && (smallReady || hasNv) && hasDelta;
             bool int4Preparable = !int4Ready && (origReady || hasNv) && hasInt4Data && hasInt4Tool;

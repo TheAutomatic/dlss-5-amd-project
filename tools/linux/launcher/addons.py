@@ -122,12 +122,120 @@ def extract_dlssd(src: Path, dest: Path) -> Path:
     raise ValueError("Expected an nvngx_dlssd.dll or .zip file: %s" % src)
 
 
+def _strip_ini_value(raw: str) -> str:
+    val = raw.strip()
+    if len(val) >= 2 and ((val[0] == '"' and val[-1] == '"') or (val[0] == "'" and val[-1] == "'")):
+        return val[1:-1].strip()
+    return val
+
+
+def _is_unset_ini_value(raw: Optional[str]) -> bool:
+    if raw is None:
+        return True
+    val = _strip_ini_value(raw)
+    if not val:
+        return True
+    return bool(re.match(r"^auto(?:\s*[;#].*)?$", val, re.IGNORECASE))
+
+
+def _read_openrr_language(ini_path: Path) -> str:
+    if not ini_path.is_file():
+        return ""
+    sec = None
+    try:
+        text = ini_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    for line in text.splitlines():
+        m = re.match(r"^\s*\[([^\]]+)\]", line.lstrip("\ufeff"))
+        if m:
+            sec = m.group(1).casefold()
+            continue
+        if sec == "openrr":
+            e = re.match(r"^\s*Language\s*=(.*)$", line, re.IGNORECASE)
+            if e:
+                val = re.split(r"[;#]", e.group(1), maxsplit=1)[0]
+                return _strip_ini_value(val)
+    return ""
+
+
+def _to_wine_path(path: Path) -> str:
+    s = str(path.resolve())
+    if s.startswith("/"):
+        return "Z:" + s.replace("/", "\\")
+    return s
+
+
+def _ensure_ini_keys(lines: list[str], section: str, pairs: list[tuple[str, str]]) -> None:
+    if not pairs:
+        return
+    start = next(
+        (i for i, line in enumerate(lines)
+         if re.match(r"^\s*\[" + re.escape(section) + r"\]\s*$", line.lstrip("\ufeff"), re.IGNORECASE)),
+        None,
+    )
+    if start is None:
+        if lines and lines[-1] != "":
+            lines.append("")
+        lines.append("[%s]" % section)
+        end = len(lines)
+    else:
+        end = next(
+            (i for i in range(start + 1, len(lines)) if re.match(r"^\s*\[", lines[i])),
+            len(lines),
+        )
+    lines[end:end] = ["%s=%s" % (key, val) for key, val in pairs]
+
+
+def _set_ini_key(ini_path: Path, section: str, key: str, value: str) -> None:
+    if not ini_path.is_file():
+        return
+    raw = ini_path.read_bytes().decode("utf-8", errors="surrogateescape")
+    nl = "\r\n" if "\r\n" in raw else "\n"
+    lines = raw.split(nl)
+    sec = None
+    updated = False
+    for i, line in enumerate(lines):
+        m = re.match(r"^\s*\[([^\]]+)\]", line.lstrip("\ufeff"))
+        if m:
+            sec = m.group(1).casefold()
+            continue
+        if sec == section.casefold():
+            e = re.match(r"^\s*(" + re.escape(key) + r")\s*=", line, re.IGNORECASE)
+            if e:
+                lines[i] = "%s = %s" % (e.group(1), value)
+                updated = True
+                break
+    if not updated:
+        _ensure_ini_keys(lines, section, [(key, value)])
+    ini_path.write_bytes(nl.join(lines).encode("utf-8", errors="surrogateescape"))
+
+
+def apply_plugin_language(game_dir: Path, lang: str, want_nr: bool = True, want_openrr: bool = False) -> None:
+    """For Chinese users (lang == 'zh'), automatically set both plugin INIs to zh-CN; others stay English."""
+    if (lang or "").casefold() != "zh":
+        return
+    game = Path(game_dir)
+    if want_nr:
+        dlssnr_ini = game / "dlssnr-amd.ini"
+        if dlssnr_ini.is_file():
+            _set_ini_key(dlssnr_ini, "NRControl", "Language", "zh-CN")
+            default_ini = game / "dlssnr-amd" / "dlssnr-amd.default.ini"
+            if default_ini.is_file():
+                _set_ini_key(default_ini, "NRControl", "Language", "zh-CN")
+    if want_openrr:
+        openrr_ini = game / "openrr-amd.ini"
+        if openrr_ini.is_file():
+            _set_ini_key(openrr_ini, "OpenRR", "Language", "zh-CN")
+
+
 def patch_optiscaler_ini(
     ini_path: Path,
     want_nr: bool,
     want_openrr: bool,
     openrr_spoof: str = "full",
     prior_openrr: bool = False,
+    cjk_font_path: Optional[str] = None,
 ) -> None:
     """Patch ``OptiScaler.ini`` in-place while preserving line endings and existing comments."""
     raw = ini_path.read_bytes().decode("utf-8", errors="surrogateescape")
@@ -146,6 +254,30 @@ def patch_optiscaler_ini(
         for key in ("Dxgi", "Vulkan", "VulkanExtensionSpoofing"):
             wanted[("Spoofing", key)] = spoof
 
+    # Inspect existing [Menu] font settings before rewriting so custom fonts/sizes are never clobbered.
+    cur_menu_ttf: Optional[str] = None
+    cur_menu_font_size: Optional[str] = None
+    if cjk_font_path:
+        sec_scan = None
+        for line in lines:
+            m = re.match(r"^\s*\[([^\]]+)\]", line.lstrip("\ufeff"))
+            if m:
+                sec_scan = m.group(1).casefold()
+                continue
+            if sec_scan == "menu":
+                e = re.match(r"^\s*([A-Za-z0-9_]+)\s*=(.*)$", line)
+                if e:
+                    k_low = e.group(1).casefold()
+                    if k_low == "ttffontpath" and cur_menu_ttf is None:
+                        cur_menu_ttf = e.group(2)
+                    elif k_low == "fontsize" and cur_menu_font_size is None:
+                        cur_menu_font_size = e.group(2)
+        if _is_unset_ini_value(cur_menu_ttf):
+            wanted[("Menu", "UseHQFont")] = "true"
+            wanted[("Menu", "TTFFontPath")] = cjk_font_path
+            if _is_unset_ini_value(cur_menu_font_size):
+                wanted[("Menu", "FontSize")] = "16"
+
     lookup = {(s.casefold(), k.casefold()): v for (s, k), v in wanted.items()}
     sec = None
     seen = set()
@@ -154,36 +286,34 @@ def patch_optiscaler_ini(
         if m:
             sec = m.group(1).casefold()
             continue
-        e = re.match(r"^\s*([A-Za-z0-9_]+)\s*=", line)
+        e = re.match(r"^\s*([A-Za-z0-9_]+)\s*=(.*)$", line)
         if e and sec:
-            k = (sec, e.group(1).casefold())
+            key_name, key_val = e.group(1), e.group(2)
+            k = (sec, key_name.casefold())
+            # Sanitize legacy OpenRR <= v0.1.7plus6 host DLL paths in [Libraries] NvngxPath.
+            if k == ("libraries", "nvngxpath") and "openrr-ngx-host" in key_val.casefold():
+                lines[i] = "%s=auto" % key_name
+                seen.add(k)
+                continue
             if k in lookup and k not in seen:
-                lines[i] = "%s=%s" % (e.group(1), lookup[k])
+                lines[i] = "%s=%s" % (key_name, lookup[k])
                 seen.add(k)
 
     # Ensure [Spoofing] keys exist even if a stripped/custom INI omitted them.
     if spoof:
-        missing = [
-            key for key in ("Dxgi", "Vulkan", "VulkanExtensionSpoofing")
+        missing_spoof = [
+            (key, spoof) for key in ("Dxgi", "Vulkan", "VulkanExtensionSpoofing")
             if ("spoofing", key.casefold()) not in seen
         ]
-        if missing:
-            start = next(
-                (i for i, line in enumerate(lines)
-                 if re.match(r"^\s*\[Spoofing\]\s*$", line.lstrip("\ufeff"), re.IGNORECASE)),
-                None,
-            )
-            if start is None:
-                if lines and lines[-1] != "":
-                    lines.append("")
-                lines.append("[Spoofing]")
-                end = len(lines)
-            else:
-                end = next(
-                    (i for i in range(start + 1, len(lines)) if re.match(r"^\s*\[", lines[i])),
-                    len(lines),
-                )
-            lines[end:end] = ["%s=%s" % (key, spoof) for key in missing]
+        _ensure_ini_keys(lines, "Spoofing", missing_spoof)
+
+    # Ensure [Menu] CJK font keys exist when configuring OpenRR's default font.
+    missing_menu = [
+        (key, wanted[("Menu", key)])
+        for key in ("UseHQFont", "TTFFontPath", "FontSize")
+        if ("Menu", key) in wanted and ("menu", key.casefold()) not in seen
+    ]
+    _ensure_ini_keys(lines, "Menu", missing_menu)
 
     ini_path.write_bytes(nl.join(lines).encode("utf-8", errors="surrogateescape"))
 
@@ -288,6 +418,7 @@ def apply_optiscaler_addons(
     want_optipatcher: bool,
     dlssd_path: Optional[str],
     log: Callable[[str, str], None],
+    lang: str = "en",
 ) -> int:
     """Overlay OpenRR and/or OptiPatcher onto an installed OptiScaler game folder."""
     root = pkg.root
@@ -300,14 +431,26 @@ def apply_optiscaler_addons(
         log("err", "OptiScaler/plugins not found in %s." % game)
         return 1
 
+    # Proactively remove legacy openrr-ngx-host.dll left over from OpenRR <= v0.1.7plus6.
+    for stale_host in (
+        plugins / "openrr-ngx-host.dll",
+        game / "plugins" / "openrr-ngx-host.dll",
+        game / "openrr-ngx-host.dll",
+    ):
+        if stale_host.is_file():
+            try:
+                stale_host.unlink()
+                log("out", "Removed legacy %s." % stale_host.relative_to(game))
+            except OSError:
+                pass
+
+    cjk_font_path: Optional[str] = None
     if want_openrr:
         if not pkg.has_openrr:
             log("err", "OpenRR is not bundled in this package (x86_64 only).")
             return 1
         shutil.copy2(root / "optiscaler" / "asi" / "openrr-amd.asi", plugins / "openrr-amd.asi")
-        host_dll = root / "optiscaler" / "asi" / "openrr-ngx-host.dll"
-        if host_dll.is_file():
-            shutil.copy2(host_dll, plugins / "openrr-ngx-host.dll")
+        shutil.rmtree(game / "openrr-amd" / "lang", ignore_errors=True)
         _copy_tree_filtered(root / "openrr-amd", game / "openrr-amd", skip_top=("aco",))
         shutil.rmtree(game / "openrr-amd" / "aco", ignore_errors=True)
         ini_src = root / "openrr-amd.ini"
@@ -336,8 +479,15 @@ def apply_optiscaler_addons(
         if not dlssd_installed:
             log("out", "Note: nvngx_dlssd.dll (310.9.1.0) was not found; place or import it into openrr-amd/ for Ray Reconstruction.")
 
+        # Configure OpenRR's bundled CJK font in OptiScaler.ini whenever OpenRR is installed (regardless of language).
+        cjk_font = game / "openrr-amd" / "lang" / "fonts" / "NotoSansCJKsc-Regular.ttf"
+        if cjk_font.is_file():
+            cjk_font_path = _to_wine_path(cjk_font)
+
         _append_manifest(game, OPENRR_MANIFEST_ENTRIES)
-        log("out", "OpenRR %s installed (spoof: %s)." % (pkg.openrr_version or "0.1.7plus6", "auto" if openrr_spoof == "auto" else "full"))
+        log("out", "OpenRR %s installed (spoof: %s)." % (pkg.openrr_version or "0.1.7.1plus", "auto" if openrr_spoof == "auto" else "full"))
+
+    apply_plugin_language(game, lang=lang, want_nr=want_nr, want_openrr=want_openrr)
 
     if want_optipatcher:
         if not pkg.has_optipatcher:
@@ -354,5 +504,6 @@ def apply_optiscaler_addons(
             want_openrr=want_openrr,
             openrr_spoof=openrr_spoof,
             prior_openrr=False,
+            cjk_font_path=cjk_font_path,
         )
     return 0

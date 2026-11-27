@@ -36,6 +36,17 @@ Do not infer an injection alias solely from an API import or a passing mention.
 Increase the numeric revision for each published data change. Never add commands,
 downloadable DLLs or automatic INI edits to these files.
 
+## Launcher-specific overrides (`launcher-overrides.json`)
+
+`launcher-overrides.json` is an independent embedded profile layer evaluated **before**
+both the bundled `proxy-profiles.json` and any live-refreshed `%LOCALAPPDATA%` cache.
+Because CI and in-app Wiki refreshes only regenerate `proxy-profiles.json`, entries in
+`launcher-overrides.json` (`sourceFormat: "override"`) are never overwritten by upstream
+Wiki updates. Use it when this fork's packaging differs from upstream release assumptions
+(for example, unsigned OptiScaler nightly builds where `winmm.dll` or `version.dll` is
+required instead of `dxgi.dll`). Matched games are labeled in the launcher UI as
+launcher-recommended (`启动器推荐` / `Launcher recommended`) rather than Wiki-recommended.
+
 ## Live refresh
 
 Clicking "更新推荐资料" / "Refresh recommendations" fetches

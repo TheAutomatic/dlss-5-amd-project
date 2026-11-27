@@ -38,6 +38,7 @@ jobs:
       release_id: ${{ steps.draft.outputs.release_id }}
       linux_only: ${{ steps.ver.outputs.linux_only }}
       linux_arch: ${{ steps.ver.outputs.linux_arch }}
+      keep_draft: ${{ steps.notes.outputs.keep_draft }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -66,6 +67,7 @@ jobs:
           echo "linux_arch=$linux_arch" >> "$GITHUB_OUTPUT"
 
       - name: Prepare release notes
+        id: notes
         shell: bash
         run: |
           set -euo pipefail
@@ -74,17 +76,24 @@ jobs:
           git fetch --force --no-tags origin "+${ref}:${ref}"
           obj_type="$(git cat-file -t "$ref" 2>/dev/null || true)"
           notes=""
+          keep_draft="false"
           if [ "$obj_type" = "tag" ]; then
             raw="$(git for-each-ref "$ref" --format='%(contents)')"
+            if printf '%s\n' "$raw" | grep -Eiq '(^|[[:space:]])\[draft\]([[:space:]]|$)'; then
+              keep_draft="true"
+            fi
             notes="$(python3 -B - "$raw" "$tag" <<'PY'
           import re, sys
           raw, tag = sys.argv[1], sys.argv[2]
-          cleaned = re.sub(r'(?s)\r?\n-----BEGIN (?:PGP|SSH) SIGNATURE-----.*$', '', raw).strip()
+          cleaned = re.sub(r'(?s)\r?\n-----BEGIN (?:PGP|SSH) SIGNATURE-----.*$', '', raw)
+          cleaned = re.sub(r'(?im)^[ \t]*\[draft\][ \t]*\r?\n?', '', cleaned)
+          cleaned = re.sub(r'(?i)[ \t]*\[draft\][ \t]*', ' ', cleaned).strip()
           if cleaned and cleaned != tag:
               print(cleaned)
           PY
             )"
           fi
+          echo "keep_draft=$keep_draft" >> "$GITHUB_OUTPUT"
           if [ -z "$notes" ]; then
             if [ "$(git rev-parse --is-shallow-repository 2>/dev/null || true)" = "true" ]; then
               git fetch --tags --unshallow origin
@@ -217,7 +226,7 @@ jobs:
             -SigningThumbprint "$env:PACKAGE_SIGNING_THUMBPRINT" `
             -OutDir dist
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (!(Test-Path "dist\OptiScaler-NR-Win-$ver.zip")) {
+          if (!(Test-Path "dist\OptiScaler-NR-Windows-$ver.zip")) {
             throw "Package zip missing for $ver"
           }
 
@@ -236,8 +245,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $ver = '${{ steps.ver.outputs.version }}'
-          $zipPath = "dist\OptiScaler-NR-Win-$ver.zip"
-          $forbidden = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr(?:-int4|-small)?\.bin|CC_(?:SMALL_FP8|SMALL_FP8_EXPERIMENTAL|SILVER_AARDWOLD|SILVER_AARDWOLD_OPTIMIZED|SILVER_AARDWOLD_OPTIMIZED_INT4)\.bin|pipeline\.cache|version\.dll|dlssnr_on_amd_setup\.exe)$'
+          $zipPath = "dist\OptiScaler-NR-Windows-$ver.zip"
+          $forbidden = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr(?:-int4|-small)?\.bin|CC_(?:SMALL_FP8|SMALL_FP8_EXPERIMENTAL|SMALL_FP8_OPTIMIZED|SMALL_FP8_OPTIMIZED_INT4|SMALL_FP8_OPTIMIZED_INT4_SINK|SILVER_AARDWOLD|SILVER_AARDWOLD_OPTIMIZED|SILVER_AARDWOLD_OPTIMIZED_INT4)\.bin|pipeline\.cache|version\.dll|dlssnr_on_amd_setup\.exe)$'
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $archive = [IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $zipPath))
           try {
@@ -252,7 +261,7 @@ jobs:
             $bad | ForEach-Object { Write-Host "FORBIDDEN: $_" }
             throw 'Refusing to publish: proprietary/user-supplied binaries found in package zip.'
           }
-          foreach ($req in @('OptiScaler.dll', 'OptiScaler.ini', 'OptiScalerNRLauncher.exe', 'Setup.ps1', 'install.sh', 'OptiScaler/plugins/dlssnr-amd.asi', 'OptiScaler/plugins/openrr-amd.asi', 'OptiScaler/plugins/openrr-ngx-host.dll', 'OptiScaler/plugins/OptiPatcher.asi', 'rtx-remix-mc/remixbridge.dll', 'Licenses/RTX-Remix-Minecraft-AMD-Patch_LICENSE.txt', 'Licenses/RTX-Remix-Minecraft-AMD-Patch_NOTICE.txt', 'Licenses/NVIDIA-rtx-remix-minecraft-Apache-2.0.txt', 'dlssnr-amd/aco/d3d12_outer.nra', 'dlssnr-amd/aco/rdna3/d3d12_outer.nra', 'dlssnr-amd/lang/zh-CN.txt', 'dlssnr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf', 'model-tools/dlssnr_extract_model.exe', 'experimental/dlssnr-small-experimental.delta', 'optimized/dlssnr-optimized.delta', 'dlssnr-amd-optiscaler.ini', 'dlssnr-amd-optiscaler-renodx.ini', 'dlssnr-amd-standalone.ini', 'dlssnr-amd-addon.ini', 'standalone/dxgi.dll', 'standalone/vk-override/implicit_layer/dlssnr_standalone.json', 'reshade/ReShade64.dll', 'reshade/dlssnr_amd.addon64', 'reshade/ReShade.ini', 'reshade/ReShadePreset.ini', 'reshade/ReShadePreset-d3d9.ini', 'reshade/vk-override/implicit_layer/ReShade64.json', 'reshade/reshade-shaders/Shaders/DLSS5_Feed.fx', 'dxvk/d3d9.dll', 'dxvk/dxgi.dll', 'vulkan/vulkan-1.dll', 'openrr-amd.ini', 'openrr-amd/aco/gfx1201/openrr-d3d12-v1/manifest.msgpack', 'openrr-amd/aco/gfx1200/openrr-d3d12-v1/manifest.msgpack', 'openrr-amd/lang/zh-CN.txt', 'openrr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf', 'LICENSE', 'NOTICE')) {
+          foreach ($req in @('OptiScaler.dll', 'OptiScaler.ini', 'OptiScalerNRLauncher.exe', 'Setup.ps1', 'install.sh', 'proxy-profiles.json', 'launcher-overrides.json', 'OptiScaler/plugins/dlssnr-amd.asi', 'OptiScaler/plugins/openrr-amd.asi', 'OptiScaler/plugins/OptiPatcher.asi', 'rtx-remix-mc/remixbridge.dll', 'Licenses/RTX-Remix-Minecraft-AMD-Patch_LICENSE.txt', 'Licenses/RTX-Remix-Minecraft-AMD-Patch_NOTICE.txt', 'Licenses/NVIDIA-rtx-remix-minecraft-Apache-2.0.txt', 'dlssnr-amd/aco/d3d12_outer.nra', 'dlssnr-amd/aco/rdna3/d3d12_outer.nra', 'dlssnr-amd/lang/zh-CN.txt', 'dlssnr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf', 'model-tools/dlssnr_extract_model.exe', 'CC_SMALL_FP8_OPTIMIZED/CC_SMALL_FP8_OPTIMIZED.delta', 'CC_SILVER_AARDWOLD_OPTIMIZED/CC_SILVER_AARDWOLD_OPTIMIZED.delta', 'dlssnr-amd-optiscaler.ini', 'dlssnr-amd-optiscaler-renodx.ini', 'dlssnr-amd-standalone.ini', 'dlssnr-amd-addon.ini', 'standalone/dxgi.dll', 'standalone/vk-override/implicit_layer/dlssnr_standalone.json', 'reshade/ReShade64.dll', 'reshade/dlssnr_amd.addon64', 'reshade/ReShade32.dll', 'reshade/dlssnr_amd.addon32', 'reshade/ReShade.ini', 'reshade/ReShadePreset.ini', 'reshade/ReShadePreset-d3d9.ini', 'reshade/vk-override/implicit_layer/ReShade64.json', 'reshade/vk-override/implicit_layer/ReShade32.json', 'reshade/reshade-shaders/Shaders/DLSS5_Feed.fx', 'dxvk/d3d9.dll', 'dxvk/dxgi.dll', 'dxvk/x86/d3d9.dll', 'dxvk/x86/dxgi.dll', 'vulkan/vulkan-1.dll', 'vulkan/x86/vulkan-1.dll', 'openrr-amd.ini', 'openrr-amd/aco/gfx1201/openrr-d3d12-v1/manifest.msgpack', 'openrr-amd/aco/gfx1200/openrr-d3d12-v1/manifest.msgpack', 'openrr-amd/lang/zh-CN.txt', 'openrr-amd/lang/fonts/NotoSansCJKsc-Regular.ttf', 'LICENSE', 'NOTICE')) {
             if ($entryPaths -notcontains $req) { throw "REQUIRED COMPONENT MISSING IN ZIP: $req" }
           }
 
@@ -261,7 +270,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: OptiScaler-NR-test-${{ github.run_id }}
-          path: dist/OptiScaler-NR-Win-${{ steps.ver.outputs.version }}.zip
+          path: dist/OptiScaler-NR-Windows-${{ steps.ver.outputs.version }}.zip
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
@@ -280,11 +289,11 @@ jobs:
           python -B .github/scripts/publish_release_asset.py `
             --tag "$env:RELEASE_TAG" `
             --release-id "$env:RELEASE_ID" `
-            --asset "dist/OptiScaler-NR-Win-$env:RELEASE_VERSION.zip"
+            --asset "dist/OptiScaler-NR-Windows-$env:RELEASE_VERSION.zip"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   # Linux packages: Mochizuki's upstream DLSSNR-AMD Linux release (x86_64 + i686, SHA-256 pinned under
-  # "mochizukiLinux" in tools/build/upstream-pins.json) + CJK lang pack + the stdlib-only Python launcher.
+  # "mochizukiLinux" in tools/build/upstream-pins.json) + CJK lang pack + official OptiScaler nightly + OpenRR + stdlib-only Python launcher.
   # Runs in parallel with Windows `build`; both upload directly to the Draft Release.
   linux:
     needs: [prepare]
@@ -329,13 +338,16 @@ jobs:
         working-directory: tools/linux
         run: python3 -B launcher/selftest.py --unit-only -v
 
-      - name: Ensure pigz for multi-threaded gzip compression
+      - name: Ensure pigz and 7z for Linux packaging
         shell: bash
         run: |
           set -euo pipefail
-          if ! command -v pigz >/dev/null 2>&1; then
+          pkgs=()
+          if ! command -v pigz >/dev/null 2>&1; then pkgs+=(pigz); fi
+          if ! command -v 7z >/dev/null 2>&1 && ! command -v 7zz >/dev/null 2>&1; then pkgs+=(p7zip-full); fi
+          if [ "${#pkgs[@]}" -gt 0 ]; then
             sudo apt-get update -qq
-            sudo apt-get install -y -qq --no-install-recommends pigz
+            sudo apt-get install -y -qq --no-install-recommends "${pkgs[@]}"
           fi
 
       - name: Package Linux tarballs
@@ -378,7 +390,7 @@ jobs:
             python3 -B - "$list_file" "$name" "$tgz" <<'PY'
           import re, sys
           list_path, top, tgz = sys.argv[1], sys.argv[2], sys.argv[3]
-          forbidden = re.compile(r'^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr(?:-int4|-small)?\.bin|CC_(?:SMALL_FP8|SMALL_FP8_EXPERIMENTAL|SILVER_AARDWOLD|SILVER_AARDWOLD_OPTIMIZED|SILVER_AARDWOLD_OPTIMIZED_INT4)\.bin|pipeline\.cache|version\.dll|dlssnr_on_amd_setup\.exe)$', re.I)
+          forbidden = re.compile(r'^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr(?:-int4|-small)?\.bin|CC_(?:SMALL_FP8|SMALL_FP8_EXPERIMENTAL|SMALL_FP8_OPTIMIZED|SMALL_FP8_OPTIMIZED_INT4|SMALL_FP8_OPTIMIZED_INT4_SINK|SILVER_AARDWOLD|SILVER_AARDWOLD_OPTIMIZED|SILVER_AARDWOLD_OPTIMIZED_INT4)\.bin|pipeline\.cache|version\.dll|dlssnr_on_amd_setup\.exe)$', re.I)
           names = [line.rstrip('\r\n') for line in open(list_path, encoding='utf-8')]
           bad = [n for n in names if forbidden.match(n.rstrip('/').rsplit('/', 1)[-1])]
           stray = [n for n in names if n != top and n != top + '/' and not n.startswith(top + '/')]
@@ -521,11 +533,12 @@ jobs:
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
           LINUX_ONLY: ${{ needs.prepare.outputs.linux_only }}
           LINUX_ARCH: ${{ needs.prepare.outputs.linux_arch || 'all' }}
+          KEEP_DRAFT: ${{ needs.prepare.outputs.keep_draft || 'false' }}
         run: |
           set -euo pipefail
           expect_args=()
           if [ "$LINUX_ONLY" != "true" ]; then
-            expect_args+=(--expect-asset "OptiScaler-NR-Win-${RELEASE_VERSION}.zip")
+            expect_args+=(--expect-asset "OptiScaler-NR-Windows-${RELEASE_VERSION}.zip")
           fi
           if [ "$LINUX_ARCH" = "all" ]; then
             expect_args+=(
@@ -535,7 +548,12 @@ jobs:
           else
             expect_args+=(--expect-asset "OptiScaler-NR-Linux-${LINUX_ARCH}-${RELEASE_VERSION}.tar.gz")
           fi
+          extra_args=()
+          if [ "$KEEP_DRAFT" = "true" ]; then
+            extra_args+=(--keep-draft)
+          fi
           python3 -B .github/scripts/publish_release_asset.py \
             --tag "$RELEASE_TAG" \
             --publish-draft "$RELEASE_ID" \
+            "${extra_args[@]}" \
             "${expect_args[@]}"

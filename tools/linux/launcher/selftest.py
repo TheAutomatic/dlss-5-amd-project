@@ -36,7 +36,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
-from launcher import addons, desktop, jobs, library  # noqa: E402
+from launcher import addons, desktop, jobs, library, presets  # noqa: E402
 from launcher.package import Package, find_package, is_package_root  # noqa: E402
 from launcher.server import App, make_server  # noqa: E402
 from launcher.state import State  # noqa: E402
@@ -469,6 +469,98 @@ class TestApiSecurity(unittest.TestCase):
         status, r = self.c.call("/api/install", {"id": "steam:1002", "route": "reshade-feeder", "dll": "/nonexistent.dll"})
         self.assertEqual((status, r["error"]), (400, "dll_invalid"))
 
+    def test_presets_api(self):
+        status, info = self.c.call("/api/info")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(info["presets"]), 4)
+        self.assertTrue(all(p["author"] == "Al菲比" for p in info["presets"]))
+
+        # Applying without dlssnr-amd.ini returns no_dlssnr_ini
+        status, r = self.c.call("/api/preset/apply", {"id": "steam:1001", "presetId": "al-feibi-wuwa-hyperreal"})
+        self.assertEqual((status, r["error"]), (400, "no_dlssnr_ini"))
+        status, r = self.c.call("/api/preset/apply", {"id": "steam:1001", "presetId": "nonexistent"})
+        self.assertEqual((status, r["error"]), (400, "bad_preset"))
+
+        # Export works even before install (returns preset INI)
+        status, raw = self.c.call("/api/preset/export?id=steam:1001&preset=al-feibi-wuwa-hyperreal", raw=True)
+        self.assertEqual(status, 200)
+        self.assertIn(b"CC_SMALL_FP8_OPTIMIZED", raw)
+
+        # Create a dlssnr-amd.ini in steam:1001's folder, apply preset, verify preservation and backup
+        status, gres = self.c.call("/api/game?id=steam:1001")
+        self.assertEqual(status, 200)
+        folder = Path(gres["game"]["folder"])
+        ini = folder / "dlssnr-amd.ini"
+        ini.write_text(
+            "; keep comment\n"
+            "[Network]\nModel = CC_SMALL_FP8\nHotkey = Ctrl+F11\n"
+            "[RenoDX]\nEnabled = 0\nNRToggleKey = F8\n"
+            "[NRControl]\nMenuKey = F9\nLanguage = zh-CN\nLayers = 0\n"
+            "[Layer3]\nEnabled = 1\nProcessing = RenoDX\nPlacement = after\n",
+            encoding="utf-8",
+        )
+        status, applied = self.c.call("/api/preset/apply", {"id": "steam:1001", "presetId": "al-feibi-wuwa-hyperreal"})
+        self.assertEqual(status, 200, applied)
+        self.assertTrue(applied["backup"].startswith("dlssnr-amd.ini.bak-"))
+        self.assertTrue((folder / applied["backup"]).is_file())
+        self.assertEqual(applied["game"]["status"]["model"], "CC_SMALL_FP8_OPTIMIZED")
+        self.assertEqual(applied["missingModels"], ["CC_SMALL_FP8_OPTIMIZED.bin"])
+        updated = ini.read_text(encoding="utf-8")
+        self.assertIn("; keep comment", updated)
+        self.assertIn("NRToggleKey = F8", updated)
+        self.assertIn("MenuKey = F9", updated)
+        self.assertIn("Language = zh-CN", updated)
+        self.assertIn("Layers=1", updated)
+        self.assertIn("[CC_SMALL_FP8_OPTIMIZED]\nLayers=3", updated)
+        self.assertIn("[Layer1]", updated)
+        self.assertIn("[Layer2]", updated)
+        self.assertNotIn("[Layer3]", updated)
+
+        # Cleanup created files so later tests stay isolated
+        ini.unlink()
+        (folder / applied["backup"]).unlink()
+
+
+class TestPresets(unittest.TestCase):
+    def test_all_four_presets_merge_and_metadata(self):
+        self.assertEqual(len(presets.PRESETS), 4)
+        base = (
+            b"; header comment\r\n"
+            b"[Network]\r\nModel = CC_SMALL_FP8\r\nHotkey = Ctrl+F11\r\n"
+            b"[CC_SILVER_AARDWOLD_OPTIMIZED]\r\nLayers = 1\r\n"
+            b"[CC_SMALL_FP8_OPTIMIZED]\r\nLayers = 0\r\n"
+            b"[Preprocess]\r\nEnabled = 1\r\n"
+            b"[RenoDX]\r\nEnabled = 0\r\nNRToggleKey = F7\r\n"
+            b"[HudFix]\r\nMode = auto\r\n"
+            b"[NRControl]\r\nMenuKey = F10\r\nLanguage = zh-CN\r\nLayers = 0\r\n"
+            b"[Layer3]\r\nToggleKey = F12\r\nEnabled = 1\r\nProcessing = RenoDX\r\n"
+        )
+        for pr in presets.PRESETS:
+            self.assertEqual(pr["author"], "Al菲比")
+            if "wuwa" in pr["id"]:
+                self.assertIn("本预设为《鸣潮》特调", pr["gameNoticeZh"])
+                self.assertIn("-643K", pr["tipsZh"])
+            elif "nte" in pr["id"]:
+                self.assertIn("本预设为《异环》特调", pr["gameNoticeZh"])
+            else:
+                self.assertEqual(pr["gameNoticeZh"], "")
+                self.assertIn("人物阴影过黑", pr["tipsZh"])
+            out = presets.apply_preset_bytes(base, pr).decode("utf-8")
+            self.assertIn("\r\n", out)
+            self.assertIn("; header comment", out)
+            self.assertIn("NRToggleKey = F7", out)
+            self.assertIn("MenuKey = F10", out)
+            self.assertIn("Language = zh-CN", out)
+            self.assertNotIn("NRToggleKey = Home", out)
+            self.assertNotIn("NRToggleKey=Home", out)
+            expected_net = "CC_SILVER_AARDWOLD_OPTIMIZED" if pr["id"].endswith("-old") else "CC_SMALL_FP8_OPTIMIZED"
+            self.assertIn("Model=" + expected_net, out)
+            self.assertIn("Network=" + expected_net, out)
+            self.assertIn("[CC_SMALL_FP8_OPTIMIZED]\r\nLayers=3", out)
+            self.assertIn("[CC_SILVER_AARDWOLD_OPTIMIZED]\r\nLayers=3", out)
+            self.assertIn("; [Layer3] retired; local settings kept (inactive)", out)
+            self.assertIn("; ToggleKey = F12", out)
+
 
 class TestDesktopEntry(unittest.TestCase):
     def test_install_remove(self):
@@ -534,20 +626,53 @@ class TestAddons(unittest.TestCase):
     def test_patch_optiscaler_ini(self):
         with tempfile.TemporaryDirectory() as td:
             ini = Path(td) / "OptiScaler.ini"
-            ini.write_bytes(b"[Plugins]\r\nLoadAsiPlugins=auto\r\n[Menu]\r\nFGShortcutKey=auto\r\n[Spoofing]\r\nDxgi=auto\r\nVulkan=auto\r\n")
-            addons.patch_optiscaler_ini(ini, want_nr=True, want_openrr=True, openrr_spoof="full")
+            ini.write_bytes(
+                b"[Plugins]\r\nLoadAsiPlugins=auto\r\n"
+                b"[Libraries]\r\nNvngxPath=OptiScaler\\plugins\\openrr-ngx-host.dll\r\n"
+                b"[Menu]\r\nFGShortcutKey=auto\r\nUseHQFont=auto\r\nFontSize=auto\r\nTTFFontPath=auto\r\n"
+                b"[Spoofing]\r\nDxgi=auto\r\nVulkan=auto\r\n"
+            )
+            font_path = r"Z:\games\test\openrr-amd\lang\fonts\NotoSansCJKsc-Regular.ttf"
+            addons.patch_optiscaler_ini(
+                ini, want_nr=True, want_openrr=True, openrr_spoof="full", cjk_font_path=font_path
+            )
             raw = ini.read_bytes().decode("utf-8")
             self.assertIn("\r\n", raw)
             self.assertEqual(library.ini_value(raw, "Plugins", "LoadAsiPlugins"), "true")
+            self.assertEqual(library.ini_value(raw, "Libraries", "NvngxPath"), "auto")
             self.assertEqual(library.ini_value(raw, "Menu", "FGShortcutKey"), "-1")
+            self.assertEqual(library.ini_value(raw, "Menu", "UseHQFont"), "true")
+            self.assertEqual(library.ini_value(raw, "Menu", "TTFFontPath"), font_path)
+            self.assertEqual(library.ini_value(raw, "Menu", "FontSize"), "16")
             self.assertEqual(library.ini_value(raw, "Spoofing", "Dxgi"), "true")
             self.assertEqual(library.ini_value(raw, "Spoofing", "Vulkan"), "true")
             self.assertEqual(library.ini_value(raw, "Spoofing", "VulkanExtensionSpoofing"), "true")
 
-            addons.patch_optiscaler_ini(ini, want_nr=False, want_openrr=True, openrr_spoof="auto")
+            # Custom user font and custom FontSize must not be overwritten.
+            ini.write_bytes(
+                b"[Menu]\nUseHQFont=true\nFontSize=20\nTTFFontPath=C:\\Windows\\Fonts\\msyh.ttc\n"
+                b"[Spoofing]\nDxgi=true\nVulkan=true\nVulkanExtensionSpoofing=true\n"
+            )
+            addons.patch_optiscaler_ini(
+                ini, want_nr=False, want_openrr=True, openrr_spoof="auto", cjk_font_path=font_path
+            )
             raw2 = ini.read_bytes().decode("utf-8")
             self.assertEqual(library.ini_value(raw2, "Spoofing", "Dxgi"), "auto")
             self.assertEqual(library.ini_value(raw2, "Spoofing", "VulkanExtensionSpoofing"), "auto")
+            self.assertEqual(library.ini_value(raw2, "Menu", "TTFFontPath"), r"C:\Windows\Fonts\msyh.ttc")
+            self.assertEqual(library.ini_value(raw2, "Menu", "FontSize"), "20")
+
+            # Chinese users get zh-CN in both plugin INIs; English users keep defaults.
+            game = Path(td) / "game"
+            (game / "dlssnr-amd").mkdir(parents=True)
+            (game / "dlssnr-amd.ini").write_text("[NRControl]\nLanguage =\n", encoding="utf-8")
+            (game / "openrr-amd.ini").write_text("[OpenRR]\nEnabled = true\n", encoding="utf-8")
+            addons.apply_plugin_language(game, lang="en", want_nr=True, want_openrr=True)
+            self.assertEqual(library.ini_value((game / "dlssnr-amd.ini").read_text(encoding="utf-8"), "NRControl", "Language"), "")
+            self.assertIsNone(library.ini_value((game / "openrr-amd.ini").read_text(encoding="utf-8"), "OpenRR", "Language"))
+            addons.apply_plugin_language(game, lang="zh", want_nr=True, want_openrr=True)
+            self.assertEqual(library.ini_value((game / "dlssnr-amd.ini").read_text(encoding="utf-8"), "NRControl", "Language"), "zh-CN")
+            self.assertEqual(library.ini_value((game / "openrr-amd.ini").read_text(encoding="utf-8"), "OpenRR", "Language"), "zh-CN")
 
     def test_has_native_dlssd_ignores_openrr_dir(self):
         with tempfile.TemporaryDirectory() as td:
@@ -655,6 +780,10 @@ class E2E(unittest.TestCase):
                 self.assertTrue((own / "OptiScaler" / "plugins" / "OptiPatcher.asi").is_file())
                 self.assertTrue((own / "openrr-amd" / "nvngx_dlssd.dll").is_file())
                 self.assertFalse((own / "openrr-amd" / "aco").exists())
+                opti_ini_raw = (own / "OptiScaler.ini").read_text(encoding="utf-8", errors="replace")
+                self.assertEqual(library.ini_value(opti_ini_raw, "Menu", "UseHQFont"), "true")
+                self.assertEqual(library.ini_value(opti_ini_raw, "Menu", "FontSize"), "16")
+                self.assertIn("NotoSansCJKsc-Regular.ttf", library.ini_value(opti_ini_raw, "Menu", "TTFFontPath") or "")
                 self.assertTrue(c.call("/api/info")[1]["dlssd"]["cached"])
                 self.check_manifest(own)
                 p = subprocess.run(["bash", str(pkg / "uninstall.sh"), str(own)], stdin=subprocess.DEVNULL,
@@ -672,7 +801,7 @@ class E2E(unittest.TestCase):
             (pkg / "dlssnr-amd" / "CC_SMALL_FP8.bin").write_bytes(dummy_small)
             text = src_install.decode("utf-8")
             text, n1 = re.subn(r"^model_sha256=[0-9a-f]{64}$", "model_sha256=" + hashlib.sha256(dummy_aard).hexdigest(), text, flags=re.M)
-            text, n2 = re.subn(r"^small_sha256=[0-9a-f]{64}$", "small_sha256=" + hashlib.sha256(dummy_small).hexdigest(), text, flags=re.M)
+            text, n2 = re.subn(r"^(small(?:_fp8)?_sha256)=[0-9a-f]{64}$", r"\1=" + hashlib.sha256(dummy_small).hexdigest(), text, flags=re.M)
             self.assertEqual((n1, n2), (1, 1))
             replace_file(pkg / "install.sh", text.encode("utf-8"))
             self.assertEqual((src / "install.sh").read_bytes(), src_install, "the source package must stay untouched")

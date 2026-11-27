@@ -445,6 +445,13 @@ html[data-theme="dark"] .dialog-foot { background: #202020; }
 .dialog-foot .btn { min-width: 96px; }
 .dialog-foot .btn.primary { height: 32px; }
 
+.preset-title { font-size: 15px; font-weight: 600; color: var(--text); margin-top: 2px; }
+.preset-meta { font-size: 12px; color: var(--muted); margin: 3px 0 12px; }
+.preset-tips { margin: 10px 0 12px; padding: 12px 14px; border-radius: var(--radius-sm); border: 1px solid var(--hair);
+  background: var(--console); font-size: 12.5px; line-height: 19px; color: var(--text); white-space: pre-line; }
+.preset-note { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
+.dialog-body .infobar { margin: 0 0 12px; }
+
 .settings-brand { display: flex; align-items: center; gap: 18px; padding: 14px 18px; margin: 4px 0 14px; }
 .settings-logo { width: 88px; height: 88px; flex: none; display: block; filter: drop-shadow(0 4px 10px rgba(0, 0, 0, .24)); }
 .settings-brand-meta { min-width: 0; }

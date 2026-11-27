@@ -34,6 +34,8 @@ namespace OptScalerNR.Launcher
             list.Add(F("Network", "History Precision", "history"));
             list.Add(F("Network", "Style Grade", "bool"));
             list.Add(F("Network", "OptimizedLayers", "optimized_layers"));
+            list.Add(F("CC_SILVER_AARDWOLD_OPTIMIZED", "Layers", "optimized_layers"));
+            list.Add(F("CC_SMALL_FP8_OPTIMIZED", "Layers", "optimized_layers"));
             list.Add(F("RenoDX", "Enabled", "bool"));
             foreach (var key in new[] { "Enabled", "Exposure", "ExposureBias", "Curve", "Contrast", "Saturation", "Inverse" })
                 list.Add(F("Preprocess", key, key == "Enabled" || key == "Inverse" ? "bool" : (key == "Exposure" || key == "Curve") ? "str" : "num"));
@@ -60,6 +62,7 @@ namespace OptScalerNR.Launcher
                 case "NRPassesMode": return "str";
                 case "NeuralUplift": case "NRAutoMask": case "NRSkinIndependent":
                 case "NRUnlockPasses": case "NRChainedHistory": case "NRNoiseEveryFrame":
+                case "NRPreHistory": case "NRFastInterleavedDepthDisocclusion":
                 case "NRPass2FollowPass1": case "NRPass2AutoMask": case "NRPass3FollowPass1":
                 case "NRPass3AutoMask": case "NRPass4FollowPass1": case "NRPass4AutoMask":
                 case "NRLookMode": case "NRLookStabilizeDetail": case "NRNeuralFloorGuard":
@@ -76,6 +79,7 @@ namespace OptScalerNR.Launcher
             switch (key) {
                 case "ExposureTrimAnchors": case "AutoExposureTrimAnchors": return "str";
                 case "RunBeforeSR": case "UnlockPasses": case "AutoMask": case "NoiseEveryFrame":
+                case "PreHistory": case "FastInterleavedDepthDisocclusion":
                 case "SpatialCompression": case "SkinProtection": case "ColourLimit":
                 case "FastExtrapolationHaloLimit": case "FastFeedbackHaloLimit": case "FastHybridHaloLimit":
                     return "bool";
@@ -104,8 +108,8 @@ namespace OptScalerNR.Launcher
                 "NRFastExtrapolationPasses", "NRFastExtrapolationHaloLimit", "NRFastExtrapolationFine",
                 "NRFastFeedbackPasses", "NRFastFeedbackHaloLimit", "NRFastFeedbackFine",
                 "NRFastHybridPasses", "NRFastHybridHaloLimit", "NRFastHybridFine", "NRFastEditStrength",
-                "NRFastInterleavedPasses", "NRFastInterleavedPreset",
-                "NRPasses", "NRUnlockPasses", "NRChainedHistory", "NRNoiseEveryFrame",
+                "NRFastInterleavedPasses", "NRFastInterleavedPreset", "NRFastInterleavedDepthDisocclusion",
+                "NRPasses", "NRUnlockPasses", "NRChainedHistory", "NRNoiseEveryFrame", "NRPreHistory", "NRPostHistory",
                 "NRPass2Transfer", "NRPass2Color", "NRPass2Intensity", "NRPass2FollowPass1", "NRPass2Style",
                 "NRPass2LocalTone", "NRPass2Structure", "NRPass2Skin", "NRPass2AutoMask",
                 "NRPass3Transfer", "NRPass3Color", "NRPass3Intensity", "NRPass3FollowPass1", "NRPass3Style",
@@ -130,7 +134,7 @@ namespace OptScalerNR.Launcher
         static string[] WilsjoKeys()
         {
             return new[] {
-                "RunBeforeSR", "Passes", "UnlockPasses", "History", "Preset", "Style",
+                "RunBeforeSR", "Passes", "UnlockPasses", "History", "PreHistory", "PostHistory", "Preset", "Style",
                 "Intensity", "LocalStructure", "LocalTone", "SkinStructure", "AutoMask", "NoiseEveryFrame",
                 "TransferStrength", "ColourStrength", "MaxRatio", "ReversibleMode", "ReplaceDetailStrength",
                 "WorkingScale", "Transfer", "ScalingDownscaler", "SpatialCompression", "SpatialCenterX",
@@ -141,7 +145,8 @@ namespace OptScalerNR.Launcher
                 "ClassicScaler", "Downscale", "PassesMode", "FastMethod", "FastEditStrength", "ColourLimit",
                 "FastExtrapolationPasses", "FastExtrapolationHaloLimit", "FastExtrapolationFine",
                 "FastFeedbackPasses", "FastFeedbackHaloLimit", "FastFeedbackFine",
-                "FastHybridPasses", "FastHybridHaloLimit", "FastHybridFine", "FastInterleavedPasses", "FastInterleavedPreset"
+                "FastHybridPasses", "FastHybridHaloLimit", "FastHybridFine", "FastInterleavedPasses", "FastInterleavedPreset",
+                "FastInterleavedDepthDisocclusion"
             };
         }
         static Field FindField(IEnumerable<Field> fields, string section, string key)
@@ -376,23 +381,27 @@ namespace OptScalerNR.Launcher
                              Convert.ToBase64String(Encoding.UTF8.GetBytes(string.Join("\n", lines.ToArray())));
             return "MZ5:" + payload + ";" + Crc16(payload).ToString("X4", Invariant);
         }
+        static readonly Regex VersionPrefix = new Regex(@"^MZ([1-9]\d*):", RegexOptions.Compiled);
+        static void CheckPrefix(string code, out bool isMz4)
+        {
+            isMz4 = false;
+            if (code == null) throw new CodeException("prefix");
+            var m = VersionPrefix.Match(code);
+            if (!m.Success) throw new CodeException("prefix");
+            int ver;
+            if (!int.TryParse(m.Groups[1].Value, NumberStyles.None, Invariant, out ver)) throw new CodeException("version");
+            if (ver <= 3) throw new CodeException("old");
+            if (ver > 5) throw new CodeException("version");
+            isMz4 = (ver == 4);
+        }
         public static DecodedCode Decode(string code)
         {
-            if (code == null) throw new CodeException("prefix");
-            if (code.StartsWith("MZ1:", StringComparison.Ordinal) || code.StartsWith("MZ2:", StringComparison.Ordinal) ||
-                code.StartsWith("MZ3:", StringComparison.Ordinal)) throw new CodeException("old");
-            if (!code.StartsWith("MZ5:", StringComparison.Ordinal) && !code.StartsWith("MZ4:", StringComparison.Ordinal))
-                throw new CodeException("prefix");
-            return DecodeBase64(code);
+            bool isMz4;
+            CheckPrefix(code, out isMz4);
+            return DecodeBase64(code, isMz4);
         }
-        static DecodedCode DecodeBase64(string code)
+        static DecodedCode DecodeBase64(string code, bool isMz4)
         {
-            if (code == null) throw new CodeException("prefix");
-            if (code.StartsWith("MZ1:", StringComparison.Ordinal) || code.StartsWith("MZ2:", StringComparison.Ordinal) ||
-                code.StartsWith("MZ3:", StringComparison.Ordinal)) throw new CodeException("old");
-            bool isMz5 = code.StartsWith("MZ5:", StringComparison.Ordinal);
-            bool isMz4 = code.StartsWith("MZ4:", StringComparison.Ordinal);
-            if (!isMz5 && !isMz4) throw new CodeException("prefix");
             int end = code.LastIndexOf(';');
             ushort crc;
             if (end < 4 || code.Length != end + 5 || !ushort.TryParse(code.Substring(end + 1), NumberStyles.AllowHexSpecifier, Invariant, out crc))
@@ -418,6 +427,7 @@ namespace OptScalerNR.Launcher
                 if (cols[0] == "G") {
                     entry.Layer = 0; entry.Section = cols[1]; entry.Key = cols[2];
                     if (isMz4) MigrateMz4Value(entry);
+                    MigrateLegacyEntry(entry);
                     var field = FindField(GlobalFields, entry.Section, entry.Key);
                     if (field == null) throw new CodeException("unknown");
                     ValidateValue(field, entry.Value);
@@ -426,6 +436,7 @@ namespace OptScalerNR.Launcher
                     if (!int.TryParse(cols[1], NumberStyles.None, Invariant, out layer) || layer <= 0) throw new CodeException("layer");
                     entry.Layer = layer; entry.Section = "Layer" + layer.ToString(Invariant); entry.Key = cols[2];
                     if (isMz4) MigrateMz4Value(entry);
+                    MigrateLegacyEntry(entry);
                     var field = FindField(LayerFields, "Layer", entry.Key);
                     if (field == null) throw new CodeException("unknown");
                     ValidateValue(field, entry.Value);
@@ -433,7 +444,44 @@ namespace OptScalerNR.Launcher
                 } else throw new CodeException("format");
                 decoded.Entries.Add(entry);
             }
+            MigrateLegacyOptimizedLayers(decoded.Entries);
             return decoded;
+        }
+        static void MigrateLegacyEntry(Entry entry)
+        {
+            bool isModelKey = (entry.Layer == 0 &&
+                string.Equals(entry.Section, "Network", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(entry.Key, "Model", StringComparison.OrdinalIgnoreCase)) ||
+                (entry.Layer > 0 && string.Equals(entry.Key, "Network", StringComparison.OrdinalIgnoreCase));
+            if (isModelKey && string.Equals((entry.Value ?? "").Trim(), "CC_SMALL_FP8_EXPERIMENTAL", StringComparison.OrdinalIgnoreCase))
+                entry.Value = "CC_SMALL_FP8_OPTIMIZED";
+        }
+        static void MigrateLegacyOptimizedLayers(List<Entry> entries)
+        {
+            bool hasSilverLayers = false;
+            for (int i = 0; i < entries.Count; i++) {
+                var e = entries[i];
+                if (e.Layer == 0 &&
+                    string.Equals(e.Section, "CC_SILVER_AARDWOLD_OPTIMIZED", StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(e.Key, "Layers", StringComparison.OrdinalIgnoreCase)) {
+                    hasSilverLayers = true;
+                    break;
+                }
+            }
+            for (int i = entries.Count - 1; i >= 0; i--) {
+                var e = entries[i];
+                if (e.Layer == 0 &&
+                    string.Equals(e.Section, "Network", StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(e.Key, "OptimizedLayers", StringComparison.OrdinalIgnoreCase)) {
+                    if (hasSilverLayers) {
+                        entries.RemoveAt(i);
+                    } else {
+                        e.Section = "CC_SILVER_AARDWOLD_OPTIMIZED";
+                        e.Key = "Layers";
+                        hasSilverLayers = true;
+                    }
+                }
+            }
         }
         static void MigrateMz4Value(Entry entry)
         {
@@ -455,7 +503,7 @@ namespace OptScalerNR.Launcher
                     return entry.Value;
             return "";
         }
-        static readonly Regex CodeInText = new Regex(@"MZ[1-5]:[^\r\n]*?;[0-9A-Fa-f]{4}(?![0-9A-Fa-f])", RegexOptions.Compiled);
+        static readonly Regex CodeInText = new Regex(@"MZ[1-9]\d*:[^\r\n]*?;[0-9A-Fa-f]{4}(?![0-9A-Fa-f])", RegexOptions.Compiled);
         public static string ExtractCode(string text)
         {
             if (text == null) return null;

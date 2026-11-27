@@ -33,19 +33,22 @@
     }
   },
   "dlssnr": {
-    "version": "0.0.9m12",
-    "archiveName": "DLSSNR-AMD-Vulkan-Windows-0.0.9m12-preview-x86_64.zip",
-    "archiveUrl": "https://github.com/TheAutomatic/DLSSNR-AMD/releases/download/v0.0.9m12/DLSSNR-AMD-Vulkan-Windows-0.0.9m12-preview-x86_64.zip",
-    "archiveSha256": "3bf528919ee6090a071bd83274c6753fb169c893020615a7f369ab3b04620088",
-    "langArchiveName": "DLSSNR-AMD-lang-CJK-0.0.9m1.zip",
-    "langArchiveUrl": "https://github.com/TheAutomatic/DLSSNR-AMD/releases/download/v0.0.9m6/DLSSNR-AMD-lang-CJK-0.0.9m1.zip",
-    "langArchiveSha256": "14736abe9d8f9e763574603780993aaa285776c285264894d749e781704bd7c4"
+    "version": "0.1.0m2",
+    "archiveName": "DLSSNR-AMD-Vulkan-Windows-0.1.0m2-preview-x86_64.zip",
+    "archiveUrl": "https://github.com/TheAutomatic/DLSSNR-AMD/releases/download/v0.1.0m2/DLSSNR-AMD-Vulkan-Windows-0.1.0m2-preview-x86_64.zip",
+    "archiveSha256": "4bb9ed0432a3bc7774f447692e00fe32d7abd339b951d596fff96fab64d6ef61",
+    "archive32Name": "DLSSNR-AMD-Vulkan-Windows-0.1.0m2-preview-i686.zip",
+    "archive32Url": "https://github.com/TheAutomatic/DLSSNR-AMD/releases/download/v0.1.0m2/DLSSNR-AMD-Vulkan-Windows-0.1.0m2-preview-i686.zip",
+    "archive32Sha256": "65fb21859433ab0d1738f1fa40744e3c827d6bf42b3f64962a8bb85d32243e46",
+    "langArchiveName": "DLSSNR-AMD-lang-CJK-0.1.0.zip",
+    "langArchiveUrl": "https://gitlab.com/api/v4/projects/88319462/packages/generic/dlssnr-amd/0.1.0/DLSSNR-AMD-lang-CJK-0.1.0.zip",
+    "langArchiveSha256": "8b55d25590caf4bbef726fa27c1bf0379c7d8a59a4a4809bf6ebecae45c0598f"
   },
   "openrr": {
-    "version": "0.1.7plus6",
-    "archiveName": "OpenRR-v0.1.7plus6-OptiScaler.zip",
-    "archiveUrl": "https://github.com/TheAutomatic/OpenRR-ASI/releases/download/v0.1.7plus6/OpenRR-v0.1.7plus6-OptiScaler.zip",
-    "archiveSha256": "0191c69e6f94fb0f96fed3c542a3960d818ee5381a460cd9508f342c98ea8f59"
+    "version": "0.1.7.1plus",
+    "archiveName": "OpenRR-v0.1.7.1plus-OptiScaler.zip",
+    "archiveUrl": "https://github.com/TheAutomatic/OpenRR-ASI/releases/download/v0.1.7.1plus/OpenRR-v0.1.7.1plus-OptiScaler.zip",
+    "archiveSha256": "ce0e74b9c16002302a0688eef94c8f3ee5f0c4ce65408266ce6fed0468dd87cf"
   },
   "optipatcher": {
     "fileName": "OptiPatcher.asi",
@@ -66,22 +69,22 @@
     }
   },
   "mochizukiLinux": {
-    "version": "0.0.9",
-    "releaseUrl": "https://gitlab.com/mochizuki0323/DLSSNR-AMD/-/releases/v0.0.9",
+    "version": "0.1.0m2",
+    "releaseUrl": "https://github.com/TheAutomatic/DLSSNR-AMD/releases/tag/v0.1.0m2",
     "archives": {
       "x86_64": {
-        "archiveName": "DLSSNR-AMD-Vulkan-Linux-0.0.9-x86_64.tar.gz",
-        "archiveUrl": "https://gitlab.com/api/v4/projects/88319462/packages/generic/dlssnr-amd/0.0.9/DLSSNR-AMD-Vulkan-Linux-0.0.9-x86_64.tar.gz",
-        "archiveSha256": "30c795f9e446cbea8af46cea142d78c108e2cce0ac26fa9ced7c3a56600fbdc2"
+        "archiveName": "DLSSNR-AMD-Vulkan-Linux-0.1.0m2-x86_64.tar.gz",
+        "archiveUrl": "https://github.com/TheAutomatic/DLSSNR-AMD/releases/download/v0.1.0m2/DLSSNR-AMD-Vulkan-Linux-0.1.0m2-x86_64.tar.gz",
+        "archiveSha256": "df2f188c51f66190a629b63d09a9a705fa0f4376f8cb1bf3cbc350e083549014"
       },
       "i686": {
-        "archiveName": "DLSSNR-AMD-Vulkan-Linux-0.0.9-i686.tar.gz",
-        "archiveUrl": "https://gitlab.com/api/v4/projects/88319462/packages/generic/dlssnr-amd/0.0.9/DLSSNR-AMD-Vulkan-Linux-0.0.9-i686.tar.gz",
-        "archiveSha256": "6047e7e1d9ed4513dda6f53750911e8f7dc3b818755f0aa893c0a3cfd2a361d2"
+        "archiveName": "DLSSNR-AMD-Vulkan-Linux-0.1.0m2-i686.tar.gz",
+        "archiveUrl": "https://github.com/TheAutomatic/DLSSNR-AMD/releases/download/v0.1.0m2/DLSSNR-AMD-Vulkan-Linux-0.1.0m2-i686.tar.gz",
+        "archiveSha256": "dc597b45e5bb85ee388ca25c5ae700b4a776093a9ad610688efe1c07a9d17b49"
       }
     },
-    "langArchiveName": "DLSSNR-AMD-lang-CJK-0.0.9.zip",
-    "langArchiveUrl": "https://gitlab.com/api/v4/projects/88319462/packages/generic/dlssnr-amd/0.0.9/DLSSNR-AMD-lang-CJK-0.0.9.zip",
-    "langArchiveSha256": "2fe930c08de465a474f6cf204790544388bc6b2e198d9c3b7c082559c964f14a"
+    "langArchiveName": "DLSSNR-AMD-lang-CJK-0.1.0.zip",
+    "langArchiveUrl": "https://gitlab.com/api/v4/projects/88319462/packages/generic/dlssnr-amd/0.1.0/DLSSNR-AMD-lang-CJK-0.1.0.zip",
+    "langArchiveSha256": "8b55d25590caf4bbef726fa27c1bf0379c7d8a59a4a4809bf6ebecae45c0598f"
   }
 }

@@ -23,7 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import addons, desktop, library
+from . import addons, desktop, library, presets
 from .jobs import JobRunner, build_command, path_ok_for_dll
 from .package import MODELS, Package
 from .state import State
@@ -103,6 +103,13 @@ class App:
         out["record"] = snap["installs"].get(g["folder"]) if g["status"]["installed"] else None
         out["choices"] = snap["choices"].get(g["id"])
         out["bitsMismatch"] = bool(g.get("exeBits") and g["exeBits"] != self.pkg.bits)
+        folder = Path(g["folder"]) if g.get("folder") else None
+        out["hasDlssnrIni"] = bool(folder and (folder / "dlssnr-amd.ini").is_file())
+        out["dlssnrModels"] = [
+            name for name in ("CC_SMALL_FP8.bin", "CC_SMALL_FP8_OPTIMIZED.bin",
+                              "CC_SILVER_AARDWOLD.bin", "CC_SILVER_AARDWOLD_OPTIMIZED.bin")
+            if folder and (folder / "dlssnr-amd" / name).is_file()
+        ]
         return out
 
     # -- liveness -----------------------------------------------------------------------------
@@ -197,11 +204,17 @@ class App:
 
         cmd = build_command(self.pkg, folder, "install", route, model, style, lumenite, dll) if want_nr else None
         runner = None if want_nr else (lambda log: addons.install_optiscaler_only(self.pkg, Path(folder), log))
+        active_lang = (self.state.snapshot().get("settings", {}).get("lang") or default_lang())
         post_step = None
-        if route == "optiscaler" and (want_openrr or want_optipatcher):
+        if route == "optiscaler":
             post_step = lambda log: addons.apply_optiscaler_addons(  # noqa: E731
-                self.pkg, Path(folder), want_nr, want_openrr, openrr_spoof, want_optipatcher, dlssd, log
+                self.pkg, Path(folder), want_nr, want_openrr, openrr_spoof, want_optipatcher, dlssd, log, lang=active_lang
             )
+        elif active_lang == "zh" and want_nr:
+            def _apply_zh(log):
+                addons.apply_plugin_language(Path(folder), lang=active_lang, want_nr=True, want_openrr=False)
+                return 0
+            post_step = _apply_zh
 
         meta = {
             "gameId": g["id"], "name": g["name"], "folder": folder, "route": route,
@@ -318,6 +331,7 @@ class App:
             "model": self.pkg.model_status() if self.pkg.ok else {"aardwold": "missing", "small": "missing",
                                                                     "ready": False, "complete": False},
             "dlssd": self.pkg.dlssd_status() if self.pkg.ok else {"cached": False, "path": None},
+            "presets": presets.public_list(),
             "settings": snap["settings"],
             "defaultLang": default_lang(),
             "desktopInstalled": d_path.exists(),
@@ -549,6 +563,50 @@ class Handler(BaseHTTPRequestHandler):
     def api_logs(self, q, b):
         return self.app.start_simple("logs", b)
 
+    def api_preset_apply(self, q, b):
+        if self.app.jobs.busy():
+            raise ApiError(409, "busy", "Another operation is still running.")
+        g = self.app.game(str(b.get("id") or ""))
+        preset_id = str(b.get("presetId") or "").strip()
+        if presets.get_preset(preset_id) is None:
+            raise ApiError(400, "bad_preset", "Unknown built-in preset: %s" % preset_id)
+        folder = Path(g["folder"])
+        if not folder.is_dir():
+            raise ApiError(400, "folder_missing", "The game folder does not exist: %s" % folder)
+        if not (folder / "dlssnr-amd.ini").is_file() or (folder / "dlssnr-amd.ini").is_symlink():
+            raise ApiError(400, "no_dlssnr_ini", "dlssnr-amd.ini was not found in %s." % folder)
+        res = presets.apply_preset_to_game(folder, preset_id)
+        self.app.refresh_game(g["id"])
+        return {
+            "ok": True,
+            "backup": res["backup"],
+            "preset": res["preset"],
+            "missingModels": res["missingModels"],
+            "game": self.app.public_game(self.app.game(g["id"])),
+        }
+
+    def api_preset_export(self, q, b):
+        preset_id = (q.get("preset") or [""])[0].strip()
+        preset = presets.get_preset(preset_id)
+        if preset is None:
+            raise ApiError(400, "bad_preset", "Unknown built-in preset: %s" % preset_id)
+        gid = (q.get("id") or [""])[0].strip()
+        base_bytes = None
+        if gid:
+            g = self.app.game(gid)
+            game_ini = Path(g["folder"]) / "dlssnr-amd.ini"
+            if game_ini.is_file() and not game_ini.is_symlink():
+                base_bytes = game_ini.read_bytes()
+        if base_bytes is None and self.app.pkg.ok and self.app.pkg.root:
+            for rel in ("ini/dlssnr-amd-optiscaler-renodx.ini", "ini/dlssnr-amd-optiscaler.ini"):
+                cand = self.app.pkg.root / rel
+                if cand.is_file():
+                    base_bytes = cand.read_bytes()
+                    break
+        data = presets.apply_preset_bytes(base_bytes, preset) if base_bytes is not None else preset["iniSource"].encode("utf-8")
+        self._send(200, data, "text/plain; charset=utf-8", {"Content-Disposition": 'attachment; filename="dlssnr-amd.ini"'})
+        return None
+
     def api_job(self, q, b):
         job = self.app.jobs.get((q.get("id") or [""])[0]) if q.get("id") else self.app.jobs.latest()
         if job is None:
@@ -647,6 +705,7 @@ ROUTES = {
     ("GET", "/api/game"): Handler.api_game,
     ("GET", "/api/art"): Handler.api_art,
     ("GET", "/api/browse"): Handler.api_browse,
+    ("GET", "/api/preset/export"): Handler.api_preset_export,
     ("GET", "/api/job"): Handler.api_job,
     ("GET", "/api/events"): Handler.api_events,
     ("POST", "/api/settings"): Handler.api_settings,
@@ -656,6 +715,7 @@ ROUTES = {
     ("POST", "/api/install"): Handler.api_install,
     ("POST", "/api/uninstall"): Handler.api_uninstall,
     ("POST", "/api/logs"): Handler.api_logs,
+    ("POST", "/api/preset/apply"): Handler.api_preset_apply,
     ("POST", "/api/open"): Handler.api_open,
     ("POST", "/api/desktop"): Handler.api_desktop,
     ("POST", "/api/heartbeat"): Handler.api_heartbeat,

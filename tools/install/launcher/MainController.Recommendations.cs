@@ -80,7 +80,8 @@ namespace OptScalerNR.Launcher
         {
             if(_optiPatcherToggle==null)return;
             var profile = _selectedGame == null || _recommendations == null ? null : _recommendations.Match(_selectedGame);
-            SetLabel("OptiPatcherWikiTag", "Wiki 推荐", "Wiki recommended");
+            bool fromOverride = profile != null && profile.OptiPatcherFromOverride;
+            SetLabel("OptiPatcherWikiTag", fromOverride ? "启动器推荐" : "Wiki 推荐", fromOverride ? "Launcher recommended" : "Wiki recommended");
             ((TextBlock)_window.FindName("OptiPatcherWikiTag")).Visibility = supported && profile != null && profile.OptiPatcher ? Visibility.Visible : Visibility.Collapsed;
             _optiPatcherToggle.ToolTip=supported
                 ?L("增强 DLSS 显卡伪装，按 Wiki 推荐预选。优先下载最新版本（30 秒时限），失败时回退包内离线副本，并启用 LoadAsiPlugins。","Enhances DLSS GPU spoofing and is preselected by Wiki recommendation. Downloads the latest version with a 30-second limit, falls back to the bundled offline copy, and enables LoadAsiPlugins.")
@@ -137,7 +138,10 @@ namespace OptScalerNR.Launcher
             if(_profileStatus!=null){
                 var origin=_recommendations.UsingCache?L("缓存资料","Cached data"):L("随包资料","Bundled data");
                 _profileStatus.Text=string.Format(L("{0} · {1} 款游戏","{0} · {1} games"),origin,_recommendations.Count);
-                _profileStatus.ToolTip=string.Format(L("推荐规则来源：{0} · 共 {1} 款游戏 · 复核于 {2}","Recommendation source: {0} · {1} games · reviewed {2}"),origin,_recommendations.Count,_recommendations.Reviewed??"");
+                var overrideNote = ProxyRecommendations.OverrideCount > 0
+                    ? string.Format(L("（含 {0} 条启动器优先推荐）", " (incl. {0} launcher overrides)"), ProxyRecommendations.OverrideCount)
+                    : "";
+                _profileStatus.ToolTip=string.Format(L("推荐规则来源：{0} · 共 {1} 款游戏 · 复核于 {2}","Recommendation source: {0} · {1} games · reviewed {2}"),origin,_recommendations.Count,_recommendations.Reviewed??"")+overrideNote;
             }
             var profile=_selectedGame==null?null:_recommendations.Match(_selectedGame);
             var wikiLink = (System.Windows.Documents.Hyperlink)_window.FindName("WikiDetailsLink");
@@ -199,7 +203,9 @@ namespace OptScalerNR.Launcher
             SelectProxy(proxy);
             RefreshProxySummary();
             if(_injectRecommendation!=null){
-                if(profile!=null)_injectRecommendation.Text=L("Wiki：可用 · 推荐 ","Wiki: available · Recommended ")+profile.Preferred;
+                if(profile!=null)_injectRecommendation.Text=(profile.IsOverride
+                    ? L("启动器推荐 · ","Launcher recommended · ")
+                    : L("Wiki：可用 · 推荐 ","Wiki: available · Recommended "))+profile.Preferred;
                 else if(hasManual)_injectRecommendation.Text=L("手动代理：","Manual proxy: ")+manual;
                 else if(!string.IsNullOrEmpty(guess))_injectRecommendation.Text=L("本地候选：","Local candidate: ")+guess;
                 else _injectRecommendation.Text=L("无推荐，请选择代理", "No recommendation. Choose a proxy.");

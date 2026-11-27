@@ -36,7 +36,7 @@ respective licenses, with no additional restrictions imposed by this project.
    Upstream license (mochizuki0323 original works): MIT License & upstream notices
    (see Licenses/Mochizuki_MIT.txt, Licenses/Mochizuki_ASI_SOURCES.md)
 
-4. OpenRR-ASI (openrr-amd.asi / openrr-ngx-host.dll — DLSS Ray Reconstruction)
+4. OpenRR-ASI (openrr-amd.asi — DLSS Ray Reconstruction)
    Modifications, standalone ASI plugin & builds by TheAutomatic:
    https://github.com/TheAutomatic/OpenRR-ASI
    License (TheAutomatic works/builds): PolyForm Noncommercial License 1.0.0

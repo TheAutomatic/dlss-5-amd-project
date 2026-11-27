@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "revision": 2026112701,
+  "reviewed": "2026-11-27",
+  "proxies": ["dxgi.dll", "winmm.dll", "d3d12.dll", "winhttp.dll", "wininet.dll", "dbghelp.dll", "version.dll"],
+  "profiles": [
+    {
+      "id": "wuthering-waves",
+      "names": ["Wuthering Waves", "鸣潮"],
+      "pathSegments": ["Wuthering Waves", "WutheringWaves", "Client-Win64-Shipping", "鸣潮"],
+      "preferred": "winmm.dll",
+      "alternatives": ["version.dll", "dxgi.dll"],
+      "notesEn": "Launcher override: winmm.dll is recommended for unsigned OptiScaler nightly builds (anti-cheat typically blocks unsigned dxgi.dll); version.dll is also an option. Launch from Client-Win64-Shipping.exe. Online game, use at your own risk.",
+      "notesZh": "启动器优先推荐：未签名 OptiScaler nightly 构建推荐使用 winmm.dll（反作弊通常会拦截未签名的 dxgi.dll），也可尝试 version.dll。请从 Client-Win64-Shipping.exe 启动。网游，风险自负。",
+      "source": "https://github.com/optiscaler/OptiScaler/wiki/Wuthering-Waves",
+      "sourceFormat": "override",
+      "upstreamVersion": "0.9.4"
+    },
+    {
+      "id": "neverness-to-everness-steam-windows",
+      "names": ["Neverness to Everness", "Neverness to Everness (NTE)", "NTE", "异环"],
+      "pathSegments": ["Neverness to Everness", "NevernessToEverness", "Neverness-to-Everness", "NTE", "HT-Win64-Shipping", "异环"],
+      "preferred": "version.dll",
+      "alternatives": ["winmm.dll", "winhttp.dll"],
+      "notesEn": "Launcher override: version.dll is recommended (winmm.dll and winhttp.dll also work on unsigned builds; dxgi.dll is blocked and d3d12.dll cannot enable spoofing). Select Client/WindowsNoEditor/HT/Binaries/Win64 (HT-Win64-Shipping.exe).",
+      "notesZh": "启动器优先推荐：推荐使用 version.dll（winmm.dll、winhttp.dll 同样兼容未签名构建；dxgi.dll 会被拦截，d3d12.dll 无法启用显卡伪装）。请选择 Client/WindowsNoEditor/HT/Binaries/Win64（HT-Win64-Shipping.exe）。",
+      "source": "https://github.com/optiscaler/OptiScaler/wiki/Neverness-to-Everness",
+      "sourceFormat": "override",
+      "upstreamVersion": "0.9.5-pre3"
+    }
+  ]
+}

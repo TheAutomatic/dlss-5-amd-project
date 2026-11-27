@@ -44,7 +44,7 @@ La serie `2.x` deja atrás las compilaciones modificadas de `OptiScaler.dll` y a
 
 ### Instalación con el lanzador gráfico en Windows (Recomendado)
 
-1. **Descargar y descomprimir**: Descargue `OptiScaler-NR-Win-<version>.zip` desde [Releases](https://github.com/TheAutomatic/dlss-5-amd-project/releases) y descomprímalo por completo.
+1. **Descargar y descomprimir**: Descargue `OptiScaler-NR-Windows-<version>.zip` desde [Releases](https://github.com/TheAutomatic/dlss-5-amd-project/releases) y descomprímalo por completo.
 2. **Abrir el lanzador**: Haga doble clic en **`OptiScalerNRLauncher.exe`** para abrir **`OptiScaler NR` Launcher**.
 3. **Seleccionar juego y modo de despliegue**:
    - Elija el juego en la lista izquierda (o pulse **`+`** arriba a la derecha para añadir el `.exe` del juego o una instancia de RTX Remix Minecraft; en Unreal Engine suele ser `<Game>\Binaries\Win64\*-Shipping.exe`);
@@ -59,7 +59,7 @@ La serie `2.x` deja atrás las compilaciones modificadas de `OptiScaler.dll` y a
 
 ### Lanzador gráfico en Linux / SteamOS (Proton, experimental)
 
-Descargue `OptiScaler-NR-Linux-x86_64-<version>.tar.gz` (juegos de 64 bits: OptiScaler con Mochizuki NR + OpenRR `0.1.7plus6` + OptiPatcher + ReShade) o `OptiScaler-NR-Linux-i686-<version>.tar.gz` (juegos de 32 bits: solo ReShade Feeder):
+Descargue `OptiScaler-NR-Linux-x86_64-<version>.tar.gz` (juegos de 64 bits: OptiScaler con Mochizuki NR + OpenRR `0.1.7.1plus` + OptiPatcher + ReShade) o `OptiScaler-NR-Linux-i686-<version>.tar.gz` (juegos de 32 bits: solo ReShade Feeder):
 
 ```bash
 tar -xzf OptiScaler-NR-Linux-x86_64-<version>.tar.gz && cd OptiScaler-NR-Linux-x86_64-<version>
@@ -73,7 +73,7 @@ En las **Opciones de lanzamiento** de Steam, copie la línea mostrada por el lan
 
 ## 3. Capacidades de los dos plugins `.asi`
 
-- **`dlssnr-amd.asi` (Mochizuki · DLSS Neural Rendering)**: Soporta **RX 9000 (RDNA4)** y **RX 7000 / 700M / 800M / 8000S (RDNA3 / RDNA3.5)** en las 4 redes (`CC_SMALL_FP8`, `CC_SMALL_FP8_EXPERIMENTAL`, `CC_SILVER_AARDWOLD`, `CC_SILVER_AARDWOLD_OPTIMIZED` con INT4), con ejecución **D3D12 Direct-ELF**, **puente D3D11→D3D12** y **Vulkan**.
+- **`dlssnr-amd.asi` (Mochizuki · DLSS Neural Rendering)**: Soporta **RX 9000 (RDNA4)** y **RX 7000 / 700M / 800M / 8000S (RDNA3 / RDNA3.5)** en las 4 redes (`CC_SMALL_FP8`, `CC_SMALL_FP8_OPTIMIZED`, `CC_SILVER_AARDWOLD`, `CC_SILVER_AARDWOLD_OPTIMIZED` con INT4), con ejecución **D3D12 Direct-ELF**, **puente D3D11→D3D12** y **Vulkan**.
 - **`openrr-amd.asi` (OpenRR · DLSS Ray Reconstruction)**: Soporta **RDNA4 (probado)** y **RDNA3 / RDNA3.5 (experimental)** (con `nvngx_dlssd.dll` `310.9.1.0`), ejecutando reconstrucción de rayos neuronal en **D3D12 Direct-ELF** y **Vulkan** sin conflictos con `dlssnr-amd.asi` ni ReShade / RenoDX, además de compatibilidad con Linux / Proton (`vkd3d-proton`, Mesa RADV ≥ 26.3).
 
 ---

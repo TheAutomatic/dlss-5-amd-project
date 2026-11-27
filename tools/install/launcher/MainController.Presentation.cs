@@ -256,7 +256,9 @@ namespace OptScalerNR.Launcher
             string manual;
             bool hasManual = _selectedGame != null && _proxyChoices.TryGetValue(_selectedGame.Id, out manual) && ProxyRecommendations.Supports(manual);
             var profile = _recommendations == null || _selectedGame == null ? null : _recommendations.Match(_selectedGame);
-            var origin = hasManual ? L(" · 手动选择", " · Manual") : profile != null ? L(" · Wiki 推荐", " · Wiki recommended") : L(" · 本地检测", " · Local detection");
+            var origin = hasManual ? L(" · 手动选择", " · Manual")
+                : profile != null ? (profile.IsOverride ? L(" · 启动器推荐", " · Launcher recommended") : L(" · Wiki 推荐", " · Wiki recommended"))
+                : L(" · 本地检测", " · Local detection");
             SetLabel("ProxySummary", "代理：" + (string.IsNullOrEmpty(proxy) ? "未选择" : proxy + origin), "Proxy: " + (string.IsNullOrEmpty(proxy) ? "Not selected" : proxy + origin));
             var required = (Button)_window.FindName("ProxyRequiredButton");
             required.Content = L("⚠ 尚无可用代理，请选择代理…", "⚠ No proxy available. Choose a proxy…");

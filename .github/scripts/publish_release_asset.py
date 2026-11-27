@@ -235,8 +235,8 @@ def publish(client, tag, path, release_id=None, attempts=5, sleep=time.sleep):
     return final
 
 
-def publish_draft(client, release_id, expected_assets, attempts=5, sleep=time.sleep):
-    """Verify all expected assets are uploaded on release_id and flip draft=false atomically."""
+def publish_draft(client, release_id, expected_assets, keep_draft=False, attempts=5, sleep=time.sleep):
+    """Verify all expected assets are uploaded on release_id and optionally flip draft=false atomically."""
     release = retry(lambda: client.api("GET", f"releases/{release_id}"), attempts, sleep)
     by_name = {a["name"]: a for a in release.get("assets") or []}
     missing = []
@@ -246,6 +246,9 @@ def publish_draft(client, release_id, expected_assets, attempts=5, sleep=time.sl
             missing.append(name)
     if missing:
         raise RuntimeError("Cannot publish draft release; missing or incomplete assets: " + ", ".join(missing))
+    if keep_draft:
+        print("Draft release verified and kept as draft:", release.get("html_url") or release.get("tag_name") or release_id, flush=True)
+        return release
     if release.get("draft"):
         release = retry(
             lambda: client.api("PATCH", f"releases/{release_id}", payload={"draft": False}),
@@ -263,6 +266,7 @@ def main():
     parser.add_argument("--release-id", type=int, default=None)
     parser.add_argument("--body-file", type=Path, default=None)
     parser.add_argument("--prerelease", action="store_true")
+    parser.add_argument("--keep-draft", action="store_true")
     parser.add_argument("--expect-asset", action="append", default=[])
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--asset", type=Path)
@@ -278,7 +282,7 @@ def main():
         rel_id = prepare_draft(client, args.tag, args.prepare_draft, body=body, prerelease=args.prerelease)
         print(rel_id)
     elif args.publish_draft is not None:
-        publish_draft(client, args.publish_draft, args.expect_asset)
+        publish_draft(client, args.publish_draft, args.expect_asset, keep_draft=args.keep_draft)
     else:
         publish(client, args.tag, args.asset, release_id=args.release_id)
 

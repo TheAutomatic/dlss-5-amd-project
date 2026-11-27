@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   Resolve, verify by SHA-256, and extract pinned upstream ASI payloads
   (DLSSNR-AMD + CJK lang pack, OpenRR-ASI, OptiPatcher) defined in tools/build/upstream-pins.json.
@@ -10,6 +10,7 @@ param(
     [string]$UpstreamDir = '',
     [string]$CacheRoot = '',
     [string]$MochiArchive = $env:NR_MOCHI_ARCHIVE,
+    [string]$MochiArchive32 = $env:NR_MOCHI_ARCHIVE_32,
     [string]$MochiLangArchive = $env:NR_MOCHI_LANG_ARCHIVE,
     [string]$MochiDir = $env:NR_MOCHI_DIR,
     [string]$OpenRrArchive = $env:NR_OPENRR_ARCHIVE,
@@ -35,7 +36,7 @@ New-Item -ItemType Directory -Force -Path $downloadsDir, $upstreamCache | Out-Nu
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-$ForbiddenNamePattern = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr(?:-int4|-small)?\.bin|CC_(?:SMALL_FP8|SMALL_FP8_EXPERIMENTAL|SILVER_AARDWOLD|SILVER_AARDWOLD_OPTIMIZED|SILVER_AARDWOLD_OPTIMIZED_INT4)\.bin|pipeline\.cache|version\.dll|dlssnr_on_amd_setup\.exe)$'
+$ForbiddenNamePattern = '(?i)^(nvngx.*\.dll|dlssnr_amd_pass.*\.dll|dlssnr_on_amd_weights\.bin|dlssnr(?:-int4|-small)?\.bin|CC_(?:SMALL_FP8|SMALL_FP8_EXPERIMENTAL|SMALL_FP8_OPTIMIZED|SMALL_FP8_OPTIMIZED_INT4|SMALL_FP8_OPTIMIZED_INT4_SINK|SILVER_AARDWOLD|SILVER_AARDWOLD_OPTIMIZED|SILVER_AARDWOLD_OPTIMIZED_INT4)\.bin|pipeline\.cache|version\.dll|dlssnr_on_amd_setup\.exe)$'
 
 function Get-Sha256Hex([string]$Path) {
     $sha = [System.Security.Cryptography.SHA256]::Create()
@@ -294,28 +295,36 @@ function Get-DlssnrDestRel([string]$Rel, [switch]$AllowNormalizedFallback, [stri
         }
     }
     if ($norm.StartsWith('model-tools/') -or $norm.StartsWith('experimental/') -or
-        $norm.StartsWith('optimized/') -or $norm.StartsWith('dlssnr-amd/')) {
+        $norm.StartsWith('optimized/') -or $norm.StartsWith('CC_SMALL_FP8_OPTIMIZED/') -or
+        $norm.StartsWith('CC_SILVER_AARDWOLD_OPTIMIZED/') -or $norm.StartsWith('dlssnr-amd/')) {
         return $norm
     }
+    return $null
+}
+
+function Get-Dlssnr32DestRel([string]$Rel) {
+    $norm = $Rel.Replace('\', '/')
+    if ($norm -in @(
+        'reshade/ReShade32.dll',
+        'reshade/dlssnr_amd.addon32',
+        'reshade/vk-override/implicit_layer/ReShade32.json'
+    )) { return $norm }
+    if ($norm -eq 'dxvk/d3d9.dll') { return 'dxvk/x86/d3d9.dll' }
+    if ($norm -eq 'dxvk/dxgi.dll') { return 'dxvk/x86/dxgi.dll' }
+    if ($norm -eq 'vulkan/vulkan-1.dll') { return 'vulkan/x86/vulkan-1.dll' }
+    if ($norm -eq 'vulkan/Vulkan-Loader-LICENSE.txt') { return 'vulkan/x86/Vulkan-Loader-LICENSE.txt' }
+    if ($norm -eq 'vulkan/Vulkan-Loader-PATCHES.diff') { return 'vulkan/x86/Vulkan-Loader-PATCHES.diff' }
     return $null
 }
 
 function Get-OpenRrDestRel([string]$Rel, [switch]$AllowNormalizedFallback, [string]$SourceRoot = '') {
     $norm = $Rel.Replace('\', '/')
     if ($norm -eq 'OptiScaler/plugins/openrr-amd.asi') { return 'OptiScaler/plugins/openrr-amd.asi' }
-    if ($norm -eq 'OptiScaler/plugins/openrr-ngx-host.dll') { return 'OptiScaler/plugins/openrr-ngx-host.dll' }
-    if ($norm -eq 'openrr-ngx-host.dll') {
-        if (-not $AllowNormalizedFallback -or -not $SourceRoot -or -not (Test-Path -LiteralPath (Join-RelPath $SourceRoot 'OptiScaler/plugins/openrr-ngx-host.dll') -PathType Leaf)) {
-            return 'OptiScaler/plugins/openrr-ngx-host.dll'
-        }
-        return $null
-    }
     if ($norm -eq 'openrr-amd.ini') { return 'openrr-amd.ini' }
     if ($AllowNormalizedFallback) {
         if ($norm -in @('openrr-amd.asi', 'plugins/openrr-amd.asi', 'OptiScaler/plugins/openrr.asi', 'plugins/openrr.asi')) {
             return 'OptiScaler/plugins/openrr-amd.asi'
         }
-        if ($norm -eq 'plugins/openrr-ngx-host.dll') { return 'OptiScaler/plugins/openrr-ngx-host.dll' }
         if ($norm -eq 'OptiScaler/openrr-amd.ini') { return 'openrr-amd.ini' }
         if ($norm.StartsWith('Licenses/')) { return $norm }
     }
@@ -323,12 +332,14 @@ function Get-OpenRrDestRel([string]$Rel, [switch]$AllowNormalizedFallback, [stri
     return $null
 }
 
-# --- 1. Prepare DLSSNR-AMD payload (dlssnr-amd zip/dir + CJK lang pack + static license notices) ---
-$isCustomDlssnr = [bool]($MochiDir -or $MochiArchive -or $MochiLangArchive)
+# --- 1. Prepare DLSSNR-AMD payload (dlssnr-amd x86_64 + i686 32-bit runtime overlay + CJK lang pack + static license notices) ---
+$isCustomDlssnr = [bool]($MochiDir -or $MochiArchive -or $MochiArchive32 -or $MochiLangArchive)
 $dlssnrDir = Join-Path $upstreamCache $(if ($isCustomDlssnr) { 'dlssnr-amd-custom' } else { 'dlssnr-amd' })
 $dlssnrStampPath = Join-Path $dlssnrDir '.stamp.json'
 $staticLicenseSrcDir = Join-Path (Join-Path $repoRoot 'assets') 'licenses'
 $staticLicenseFiles = @('Mochizuki_MIT.txt', 'Mochizuki_ASI_SOURCES.md', 'RenoDX_MIT.txt')
+$hasPinnedArchive32 = [bool]($pins.dlssnr.PSObject.Properties['archive32Url'] -and $pins.dlssnr.archive32Url)
+$pinnedArchive32Sha = if ($hasPinnedArchive32) { ([string]$pins.dlssnr.archive32Sha256).ToLowerInvariant() } else { '' }
 
 $staticLicenseDigestBuilder = New-Object System.Text.StringBuilder
 $resolvedStaticLicenses = @()
@@ -364,6 +375,28 @@ function Extract-DlssnrLangZip([string]$LangZipPath, [string]$DestStage, [switch
         }
     } finally {
         $langArchive.Dispose()
+    }
+}
+
+function Extract-Dlssnr32Overlay([string]$Zip32Path, [string]$DestStage, [switch]$AllowSkipForbidden) {
+    $archive32 = [IO.Compression.ZipFile]::OpenRead($Zip32Path)
+    try {
+        foreach ($entry in $archive32.Entries) {
+            if ([string]::IsNullOrEmpty($entry.Name)) { continue }
+            $rel = Normalize-ZipEntryRel $entry.FullName
+            $destRel = Get-Dlssnr32DestRel $rel
+            if (-not $destRel) { continue }
+            if ((Test-ForbiddenPayloadRel $rel) -or (Test-ForbiddenPayloadRel $destRel)) {
+                if ($AllowSkipForbidden) {
+                    Write-Host "  Skipping excluded weight/cache file in 32-bit archive: $rel" -ForegroundColor DarkYellow
+                    continue
+                }
+                throw "Refusing forbidden or cache entry in pinned 32-bit upstream archive: $rel"
+            }
+            Write-ZipEntryToFile -Entry $entry -DestPath (Join-RelPath $DestStage $destRel)
+        }
+    } finally {
+        $archive32.Dispose()
     }
 }
 
@@ -422,6 +455,17 @@ function Stage-DlssnrPayload([string]$DestDir, [bool]$CustomMode) {
             }
         }
 
+        if ($MochiArchive32) {
+            if (-not (Test-Path -LiteralPath $MochiArchive32 -PathType Leaf)) {
+                throw "Provided -MochiArchive32 not found: $MochiArchive32"
+            }
+            Write-Host "Overlaying custom 32-bit DLSSNR-AMD runtime archive: $MochiArchive32" -ForegroundColor Cyan
+            Extract-Dlssnr32Overlay -Zip32Path $MochiArchive32 -DestStage $stageTmp -AllowSkipForbidden
+        } elseif ($hasPinnedArchive32 -and (-not (Test-Path -LiteralPath (Join-RelPath $stageTmp 'reshade/dlssnr_amd.addon32') -PathType Leaf))) {
+            $dlssnrZip32 = Resolve-PinnedArchive -Name $pins.dlssnr.archive32Name -Url $pins.dlssnr.archive32Url -ExpectedSha $pins.dlssnr.archive32Sha256
+            Extract-Dlssnr32Overlay -Zip32Path $dlssnrZip32 -DestStage $stageTmp
+        }
+
         if ($MochiLangArchive) {
             if (-not (Test-Path -LiteralPath $MochiLangArchive -PathType Leaf)) {
                 throw "Provided -MochiLangArchive not found: $MochiLangArchive"
@@ -472,8 +516,9 @@ function Stage-DlssnrPayload([string]$DestDir, [bool]$CustomMode) {
 
         if (-not $CustomMode) {
             $wantDlssnrStamp = @{
-                schema            = 3
+                schema            = 4
                 archiveSha256     = $pins.dlssnr.archiveSha256.ToLowerInvariant()
+                archive32Sha256   = $pinnedArchive32Sha
                 langArchiveSha256 = $pins.dlssnr.langArchiveSha256.ToLowerInvariant()
                 staticLicenseSha  = $staticLicHash
             }
@@ -491,6 +536,9 @@ function Stage-DlssnrPayload([string]$DestDir, [bool]$CustomMode) {
 $prefetchSpecs = New-Object System.Collections.Generic.List[hashtable]
 if (-not $isCustomDlssnr) {
     [void]$prefetchSpecs.Add(@{ Name = $pins.dlssnr.archiveName; Url = $pins.dlssnr.archiveUrl; ExpectedSha = $pins.dlssnr.archiveSha256 })
+    if ($hasPinnedArchive32) {
+        [void]$prefetchSpecs.Add(@{ Name = $pins.dlssnr.archive32Name; Url = $pins.dlssnr.archive32Url; ExpectedSha = $pins.dlssnr.archive32Sha256 })
+    }
     [void]$prefetchSpecs.Add(@{ Name = $pins.dlssnr.langArchiveName; Url = $pins.dlssnr.langArchiveUrl; ExpectedSha = $pins.dlssnr.langArchiveSha256 })
 }
 if (-not ($OpenRrDir -or $OpenRrArchive)) {
@@ -506,8 +554,9 @@ if ($isCustomDlssnr) {
     Write-Host "Staged custom DLSSNR-AMD payload -> $dlssnrDir" -ForegroundColor Green
 } else {
     $wantDlssnrStamp = @{
-        schema            = 3
+        schema            = 4
         archiveSha256     = $pins.dlssnr.archiveSha256.ToLowerInvariant()
+        archive32Sha256   = $pinnedArchive32Sha
         langArchiveSha256 = $pins.dlssnr.langArchiveSha256.ToLowerInvariant()
         staticLicenseSha  = $staticLicHash
     }
@@ -522,6 +571,7 @@ if ($isCustomDlssnr) {
             $cur = Get-Content -LiteralPath $dlssnrStampPath -Raw -Encoding UTF8 | ConvertFrom-Json
             if ($cur.schema -eq $wantDlssnrStamp.schema -and
                 $cur.archiveSha256 -eq $wantDlssnrStamp.archiveSha256 -and
+                $cur.archive32Sha256 -eq $wantDlssnrStamp.archive32Sha256 -and
                 $cur.langArchiveSha256 -eq $wantDlssnrStamp.langArchiveSha256 -and
                 $cur.staticLicenseSha -eq $wantDlssnrStamp.staticLicenseSha) {
                 $dlssnrCachedOk = $true
@@ -530,7 +580,7 @@ if ($isCustomDlssnr) {
     }
     if (-not $dlssnrCachedOk) {
         Stage-DlssnrPayload -DestDir $dlssnrDir -CustomMode $false
-        Write-Host "Extracted DLSSNR-AMD $($pins.dlssnr.version) + CJK lang pack -> $dlssnrDir" -ForegroundColor Green
+        Write-Host "Extracted DLSSNR-AMD $($pins.dlssnr.version) + 32-bit runtime + CJK lang pack -> $dlssnrDir" -ForegroundColor Green
     }
 }
 
@@ -619,7 +669,6 @@ function Stage-OpenRrPayload([string]$DestDir, [bool]$CustomMode) {
         if (-not (Test-Path -LiteralPath $rrThirdDest -PathType Leaf)) { throw 'Missing OpenRR_THIRD_PARTY.md / Licenses/OpenRR_THIRD_PARTY.md in OpenRR payload' }
 
         Assert-PeBinary -Path (Join-RelPath $stageTmp 'OptiScaler/plugins/openrr-amd.asi')
-        Assert-PeBinary -Path (Join-RelPath $stageTmp 'OptiScaler/plugins/openrr-ngx-host.dll')
 
         if (-not $CustomMode) {
             $wantOpenRrStamp = @{
